@@ -1,0 +1,36 @@
+# Version control
+.git
+.gitignore
+.github
+
+# Docs
+docs/
+README.md
+LICENSE
+CHANGELOG.md
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+
+# Build outputs (will be built inside image)
+web/node_modules
+web/dist
+web/build
+server/bin
+server/dist
+server/vendor
+
+# Temp / agent
+.temp/
+.cache/
+
+# Local dev files
+*.local
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db

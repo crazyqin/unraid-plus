@@ -1,0 +1,429 @@
+import { useEffect, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip as RTooltip,
+  XAxis,
+  YAxis,
+} from 'recharts';
+import {
+  Activity,
+  Cpu,
+  HardDrive,
+  MemoryStick,
+  Network,
+  Thermometer,
+} from 'lucide-react';
+import { api } from '@/lib/api';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Progress } from '@/components/ui/progress';
+import { Skeleton } from '@/components/ui/skeleton';
+import { Badge } from '@/components/ui/badge';
+import {
+  formatBytes,
+  formatPct,
+  formatRate,
+  cn,
+} from '@/lib/utils';
+import type { DashboardSummary } from '@/types';
+import { useSettingsStore } from '@/stores/settings';
+
+interface Sample {
+  t: number;
+  cpu: number;
+  rx: number;
+  tx: number;
+  read: number;
+  write: number;
+}
+
+export default function DashboardPage() {
+  const refreshInterval = useSettingsStore((s) => s.refreshInterval);
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ['dashboard'],
+    queryFn: () => api.get<DashboardSummary>('/dashboard'),
+    refetchInterval: refreshInterval || false,
+  });
+
+  // Rolling history (last 60 samples ≈ 2min at 2s interval).
+  const [history, setHistory] = useState<Sample[]>([]);
+  useEffect(() => {
+    if (!data) return;
+    setHistory((prev) => {
+      const next = [
+        ...prev,
+        {
+          t: Date.now(),
+          cpu: data.cpu.usagePct,
+          rx: data.network[0]?.rxBytesPerSec ?? 0,
+          tx: data.network[0]?.txBytesPerSec ?? 0,
+          read: data.arrayRwBytesPerSec.read,
+          write: data.arrayRwBytesPerSec.write,
+        },
+      ];
+      return next.slice(-60);
+    });
+  }, [data]);
+
+  return (
+    <div className="space-y-4 p-4 md:p-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold">仪表盘</h1>
+          <p className="text-sm text-muted-foreground">
+            服务器实时状态 · 每 {refreshInterval / 1000}s 刷新
+          </p>
+        </div>
+        {data && (
+          <Badge variant="secondary">
+            启动 {Math.floor(data.uptime / 3600)}h {Math.floor((data.uptime % 3600) / 60)}m
+          </Badge>
+        )}
+      </div>
+
+      {isError && (
+        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          无法获取数据。请确认后端已连接到 Unraid。
+        </div>
+      )}
+
+      {/* Top stats */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <StatCard
+          title="CPU"
+          icon={Cpu}
+          isLoading={isLoading}
+          accent="text-orange-500"
+          value={data ? formatPct(data.cpu.usagePct) : '—'}
+          subtitle={data?.cpu.modelName ?? ''}
+        />
+        <StatCard
+          title="内存"
+          icon={MemoryStick}
+          isLoading={isLoading}
+          accent="text-sky-500"
+          value={
+            data
+              ? `${formatBytes(data.memory.usedBytes)} / ${formatBytes(data.memory.totalBytes)}`
+              : '—'
+          }
+          subtitle={data ? formatPct(data.memory.usagePct) : ''}
+          progress={data?.memory.usagePct}
+        />
+        <StatCard
+          title="网络"
+          icon={Network}
+          isLoading={isLoading}
+          accent="text-emerald-500"
+          value={
+            data
+              ? `${formatRate(data.network[0]?.rxBytesPerSec ?? 0)} ↓ ${formatRate(
+                  data.network[0]?.txBytesPerSec ?? 0,
+                )} ↑`
+              : '—'
+          }
+          subtitle={data?.network[0]?.iface ?? ''}
+        />
+        <StatCard
+          title="阵列读写"
+          icon={HardDrive}
+          isLoading={isLoading}
+          accent="text-violet-500"
+          value={
+            data
+              ? `${formatRate(data.arrayRwBytesPerSec.read)} / ${formatRate(
+                  data.arrayRwBytesPerSec.write,
+                )}`
+              : '—'
+          }
+          subtitle="读 / 写"
+        />
+      </div>
+
+      {/* Charts */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Cpu className="h-4 w-4 text-orange-500" /> CPU 使用率
+            </CardTitle>
+            <CardDescription>最近 2 分钟</CardDescription>
+          </CardHeader>
+          <CardContent className="h-56">
+            <LineChart data={history} dataKey="cpu" color="#f97316" unit="%" />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Network className="h-4 w-4 text-emerald-500" /> 网络流量
+            </CardTitle>
+            <CardDescription>接收 / 发送</CardDescription>
+          </CardHeader>
+          <CardContent className="h-56">
+            <DualLineChart data={history} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Activity className="h-4 w-4 text-violet-500" /> 阵列读写速率
+            </CardTitle>
+            <CardDescription>读 / 写</CardDescription>
+          </CardHeader>
+          <CardContent className="h-56">
+            <RwChart data={history} />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <Thermometer className="h-4 w-4 text-rose-500" /> 各核温度
+            </CardTitle>
+            <CardDescription>CPU 物理核心</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <CoreTemps data={data} isLoading={isLoading} />
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------------------- bits ---------------------------------- */
+
+function StatCard({
+  title,
+  icon: Icon,
+  isLoading,
+  value,
+  subtitle,
+  accent,
+  progress,
+}: {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  isLoading: boolean;
+  value: string;
+  subtitle?: string;
+  accent?: string;
+  progress?: number;
+}) {
+  return (
+    <Card>
+      <CardContent className="p-4">
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted-foreground">{title}</span>
+          <Icon className={cn('h-4 w-4', accent)} />
+        </div>
+        {isLoading ? (
+          <Skeleton className="mt-2 h-6 w-32" />
+        ) : (
+          <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
+        )}
+        {subtitle && (
+          <div className="mt-1 truncate text-xs text-muted-foreground">
+            {subtitle}
+          </div>
+        )}
+        {progress !== undefined && (
+          <Progress className="mt-2" value={progress} />
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function LineChart({
+  data,
+  dataKey,
+  color,
+  unit,
+}: {
+  data: Sample[];
+  dataKey: 'cpu';
+  color: string;
+  unit: string;
+}) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={data} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id={`g-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={color} stopOpacity={0.4} />
+            <stop offset="95%" stopColor={color} stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+        <XAxis
+          dataKey="t"
+          tickFormatter={(t) => new Date(t).toLocaleTimeString().slice(0, 5)}
+          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+          stroke="hsl(var(--border))"
+        />
+        <YAxis
+          domain={[0, 100]}
+          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+          stroke="hsl(var(--border))"
+          width={30}
+        />
+        <RTooltip
+          contentStyle={{
+            background: 'hsl(var(--popover))',
+            border: '1px solid hsl(var(--border))',
+            borderRadius: 8,
+            fontSize: 12,
+          }}
+          labelFormatter={(t) => new Date(Number(t)).toLocaleTimeString()}
+          formatter={(v: number) => [`${v.toFixed(1)}${unit}`, '']}
+        />
+        <Area
+          type="monotone"
+          dataKey={dataKey}
+          stroke={color}
+          strokeWidth={2}
+          fill={`url(#g-${dataKey})`}
+          isAnimationActive={false}
+        />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function DualLineChart({ data }: { data: Sample[] }) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={data} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id="g-rx" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
+            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+          </linearGradient>
+          <linearGradient id="g-tx" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
+            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+        <XAxis
+          dataKey="t"
+          tickFormatter={(t) => new Date(t).toLocaleTimeString().slice(0, 5)}
+          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+          stroke="hsl(var(--border))"
+        />
+        <YAxis
+          tickFormatter={(v) => formatBytes(v, 0)}
+          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+          stroke="hsl(var(--border))"
+          width={48}
+        />
+        <RTooltip
+          contentStyle={{
+            background: 'hsl(var(--popover))',
+            border: '1px solid hsl(var(--border))',
+            borderRadius: 8,
+            fontSize: 12,
+          }}
+          labelFormatter={(t) => new Date(Number(t)).toLocaleTimeString()}
+          formatter={(v: number, n: string) => [formatRate(v), n === 'rx' ? '↓ 接收' : '↑ 发送']}
+        />
+        <Area type="monotone" dataKey="rx" stroke="#10b981" strokeWidth={2} fill="url(#g-rx)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="tx" stroke="#3b82f6" strokeWidth={2} fill="url(#g-tx)" isAnimationActive={false} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function RwChart({ data }: { data: Sample[] }) {
+  return (
+    <ResponsiveContainer width="100%" height="100%">
+      <AreaChart data={data} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+        <defs>
+          <linearGradient id="g-rd" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#a855f7" stopOpacity={0.4} />
+            <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
+          </linearGradient>
+          <linearGradient id="g-wr" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
+            <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+          </linearGradient>
+        </defs>
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+        <XAxis
+          dataKey="t"
+          tickFormatter={(t) => new Date(t).toLocaleTimeString().slice(0, 5)}
+          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+          stroke="hsl(var(--border))"
+        />
+        <YAxis
+          tickFormatter={(v) => formatBytes(v, 0)}
+          tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
+          stroke="hsl(var(--border))"
+          width={48}
+        />
+        <RTooltip
+          contentStyle={{
+            background: 'hsl(var(--popover))',
+            border: '1px solid hsl(var(--border))',
+            borderRadius: 8,
+            fontSize: 12,
+          }}
+          labelFormatter={(t) => new Date(Number(t)).toLocaleTimeString()}
+          formatter={(v: number, n: string) => [formatRate(v), n === 'read' ? '读' : '写']}
+        />
+        <Area type="monotone" dataKey="read" stroke="#a855f7" strokeWidth={2} fill="url(#g-rd)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="write" stroke="#f59e0b" strokeWidth={2} fill="url(#g-wr)" isAnimationActive={false} />
+      </AreaChart>
+    </ResponsiveContainer>
+  );
+}
+
+function CoreTemps({
+  data,
+  isLoading,
+}: {
+  data?: DashboardSummary;
+  isLoading: boolean;
+}) {
+  if (isLoading) return <Skeleton className="h-32 w-full" />;
+  if (!data) return <div className="text-sm text-muted-foreground">暂无数据</div>;
+  const temps = data.cpu.perCoreTempC ?? [];
+  if (temps.length === 0)
+    return <div className="text-sm text-muted-foreground">该 CPU 未提供温度读数</div>;
+  return (
+    <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
+      {temps.map((t, i) => {
+        const ratio = Math.min(1, t / 100);
+        const color =
+          t >= 80 ? 'bg-destructive' : t >= 65 ? 'bg-warning' : 'bg-success';
+        return (
+          <div key={i} className="space-y-1 text-center">
+            <div className="relative h-20 overflow-hidden rounded bg-muted">
+              <div
+                className={cn('absolute bottom-0 w-full', color)}
+                style={{ height: `${ratio * 100}%` }}
+              />
+              <div className="absolute inset-0 grid place-items-end justify-center pb-1 text-[10px] font-medium">
+                {t}°C
+              </div>
+            </div>
+            <div className="text-[10px] text-muted-foreground">C{i}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}

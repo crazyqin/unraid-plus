@@ -62,6 +62,9 @@ func Build(cfg *config.Config, pool *ssh.Pool, ur *unraid.Client, hub *ssh.Termi
 		serveTerminal(hub, c.Writer, c.Request)
 	})
 
+	// WebSocket: Docker container logs (follow/tail configured via query).
+	r.GET("/ws/docker-logs", h.DockerLogs)
+
 	// Serve frontend SPA
 	r.NoRoute(handler.SPA())
 

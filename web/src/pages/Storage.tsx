@@ -1,13 +1,15 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle,
   CheckCircle2,
   HardDrive,
   Loader2,
+  RefreshCw,
   Thermometer,
   XCircle,
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import {
   Card,
   CardContent,
@@ -16,6 +18,7 @@ import {
 } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { formatBytes, formatPct, formatRate, cn, timeAgo } from '@/lib/utils';
 import type { ArrayStatus, DiskInfo, SmartInfo } from '@/types';
 import { useSettingsStore } from '@/stores/settings';
@@ -41,12 +44,44 @@ const SMART_STATUS: Record<
   unknown: { variant: 'success', label: '', icon: CheckCircle2 }, // unused — see guard below
 };
 
+/** Shape of the POST /api/smart/refresh response (see smart_refresh.go). */
+interface SmartRefreshResp {
+  ok: boolean;
+  cleared: string[];
+  count: number;
+  message?: string;
+}
+
 export default function StoragePage() {
   const refresh = useSettingsStore((s) => s.refreshInterval);
+  const qc = useQueryClient();
+
+  // Transient status line shown next to the refresh button after a refresh
+  // attempt ("已刷新全部 N 块" / "刷新失败"). Cleared after 3s. Null = idle.
+  const [refreshMsg, setRefreshMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
   const { data, isLoading, isError } = useQuery({
     queryKey: ['storage'],
     queryFn: () => api.get<ArrayStatus>('/storage'),
     refetchInterval: refresh || false,
+  });
+
+  // Refresh SMART: POST /api/smart/refresh (empty body = invalidate all),
+  // then invalidate the ['storage'] query to trigger a refetch. The refetch
+  // is what causes fresh smartctl probes (cache was just cleared), so the
+  // user sees updated data within ~1-2s per disk.
+  const refreshMut = useMutation({
+    mutationFn: () => api.post<SmartRefreshResp>('/smart/refresh'),
+    onSuccess: (r) => {
+      setRefreshMsg({ kind: 'ok', text: r.message ?? `已刷新 ${r.count} 块` });
+      qc.invalidateQueries({ queryKey: ['storage'] });
+      window.setTimeout(() => setRefreshMsg(null), 3000);
+    },
+    onError: (e: unknown) => {
+      const msg = e instanceof ApiError ? e.message : '刷新失败';
+      setRefreshMsg({ kind: 'err', text: msg });
+      window.setTimeout(() => setRefreshMsg(null), 3000);
+    },
   });
 
   if (isLoading) {
@@ -68,7 +103,7 @@ export default function StoragePage() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">存储阵列</h1>
           <p className="text-sm text-muted-foreground">
@@ -80,6 +115,28 @@ export default function StoragePage() {
               {data.state}
             </Badge>
           </p>
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Show transient result inline — no toast lib in the project yet. */}
+          {refreshMsg && (
+            <span
+              className={cn(
+                'text-xs',
+                refreshMsg.kind === 'ok' ? 'text-muted-foreground' : 'text-destructive',
+              )}
+            >
+              {refreshMsg.text}
+            </span>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={refreshMut.isPending}
+            onClick={() => refreshMut.mutate()}
+          >
+            <RefreshCw className={cn(refreshMut.isPending && 'animate-spin')} />
+            刷新 SMART
+          </Button>
         </div>
       </div>
 

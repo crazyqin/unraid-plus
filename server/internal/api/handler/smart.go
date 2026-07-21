@@ -239,3 +239,38 @@ func baseDevName(devPath string) string {
 	}
 	return ""
 }
+
+// invalidateSmartCache drops cache entries, returning the list of device keys
+// that were actually removed. If `devices` is empty the whole cache is
+// cleared. Keys that aren't present are silently skipped (not erroring on
+// "refresh sda when sda was never probed" keeps the UI button idempotent).
+//
+// This is the backing store for POST /api/smart/refresh (see smart_refresh.go).
+// It only invalidates; the next GET /api/storage call will trigger fresh
+// smartctl probes via fetchSmart's cache-miss path. We don't proactively
+// re-probe here because that would require walking the disk list + an active
+// SSH connection from inside this call, and the frontend already follows up
+// the refresh with a re-fetch of /api/storage anyway.
+func invalidateSmartCache(devices []string) []string {
+	smartCache.Lock()
+	defer smartCache.Unlock()
+
+	// Empty filter → drop everything.
+	if len(devices) == 0 {
+		cleared := make([]string, 0, len(smartCache.m))
+		for k := range smartCache.m {
+			cleared = append(cleared, k)
+		}
+		smartCache.m = map[string]smartInfo{}
+		return cleared
+	}
+
+	cleared := make([]string, 0, len(devices))
+	for _, dev := range devices {
+		if _, ok := smartCache.m[dev]; ok {
+			delete(smartCache.m, dev)
+			cleared = append(cleared, dev)
+		}
+	}
+	return cleared
+}

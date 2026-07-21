@@ -49,6 +49,10 @@ func Build(cfg *config.Config, pool *ssh.Pool, ur *unraid.Client, hub *ssh.Termi
 	// Storage
 	api.GET("/storage", h.Storage)
 
+	// SMART cache invalidation (manual refresh button on the Storage page).
+	// Does NOT require an active SSH connection — pure in-memory drop.
+	api.POST("/smart/refresh", h.SmartRefresh)
+
 	// Files
 	api.GET("/files", h.ListFiles)
 	api.POST("/files/delete", h.DeleteFiles)

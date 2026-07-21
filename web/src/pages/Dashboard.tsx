@@ -190,12 +190,12 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Thermometer className="h-4 w-4 text-rose-500" /> 各核温度
+              <Thermometer className="h-4 w-4 text-rose-500" /> 各核状态
             </CardTitle>
-            <CardDescription>CPU 物理核心</CardDescription>
+            <CardDescription>每核使用率 / 温度</CardDescription>
           </CardHeader>
           <CardContent>
-            <CoreTemps data={data} isLoading={isLoading} />
+            <CoreStatus data={data} isLoading={isLoading} />
           </CardContent>
         </Card>
       </div>
@@ -391,7 +391,23 @@ function RwChart({ data }: { data: Sample[] }) {
   );
 }
 
-function CoreTemps({
+/**
+ * Per-core combined display: usage bar (fill = busy %, color band = busy %)
+ * with the core label and temperature in °C underneath.
+ *
+ * v0.3 fix: previously this was a temperature-only widget because the
+ * backend's `cat /proc/stat | head -n 1` stripped the per-core rows and
+ * `computeCPUUsage` returned all-zeros for the perCoreUsagePct slice. The
+ * handler now reads full /proc/stat and parses cpuN rows via parseProcStat,
+ * so data.cpu.perCoreUsagePct[i] is the真实 busy percentage of logical
+ * core i between the two snapshots ~900ms apart.
+ *
+ * The usage and temp arrays are both indexed by logical core number. They
+ * may have different lengths on some hosts (thermal_zone count != nproc),
+ * in which case we render up to max(usage.length, temp.length) columns and
+ * only show the fields available per core.
+ */
+function CoreStatus({
   data,
   isLoading,
 }: {
@@ -400,27 +416,48 @@ function CoreTemps({
 }) {
   if (isLoading) return <Skeleton className="h-32 w-full" />;
   if (!data) return <div className="text-sm text-muted-foreground">暂无数据</div>;
+
+  const usage = data.cpu.perCoreUsagePct ?? [];
   const temps = data.cpu.perCoreTempC ?? [];
-  if (temps.length === 0)
-    return <div className="text-sm text-muted-foreground">该 CPU 未提供温度读数</div>;
+  if (usage.length === 0 && temps.length === 0) {
+    return <div className="text-sm text-muted-foreground">该 CPU 未提供使用率/温度读数</div>;
+  }
+  const cores = Math.max(usage.length, temps.length);
+
   return (
     <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
-      {temps.map((t, i) => {
-        const ratio = Math.min(1, t / 100);
-        const color =
-          t >= 80 ? 'bg-destructive' : t >= 65 ? 'bg-warning' : 'bg-success';
+      {Array.from({ length: cores }).map((_, i) => {
+        const u = usage[i];
+        // Usage-based fill + color band: 0-70% green, 70-90% amber, 90%+ red.
+        // (Temperature is shown as a number underneath, not color-coded, to
+        // avoid conflating two channels in the same bar.)
+        const fillPct = typeof u === 'number' ? Math.max(0, Math.min(100, u)) : 0;
+        const fillColor =
+          fillPct >= 90 ? 'bg-destructive' : fillPct >= 70 ? 'bg-warning' : 'bg-success';
+        const t = temps[i];
+        const tempColor =
+          typeof t === 'number'
+            ? t >= 80
+              ? 'text-destructive'
+              : t >= 65
+                ? 'text-warning'
+                : 'text-muted-foreground'
+            : 'text-muted-foreground';
         return (
           <div key={i} className="space-y-1 text-center">
             <div className="relative h-20 overflow-hidden rounded bg-muted">
               <div
-                className={cn('absolute bottom-0 w-full', color)}
-                style={{ height: `${ratio * 100}%` }}
+                className={cn('absolute bottom-0 w-full transition-[height]', fillColor)}
+                style={{ height: `${fillPct}%` }}
               />
-              <div className="absolute inset-0 grid place-items-end justify-center pb-1 text-[10px] font-medium">
-                {t}°C
+              <div className="absolute inset-0 grid place-items-center text-[10px] font-medium tabular-nums">
+                {typeof u === 'number' ? `${u.toFixed(0)}%` : '—'}
               </div>
             </div>
             <div className="text-[10px] text-muted-foreground">C{i}</div>
+            <div className={cn('text-[10px] tabular-nums', tempColor)}>
+              {typeof t === 'number' ? `${t}°C` : '—'}
+            </div>
           </div>
         );
       })}

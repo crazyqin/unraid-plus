@@ -5,19 +5,26 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/your-org/unraidpp/server/internal/ssh"
 )
 
 type disk struct {
-	Device           string  `json:"device"`
-	Name             string  `json:"name"`
-	FsType           string  `json:"fsType"`
-	SizeBytes        int64   `json:"sizeBytes"`
-	UsedBytes        int64   `json:"usedBytes"`
-	TempC            *int    `json:"tempC,omitempty"`
-	ReadBytesPerSec  int64   `json:"readBytesPerSec"`
-	WriteBytesPerSec int64   `json:"writeBytesPerSec"`
-	Errors           int     `json:"errors"`
-	Status           string  `json:"status"`
+	Device           string     `json:"device"`
+	Name             string     `json:"name"`
+	FsType           string     `json:"fsType"`
+	SizeBytes        int64      `json:"sizeBytes"`
+	UsedBytes        int64      `json:"usedBytes"`
+	TempC            *int       `json:"tempC,omitempty"`
+	ReadBytesPerSec  int64      `json:"readBytesPerSec"`
+	WriteBytesPerSec int64      `json:"writeBytesPerSec"`
+	Errors           int        `json:"errors"`
+	Status           string     `json:"status"`
+	// Smart holds the structured SMART health data when smartctl is
+	// available and the device supports SMART. nil for software raid
+	// (md*), loop, zfs vdevs, USB bridges without SAT, or when smartctl
+	// is not installed on the host. The frontend should render a SMART
+	// detail panel only when Smart != nil && Smart.Available.
+	Smart *smartInfo `json:"smart,omitempty"`
 }
 
 type arrayStatus struct {
@@ -30,6 +37,15 @@ type arrayStatus struct {
 // on `df` and `/proc/diskstats`; SMART/temperature data is best-effort.
 // Production will plug into Unraid's own `emcmd` / `disk.sh` for accurate
 // array status, but `df` is enough for "is my disk full?" at a glance.
+//
+// v0.3 also probes smartctl per physical disk (see smart.go) and surfaces:
+//   - disk.TempC     ← on-disk sensor (more reliable than thermal_zone)
+//   - disk.Errors    ← sum of reallocated + pending + uncorrectable + media
+//   - disk.Smart     ← structured SMART health data for the detail panel
+//
+// SMART probing is cached process-wide for 30s (smartCache) so the 5s UI
+// poll doesn't fork smartctl on every request — see smart.go for rationale.
+// Software raid (md*), loop, and zfs vdevs are skipped via baseDevName.
 func (h *Handler) Storage(c *gin.Context) {
 	cli, ok := h.activeClient(c)
 	if !ok {
@@ -43,12 +59,37 @@ func (h *Handler) Storage(c *gin.Context) {
 	}
 
 	disks, cache := parseDf(dfOut)
+	enrichWithSmart(cli, disks)
+	enrichWithSmart(cli, cache)
 
 	c.JSON(http.StatusOK, arrayStatus{
 		State:      arrayState,
 		Disks:      disks,
 		CacheDisks: cache,
 	})
+}
+
+// enrichWithSmart probes SMART for each disk in-place. The probe is cached
+// per base device name (smartCache), so calling this on every poll is cheap
+// after the first hit. Disks whose device path doesn't map to a real block
+// device (md*, loop, zfs vdevs) are left untouched.
+func enrichWithSmart(cli *ssh.Client, disks []disk) {
+	for i := range disks {
+		base := baseDevName(disks[i].Device)
+		if base == "" {
+			continue
+		}
+		info := fetchSmart(cli, base)
+		if !info.Available {
+			continue
+		}
+		disks[i].Smart = &info
+		if info.Temperature != nil {
+			disks[i].TempC = info.Temperature
+		}
+		disks[i].Errors = info.Reallocated + info.Pending +
+			info.Uncorrectable + info.MediaErrors
+	}
 }
 
 // parseDf turns the pipe-separated df output into disk entries.

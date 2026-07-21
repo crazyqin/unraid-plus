@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Boxes,
@@ -10,7 +10,7 @@ import {
   Square,
   Search,
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, wsUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -179,18 +179,64 @@ function LogDialog({
 }
 
 function LogStream({ containerId }: { containerId?: string }) {
-  const [lines, setLines] = useState<string[]>([]);
+  const [buffer, setBuffer] = useState('');
   const [connected, setConnected] = useState(false);
+  const [ended, setEnded] = useState(false);
+  const preRef = useRef<HTMLPreElement>(null);
 
-  useState(() => {
+  useEffect(() => {
     if (!containerId) return;
-    // TODO: connect to /ws/docker/<id>/logs once backend is ready.
-    setConnected(true);
-    setLines([
-      '[stub] 后端 WebSocket 实现已规划，待 server/internal/ws 完成。',
-      `[stub] container id = ${containerId}`,
-    ]);
-  });
+
+    // Reset for each new container.
+    setBuffer('');
+    setEnded(false);
+    setConnected(false);
+
+    const url = wsUrl(
+      `/ws/docker-logs?container=${encodeURIComponent(containerId)}&tail=200&follow=true`,
+    );
+    const ws = new WebSocket(url);
+
+    ws.onopen = () => setConnected(true);
+    ws.onclose = () => {
+      setConnected(false);
+      setEnded(true);
+    };
+    ws.onerror = () => {
+      // onclose will fire next; nothing extra to do here.
+    };
+    ws.onmessage = (e) => {
+      const chunk = typeof e.data === 'string' ? e.data : '';
+      // The backend sends a final JSON `{"type":"exit"}` frame to mark the
+      // end of the stream (e.g. container stopped or client requested
+      // non-follow). Detect it without echoing the literal JSON to the user.
+      if (chunk === '{"type":"exit"}') {
+        setEnded(true);
+        return;
+      }
+      setBuffer((prev) => {
+        // Cap the buffer to ~256KB to prevent unbounded memory growth on
+        // long-lived noisy logs. We keep the tail by slicing off the head.
+        const next = prev + chunk;
+        if (next.length > 262144) return next.slice(-262144);
+        return next;
+      });
+    };
+
+    return () => {
+      ws.close();
+    };
+  }, [containerId]);
+
+  // Auto-scroll to bottom on new logs, but only if the user is already
+  // parked near the bottom (so scrolling up to read history isn't yanked
+  // away by incoming frames).
+  useEffect(() => {
+    const el = preRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (nearBottom) el.scrollTop = el.scrollHeight;
+  }, [buffer]);
 
   return (
     <div className="space-y-2">
@@ -198,13 +244,16 @@ function LogStream({ containerId }: { containerId?: string }) {
         <span
           className={cn(
             'h-2 w-2 rounded-full',
-            connected ? 'bg-success' : 'bg-muted-foreground',
+            connected ? 'bg-success' : ended ? 'bg-muted-foreground' : 'bg-warning',
           )}
         />
-        {connected ? '已连接' : '未连接'}
+        {connected ? '实时日志流已连接' : ended ? '已结束（容器可能已停止）' : '连接中…'}
       </div>
-      <pre className="h-80 overflow-auto rounded-md bg-black/80 p-3 font-mono text-xs leading-relaxed text-green-400">
-        {lines.length > 0 ? lines.join('\n') : '等待日志…'}
+      <pre
+        ref={preRef}
+        className="h-80 overflow-auto rounded-md bg-black/80 p-3 font-mono text-xs leading-relaxed text-green-400"
+      >
+        {buffer || (ended ? '（无日志输出）' : '等待日志…')}
       </pre>
     </div>
   );

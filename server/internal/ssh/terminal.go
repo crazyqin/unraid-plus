@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	xssh "golang.org/x/crypto/ssh"
 
 	"github.com/your-org/unraidpp/server/pkg/logger"
 )
@@ -33,7 +34,7 @@ func NewTerminalHub(pool *Pool) *TerminalHub {
 type terminalSession struct {
 	id   string
 	ws   *websocket.Conn
-	sess io.Closer // *ssh.Session, kept as io.Closer to avoid import cycles
+	sess *xssh.Session
 }
 
 // msgIn is the JSON envelope the browser sends over the WebSocket.
@@ -94,11 +95,13 @@ func (h *TerminalHub) Serve(c *websocket.Conn) {
 			switch m.Type {
 			case "resize":
 				if m.Cols > 0 && m.Rows > 0 {
-					// sess is *ssh.Session — we can't call WindowChange directly
-					// here without an import-cycle-leaking cast. For v0.x we
-					// accept the resize request but rely on the initial pty
-					// size. A future commit adds a concrete type with the call.
-					logger.Debugf("terminal %s: resize %dx%d (ignored in v0.x)", id, m.Cols, m.Rows)
+					// Forward the new pty geometry to the remote shell. SSH's
+					// WindowChange expects (height, width) — i.e. rows, cols.
+					if err := sess.WindowChange(m.Rows, m.Cols); err != nil {
+						logger.Warnf("terminal %s: window-change %dx%d failed: %v", id, m.Cols, m.Rows, err)
+					} else {
+						logger.Debugf("terminal %s: resized to %dx%d", id, m.Cols, m.Rows)
+					}
 				}
 			case "stdin":
 				if m.Data != "" {
@@ -111,7 +114,7 @@ func (h *TerminalHub) Serve(c *websocket.Conn) {
 	}
 }
 
-func (h *TerminalHub) register(id string, sess io.Closer) {
+func (h *TerminalHub) register(id string, sess *xssh.Session) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.sessions[id] = &terminalSession{id: id, sess: sess}

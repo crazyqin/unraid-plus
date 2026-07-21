@@ -1,0 +1,35 @@
+# unraid++ one-shot deployment
+#
+# Usage:
+#   docker compose up -d
+# Then open http://<host>:8080
+
+services:
+  unraidpp:
+    # Build from source. To use a prebuilt image instead, comment `build:`
+    # and uncomment `image: ghcr.io/your-org/unraidpp:latest`.
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # image: ghcr.io/your-org/unraidpp:latest
+    container_name: unraidpp
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # ---- Server runtime ----
+      UNRAIDPP_LISTEN: ":8080"
+      UNRAIDPP_DATA_DIR: "/data"
+      # Optional: pre-trust a Unraid host so the onboarding is skipped.
+      # UNRAIDPP_DEFAULT_HOST: "192.168.1.99"
+      # UNRAIDPP_LOG_LEVEL: "info"
+      TZ: Asia/Shanghai
+    volumes:
+      # Persist server config (session keys, optional SSH key cache, settings)
+      - unraidpp-data:/data
+    # In host-network mode on a NAS, you typically don't need `ports:`.
+    # Uncomment the line below and remove `ports:` to use host networking.
+    # network_mode: host
+
+volumes:
+  unraidpp-data:

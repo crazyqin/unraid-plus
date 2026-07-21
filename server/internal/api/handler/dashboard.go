@@ -57,7 +57,7 @@ func (h *Handler) Dashboard(c *gin.Context) {
 		return
 	}
 
-	cpu1, _ := cli.Run("cat /proc/stat | head -n 1")
+	cpu1, _ := cli.Run("cat /proc/stat")
 	memInfo, _ := cli.Run("cat /proc/meminfo")
 	net1, _ := cli.Run("cat /proc/net/dev")
 	disk1, _ := cli.Run("cat /proc/diskstats")
@@ -69,7 +69,7 @@ func (h *Handler) Dashboard(c *gin.Context) {
 
 	time.Sleep(900 * time.Millisecond)
 
-	cpu2, _ := cli.Run("cat /proc/stat | head -n 1")
+	cpu2, _ := cli.Run("cat /proc/stat")
 	net2, _ := cli.Run("cat /proc/net/dev")
 	disk2, _ := cli.Run("cat /proc/diskstats")
 
@@ -91,36 +91,85 @@ func (h *Handler) Dashboard(c *gin.Context) {
 	c.JSON(http.StatusOK, resp)
 }
 
-// computeCPUUsage parses the aggregate cpu line plus per-core lines.
-// It returns (avg%, per-core%).
-func computeCPUUsage(c1, c2 string, cores int) (float64, []float64) {
-	lines1 := strings.Split(strings.TrimSpace(c1), "\n")
-	lines2 := strings.Split(strings.TrimSpace(c2), "\n")
-	// In our calls c1 only contains the aggregate line (head -n1), so the
-	// per-core split isn't possible from this material. We expose the average
-	// and zero the per-core slice; the UI gracefully handles empty slices.
-	_ = lines1
-	_ = lines2
-	avg := parseCPUAggDelta(c1, c2)
+// computeCPUUsage parses the full /proc/stat output (which includes the
+// aggregate `cpu` line followed by one `cpuN` line per logical core) and
+// returns (avg%, per-core%). Both snapshots must come from `cat /proc/stat`
+// *without* `head -n 1` so that the per-core rows are present.
+//
+// The avg is derived from the aggregate `cpu` row, the per-core slice from
+// the cpuN rows. If a particular cpuN row is missing in either snapshot
+// (rare race during hotplug) the corresponding entry is left at 0.
+func computeCPUUsage(stat1, stat2 string, cores int) (float64, []float64) {
+	a := parseProcStat(stat1)
+	b := parseProcStat(stat2)
+
+	avg := 0.0
+	if l1, ok1 := a["cpu"]; ok1 {
+		if l2, ok2 := b["cpu"]; ok2 {
+			avg = cpuLineBusyPct(l1, l2)
+		}
+	}
+
 	perCore := make([]float64, cores)
+	for i := 0; i < cores; i++ {
+		key := "cpu" + strconv.Itoa(i)
+		l1, ok1 := a[key]
+		l2, ok2 := b[key]
+		if !ok1 || !ok2 {
+			continue
+		}
+		perCore[i] = cpuLineBusyPct(l1, l2)
+	}
 	return avg, perCore
 }
 
-func parseCPUAggDelta(s1, s2 string) float64 {
-	a := strings.Fields(s1)
-	b := strings.Fields(s2)
-	if len(a) < 5 || len(b) < 5 || a[0] != "cpu" || b[0] != "cpu" {
+// cpuLine holds the numeric fields of a single /proc/stat cpu row, in their
+// original order (user, nice, system, idle, iowait, irq, softirq, steal,
+// guest, guest_nice). Everything except the label.
+type cpuLine struct {
+	fields []float64
+}
+
+// parseProcStat parses /proc/stat output into a map keyed by the first
+// column label. Only "cpu" and "cpuN" rows are kept — intr/ctxt/btime etc.
+// are dropped silently.
+func parseProcStat(s string) map[string]cpuLine {
+	out := map[string]cpuLine{}
+	for _, line := range strings.Split(s, "\n") {
+		f := strings.Fields(line)
+		if len(f) < 2 {
+			continue
+		}
+		label := f[0]
+		if !strings.HasPrefix(label, "cpu") {
+			continue
+		}
+		nums := make([]float64, 0, len(f)-1)
+		for _, x := range f[1:] {
+			nums = append(nums, atofSafe(x))
+		}
+		out[label] = cpuLine{fields: nums}
+	}
+	return out
+}
+
+// cpuLineBusyPct computes the busy percentage between two snapshots of the
+// same cpu row.  Idle = fields[3] (iowait at index 4 counts as busy here —
+// matches `parseCPUAggDelta`'s pre-v0.3 behaviour so the aggregate line
+// keeps the same readings).
+func cpuLineBusyPct(a, b cpuLine) float64 {
+	if len(a.fields) < 4 || len(b.fields) < 4 {
 		return 0
 	}
-	var total1, idle1, total2, idle2 float64
-	for i := 1; i < len(a); i++ {
-		total1 += atofSafe(a[i])
+	var total1, total2, idle1, idle2 float64
+	for _, v := range a.fields {
+		total1 += v
 	}
-	for i := 1; i < len(b); i++ {
-		total2 += atofSafe(b[i])
+	for _, v := range b.fields {
+		total2 += v
 	}
-	idle1 = atofSafe(a[4])
-	idle2 = atofSafe(b[4])
+	idle1 = a.fields[3]
+	idle2 = b.fields[3]
 	dt := total2 - total1
 	di := idle2 - idle1
 	if dt <= 0 {
@@ -134,6 +183,17 @@ func parseCPUAggDelta(s1, s2 string) float64 {
 		return 100
 	}
 	return pct
+}
+
+func parseCPUAggDelta(s1, s2 string) float64 {
+	a := parseProcStat(s1)
+	b := parseProcStat(s2)
+	l1, ok1 := a["cpu"]
+	l2, ok2 := b["cpu"]
+	if !ok1 || !ok2 {
+		return 0
+	}
+	return cpuLineBusyPct(l1, l2)
 }
 
 func parseMeminfo(s string) memInfo {

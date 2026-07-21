@@ -74,17 +74,55 @@ export interface DockerContainer {
 }
 
 // Storage
+
+/**
+ * Structured SMART health data for a single physical disk.
+ *
+ * Mirrors server/internal/api/handler/smart.go smartInfo struct.
+ * `available=false` (or `smart` being undefined on DiskInfo) means
+ * smartctl is not installed, the device doesn't support SMART (md
+ * software raid, USB bridges without SAT, loop, zfs vdevs), or the
+ * JSON output failed to parse. In all those cases status='unknown'.
+ */
+export interface SmartInfo {
+  /** Whether smartctl ran successfully and returned parseable JSON. */
+  available: boolean;
+  /** Mirrors smartctl's smart_status.passed bit. false = drive already failing. */
+  passed: boolean;
+  /** Curated status consumed by badges: ok | warning | failing | unknown. */
+  status: 'ok' | 'warning' | 'failing' | 'unknown';
+  /** On-disk sensor temperature (SATA attr 194 / NVMe composite). Undefined when not reported. */
+  temperature?: number;
+  /** SATA attr 5 raw value — reallocated sector count. */
+  reallocated: number;
+  /** SATA attr 197 raw value — current pending sector count. */
+  pending: number;
+  /** SATA attr 198 raw value — offline uncorrectable sectors. */
+  uncorrectable: number;
+  /** NVMe cumulative media & data integrity errors. */
+  mediaErrors: number;
+  modelName?: string;
+  serialNumber?: string;
+  /** Unix timestamp (seconds) of when this SMART entry was cached. */
+  fetchedAt: number;
+}
+
 export interface DiskInfo {
   device: string;
   name: string;
   fsType: string;
   sizeBytes: number;
   usedBytes: number;
+  /** On-disk temperature; populated from smart.temperature when available. */
   tempC?: number;
   readBytesPerSec: number;
   writeBytesPerSec: number;
+  /** Sum of reallocated + pending + uncorrectable + media errors. */
   errors: number;
+  /** Fill-ratio-based status (orthogonal to SMART health). */
   status: 'ok' | 'warning' | 'critical' | 'unknown';
+  /** Structured SMART data; undefined when device doesn't support SMART or smartctl missing. */
+  smart?: SmartInfo;
 }
 
 export interface ArrayStatus {

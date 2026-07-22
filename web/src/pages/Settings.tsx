@@ -22,8 +22,10 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useAuthStore } from '@/stores/auth';
 import { useSettingsStore } from '@/stores/settings';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/alert-dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 export default function SettingsPage() {
   const server = useAuthStore((s) => s.server);
@@ -137,18 +139,21 @@ export default function SettingsPage() {
               <div className="text-xs text-muted-foreground">
                 {uiAuthEnabled
                   ? '已设置访问密码，未登录用户无法操作。'
-                  : '未启用。设置环境变量 UNRAIDPP_UI_PASSWORD 以开启密码保护。'}
+                  : '未启用。任何人都能访问此界面，建议设置一个密码。'}
               </div>
             </div>
-            <Badge variant={uiAuthEnabled ? 'success' : 'secondary'}>
-              {uiAuthEnabled ? (
-                <>
-                  <ShieldCheck className="mr-1 h-3 w-3" /> 已启用
-                </>
-              ) : (
-                '未启用'
-              )}
-            </Badge>
+            <div className="flex items-center gap-2">
+              <Badge variant={uiAuthEnabled ? 'success' : 'secondary'}>
+                {uiAuthEnabled ? (
+                  <>
+                    <ShieldCheck className="mr-1 h-3 w-3" /> 已启用
+                  </>
+                ) : (
+                  '未启用'
+                )}
+              </Badge>
+              <UIPasswordButton uiAuthEnabled={uiAuthEnabled} />
+            </div>
           </div>
           {uiAuthEnabled && isUiAuthenticated && (
             <Button
@@ -267,6 +272,85 @@ function ToggleRow({
         <div className="text-xs text-muted-foreground">{desc}</div>
       </div>
       <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+/** Button + inline form to set or change the UI access password. */
+function UIPasswordButton({ uiAuthEnabled }: { uiAuthEnabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [pw, setPw] = useState('');
+  const [currentPw, setCurrentPw] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const checkAuth = useAuthStore((s) => s.checkAuth);
+
+  const handleSave = async () => {
+    if (pw.length < 4) {
+      setError('密码至少 4 位');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      if (uiAuthEnabled) {
+        await api.post('/auth/change-password', { current: currentPw, new: pw });
+      } else {
+        await api.post('/auth/setup', { password: pw });
+      }
+      await checkAuth();
+      setOpen(false);
+      setPw('');
+      setCurrentPw('');
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '操作失败');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        {uiAuthEnabled ? '修改密码' : '设置密码'}
+      </Button>
+    );
+  }
+
+  return (
+    <div className="mt-2 space-y-2 rounded-md border p-3">
+      {uiAuthEnabled && (
+        <div className="space-y-1">
+          <Label className="text-xs">当前密码</Label>
+          <Input
+            type="password"
+            value={currentPw}
+            onChange={(e) => setCurrentPw(e.target.value)}
+            autoComplete="current-password"
+          />
+        </div>
+      )}
+      <div className="space-y-1">
+        <Label className="text-xs">{uiAuthEnabled ? '新密码' : '设置密码'}</Label>
+        <Input
+          type="password"
+          value={pw}
+          onChange={(e) => {
+            setPw(e.target.value);
+            setError(null);
+          }}
+          autoComplete="new-password"
+        />
+      </div>
+      {error && <div className="text-xs text-destructive">{error}</div>}
+      <div className="flex gap-2">
+        <Button size="sm" onClick={handleSave} disabled={loading}>
+          {loading ? '保存中…' : '保存'}
+        </Button>
+        <Button size="sm" variant="ghost" onClick={() => { setOpen(false); setPw(''); setCurrentPw(''); setError(null); }}>
+          取消
+        </Button>
+      </div>
     </div>
   );
 }

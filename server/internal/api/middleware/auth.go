@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -97,15 +98,24 @@ type SessionStore struct {
 	mu       sync.RWMutex
 	sessions map[string]time.Time // token → expiry
 	password string
+	dataDir  string // directory for persisting the UI password
 }
 
 // NewSessionStore creates a session store. If password is empty, auth is
-// disabled and AuthRequired becomes a no-op.
-func NewSessionStore(password string) *SessionStore {
-	return &SessionStore{
+// disabled and AuthRequired becomes a no-op. dataDir is used to persist
+// the UI password across restarts when set via API (not env var).
+func NewSessionStore(password string, dataDir string) *SessionStore {
+	s := &SessionStore{
 		sessions: map[string]time.Time{},
-		password: password,
+		dataDir:  dataDir,
 	}
+	// Priority: env var password > persisted password file
+	if password != "" {
+		s.password = password
+	} else {
+		s.loadPersistedPassword()
+	}
+	return s
 }
 
 const (
@@ -116,6 +126,15 @@ const (
 // IsEnabled reports whether UI authentication is active (password non-empty).
 func (s *SessionStore) IsEnabled() bool {
 	return s.password != ""
+}
+
+// SetPassword updates the password and persists it to disk. Existing sessions
+// are NOT revoked automatically — the caller decides whether to call RevokeAll().
+func (s *SessionStore) SetPassword(password string) {
+	s.mu.Lock()
+	s.password = password
+	s.mu.Unlock()
+	s.persistPassword()
 }
 
 // Login verifies the password and creates a new session. Returns the token
@@ -214,4 +233,32 @@ func (s *SessionStore) CookieName() string {
 // TTL returns the session TTL for setting cookie MaxAge.
 func (s *SessionStore) TTL() time.Duration {
 	return sessionTTL
+}
+
+// persistPassword writes the current password to <dataDir>/.ui_password.
+// The file is mode 0600 and contains the password in plaintext (the file
+// system permissions are the security boundary, same as .enc_key).
+func (s *SessionStore) persistPassword() {
+	s.mu.RLock()
+	dir := s.dataDir
+	pw := s.password
+	s.mu.RUnlock()
+	if dir == "" || pw == "" {
+		return
+	}
+	path := dir + "/.ui_password"
+	_ = os.WriteFile(path, []byte(pw), 0o600)
+}
+
+// loadPersistedPassword reads the UI password from <dataDir>/.ui_password.
+func (s *SessionStore) loadPersistedPassword() {
+	if s.dataDir == "" {
+		return
+	}
+	path := s.dataDir + "/.ui_password"
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return
+	}
+	s.password = strings.TrimSpace(string(data))
 }

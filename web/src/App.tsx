@@ -49,7 +49,6 @@ export default function App() {
   // If servers exist but none connected, still show main app (user can
   // reconnect from the server list).
   const hasServers = servers.length > 0;
-  const hasActiveConnection = server?.status === 'connected';
   const showApp = server || hasServers;
 
   return (
@@ -60,14 +59,12 @@ export default function App() {
         element={needsLogin ? <LoginPage /> : <Navigate to="/" replace />}
       />
 
-      {/* Onboarding wizard */}
+      {/* Onboarding wizard — always accessible (user may add more servers) */}
       <Route
         path="/onboarding"
         element={
           needsLogin ? (
             <Navigate to="/login" replace />
-          ) : hasActiveConnection || hasServers ? (
-            <Navigate to="/" replace />
           ) : (
             <OnboardingPage />
           )

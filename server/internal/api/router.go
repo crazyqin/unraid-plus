@@ -49,7 +49,7 @@ func buildRouter(cfg *config.Config, h *handler.Handler) http.Handler {
 
 	// UI authentication (v0.5). If UNRAIDPP_UI_PASSWORD is unset, the
 	// middleware is a no-op and the app behaves as v0.1-v0.4 (no login).
-	authH := handler.NewAuthHandler(cfg.UIPassword)
+	authH := handler.NewAuthHandler(cfg.UIPassword, cfg.DataDir)
 	authStore := authH.Store()
 
 	r.GET("/health", func(c *gin.Context) {
@@ -66,6 +66,8 @@ func buildRouter(cfg *config.Config, h *handler.Handler) http.Handler {
 	r.POST("/api/auth/login", authH.Login)
 	r.POST("/api/auth/logout", authH.Logout)
 	r.GET("/api/auth/status", authH.AuthStatus)
+	r.POST("/api/auth/setup", authH.SetupPassword)
+	r.POST("/api/auth/change-password", authH.ChangePassword)
 
 	// All /api/* routes below require a valid session cookie IF
 	// UNRAIDPP_UI_PASSWORD is set. If unset, AuthRequired is a no-op.

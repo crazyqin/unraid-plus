@@ -26,11 +26,12 @@ import type { ConnectResult, ServerConfig } from '@/types';
 
 type Skill = 'novice' | 'intermediate' | 'expert';
 
-const STEPS = ['欢迎', '熟悉度', '连接', '验证', '完成'] as const;
+const STEPS = ['欢迎', '熟悉度', '连接', '验证', '安全', '完成'] as const;
 
 export default function OnboardingPage() {
   const navigate = useNavigate();
   const configure = useAuthStore((s) => s.configure);
+  const uiAuthEnabled = useAuthStore((s) => s.uiAuthEnabled);
   const setOnboardingDone = useSettingsStore((s) => s.setOnboardingDone);
   const skill = useOnboardingStore((s) => s.skill);
   const setSkill = useOnboardingStore((s) => s.setSkill);
@@ -149,7 +150,14 @@ export default function OnboardingPage() {
             onNext={next}
           />
         )}
-        {step === 4 && <DoneStep host={host} onFinish={handleFinish} />}
+        {step === 4 && (
+          <SecurityStep
+            uiAuthEnabled={uiAuthEnabled}
+            onNext={next}
+            onPrev={prev}
+          />
+        )}
+        {step === 5 && <DoneStep host={host} onFinish={handleFinish} />}
       </main>
 
       <footer className="border-t px-6 py-3 text-center text-xs text-muted-foreground">
@@ -506,6 +514,121 @@ function VerifyStep({
         </Button>
         <Button onClick={onNext}>
           确认无误 <ArrowRight className="h-4 w-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function SecurityStep({
+  uiAuthEnabled,
+  onNext,
+  onPrev,
+}: {
+  uiAuthEnabled: boolean;
+  onNext: () => void;
+  onPrev: () => void;
+}) {
+  const [uiPassword, setUiPassword] = useState('');
+  const [setting, setSetting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // If password already set (e.g. via env var), skip the setup UI
+  const alreadySecured = uiAuthEnabled;
+
+  const handleSetup = async () => {
+    if (!uiPassword) {
+      // Skip — no password
+      onNext();
+      return;
+    }
+    if (uiPassword.length < 4) {
+      setError('密码至少 4 位');
+      return;
+    }
+    setSetting(true);
+    setError(null);
+    try {
+      await api.post('/auth/setup', { password: uiPassword });
+      onNext();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : '设置失败');
+    } finally {
+      setSetting(false);
+    }
+  };
+
+  return (
+    <div className="animate-fade-in space-y-6">
+      <div>
+        <h1 className="text-2xl font-semibold">安全设置</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          为 unraid++ 网页界面设置一个访问密码，防止局域网内其他人随意操作你的 NAS。
+        </p>
+      </div>
+
+      {alreadySecured ? (
+        <Card>
+          <CardContent className="flex items-center gap-3 p-6">
+            <ShieldCheck className="h-8 w-8 text-success" />
+            <div>
+              <div className="text-base font-medium">访问密码已启用</div>
+              <div className="text-xs text-muted-foreground">
+                密码已通过环境变量配置，无需重复设置。
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="space-y-4 p-6">
+            <div className="flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning-foreground">
+              <Lock className="h-4 w-4 shrink-0 text-warning" />
+              <span className="text-foreground/80">
+                不设密码 = 局域网内任何人都能访问你的 unraid++，
+                包括执行 SSH 命令、重启容器等高危操作。
+              </span>
+            </div>
+
+            <Field
+              label="界面访问密码"
+              hint="留空跳过（后续可在设置中补设）。至少 4 位。"
+            >
+              <Input
+                type="password"
+                value={uiPassword}
+                onChange={(e) => {
+                  setUiPassword(e.target.value);
+                  setError(null);
+                }}
+                placeholder="可选，留空跳过"
+                autoComplete="new-password"
+              />
+            </Field>
+
+            {error && (
+              <div className="text-sm text-destructive">{error}</div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <div className="flex justify-between">
+        <Button variant="ghost" onClick={onPrev}>
+          <ArrowLeft className="h-4 w-4" /> 上一步
+        </Button>
+        <Button onClick={handleSetup} disabled={setting}>
+          {setting ? (
+            <>
+              <Loader2 className="h-4 w-4 animate-spin" /> 设置中…
+            </>
+          ) : uiPassword || alreadySecured ? (
+            <>
+              下一步 <ArrowRight className="h-4 w-4" />
+            </>
+          ) : (
+            '跳过，不设密码'
+          )}
         </Button>
       </div>
     </div>

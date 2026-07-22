@@ -1,7 +1,0 @@
-# This file is the only tracked member of server/internal/web/dist/.
-# The directory must exist (even when empty of build output) so that
-# `go:embed all:dist` in internal/web/embed.go compiles on a fresh checkout.
-#
-# During real builds the frontend `dist/` produced by `pnpm build` is copied
-# over this directory (see Dockerfile Stage 1 -> Stage 2 COPY), which is the
-# desired state — no built artifacts should be committed to the repo.

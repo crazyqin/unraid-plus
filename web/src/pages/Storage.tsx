@@ -12,6 +12,9 @@ import {
   Square,
   Thermometer,
   XCircle,
+  Usb,
+  Zap,
+  Cable,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
 import {
@@ -331,14 +334,44 @@ function DiskGroup({ title, disks }: { title: string; disks: DiskInfo[] }) {
       <CardContent className="space-y-3">
         {disks.map((d) => {
           const pct = d.sizeBytes > 0 ? (d.usedBytes / d.sizeBytes) * 100 : 0;
+          // Unraid LED color dot
+          const unraidColorMap: Record<string, string> = {
+            'green-on': 'bg-emerald-500',
+            'green-off': 'bg-emerald-300 dark:bg-emerald-800',
+            'yellow-on': 'bg-yellow-500',
+            'yellow-off': 'bg-yellow-300 dark:bg-yellow-800',
+            'red-on': 'bg-red-500',
+            'red-off': 'bg-red-300 dark:bg-red-800',
+            'grey-off': 'bg-gray-400 dark:bg-gray-600',
+          };
+          const ledDot = d.color ? unraidColorMap[d.color] : '';
+          const isSsd = d.rotational === '0';
+          const TransportIcon = d.transport === 'nvme' ? Zap : d.transport === 'usb' ? Usb : Cable;
           return (
             <div key={d.device} className="rounded-md border p-3">
               <div className="flex items-center justify-between gap-2">
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">
-                    {d.name || d.device}
+                  <div className="flex items-center gap-1.5 text-sm font-medium">
+                    {ledDot && (
+                      <span
+                        className={cn('inline-block h-2 w-2 shrink-0 rounded-full', ledDot)}
+                        title={`Unraid: ${d.color}`}
+                      />
+                    )}
+                    <span className="truncate">{d.diskName || d.name || d.device}</span>
+                    {d.diskName && d.name && d.name !== d.diskName && (
+                      <span className="truncate font-normal text-muted-foreground">
+                        {d.name}
+                      </span>
+                    )}
+                    {isSsd && (
+                      <Badge variant="secondary" className="text-[9px] px-1 py-0 leading-none">
+                        SSD
+                      </Badge>
+                    )}
                   </div>
-                  <div className="truncate font-mono text-[10px] text-muted-foreground">
+                  <div className="flex items-center gap-1 truncate font-mono text-[10px] text-muted-foreground">
+                    {d.transport && <TransportIcon className="h-3 w-3 shrink-0" />}
                     {d.device} · {d.fsType}
                   </div>
                 </div>

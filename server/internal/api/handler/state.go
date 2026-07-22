@@ -280,6 +280,10 @@ func stateCacheDisks(disks []diskState) []diskState {
 // Device path: array disks use deviceSb (md device like "md1p1") since
 // that's what's actually mounted. Cache/flash disks have no md layer,
 // so deviceSb is empty — fall back to the physical device name.
+//
+// Temperature: disks.ini temp field provides a baseline; enrichWithSmart
+// will override it with smartctl's more precise reading when available.
+// When smartctl is absent, the INI temp remains as the only source.
 func stateToDisk(ds diskState) disk {
 	used := atoi64Safe(ds.FsUsed) * 1024
 	size := atoi64Safe(ds.FsSize) * 1024
@@ -295,6 +299,11 @@ func stateToDisk(ds diskState) disk {
 		UsedBytes: used,
 		Errors:    atoiSafe(ds.NumErrors, 0),
 		Status:    diskStatus(used, size),
+		// Unraid-specific enrichment from state files
+		DiskName:   ds.Name,
+		Color:      ds.Color,
+		Rotational: ds.Rotational,
+		Transport:  ds.Transport,
 	}
 
 	// Temperature: disks.ini temp field is in Celsius, "*" means N/A

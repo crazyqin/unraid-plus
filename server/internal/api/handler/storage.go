@@ -20,6 +20,13 @@ type disk struct {
 	WriteBytesPerSec int64      `json:"writeBytesPerSec"`
 	Errors           int        `json:"errors"`
 	Status           string     `json:"status"`
+	// Unraid-specific fields from state files (v0.7+). Frontend can use
+	// these for richer display (disk slot name, Unraid color indicator,
+	// rotational flag, transport type) even when smartctl is absent.
+	DiskName   string `json:"diskName,omitempty"`   // e.g. "disk1", "parity", "cache1"
+	Color      string `json:"color,omitempty"`      // Unraid LED: "green-on", "yellow-on", etc.
+	Rotational string `json:"rotational,omitempty"` // "0" = SSD, "1" = HDD
+	Transport  string `json:"transport,omitempty"`  // "ata", "nvme", "usb"
 	// Smart holds the structured SMART health data when smartctl is
 	// available and the device supports SMART. nil for software raid
 	// (md*), loop, zfs vdevs, USB bridges without SAT, or when smartctl
@@ -191,6 +198,11 @@ func diskStatsKey(devPath string) string {
 // per base device name (smartCache), so calling this on every poll is cheap
 // after the first hit. For md* devices (Unraid array disks), we resolve the
 // underlying physical device via sysfs and probe SMART on that.
+//
+// When smartctl is unavailable (not installed, device unsupported), we fall
+// back to state file data (disks.ini color/status for health indicator,
+// temp for temperature). This gives the frontend something useful to show
+// even without smartctl.
 func enrichWithSmart(cli *ssh.Client, disks []disk) {
 	for i := range disks {
 		base := baseDevName(disks[i].Device)
@@ -202,15 +214,17 @@ func enrichWithSmart(cli *ssh.Client, disks []disk) {
 			}
 		}
 		info := fetchSmart(cli, base)
-		if !info.Available {
-			continue
+		if info.Available {
+			disks[i].Smart = &info
+			if info.Temperature != nil {
+				disks[i].TempC = info.Temperature
+			}
+			disks[i].Errors = info.Reallocated + info.Pending +
+				info.Uncorrectable + info.MediaErrors
 		}
-		disks[i].Smart = &info
-		if info.Temperature != nil {
-			disks[i].TempC = info.Temperature
-		}
-		disks[i].Errors = info.Reallocated + info.Pending +
-			info.Uncorrectable + info.MediaErrors
+		// When smartctl unavailable: leave state-file temp in TempC (already
+		// set by stateToDisk). The disk's Color/Rotational/Transport fields
+		// from disks.ini let the frontend show health even without SMART.
 	}
 }
 

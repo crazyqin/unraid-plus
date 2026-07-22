@@ -138,6 +138,14 @@ export interface DiskInfo {
   status: 'ok' | 'warning' | 'critical' | 'unknown';
   /** Structured SMART data; undefined when device doesn't support SMART or smartctl missing. */
   smart?: SmartInfo;
+  /** Unraid slot name from disks.ini (e.g. "disk1", "parity", "cache1"). v0.7+ */
+  diskName?: string;
+  /** Unraid LED color indicator (e.g. "green-on", "yellow-on", "red-on", "grey-off"). v0.7+ */
+  color?: string;
+  /** "0" = SSD, "1" = HDD. From disks.ini rotational field. v0.7+ */
+  rotational?: string;
+  /** Transport type: "ata", "nvme", "usb". From disks.ini. v0.7+ */
+  transport?: string;
 }
 
 export interface ArrayStatus {

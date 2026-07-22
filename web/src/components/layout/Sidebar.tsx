@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
   HardDrive,
@@ -37,6 +37,12 @@ const NAV: NavItem[] = [
   { to: '/settings', label: '设置', icon: Settings, hint: '连接配置、安全选项、界面偏好' },
 ];
 
+/** Check if a path matches the current location. */
+function isPathActive(currentPath: string, itemPath: string): boolean {
+  if (itemPath === '/') return currentPath === '/';
+  return currentPath.startsWith(itemPath);
+}
+
 export default function Sidebar() {
   const collapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const toggle = useSettingsStore((s) => s.toggleSidebar);
@@ -47,6 +53,7 @@ export default function Sidebar() {
   const selectServer = useAuthStore((s) => s.selectServer);
   const refreshServers = useAuthStore((s) => s.refreshServers);
   const navigate = useNavigate();
+  const location = useLocation();
 
   const handleReconnect = async (id: string) => {
     try {
@@ -63,7 +70,6 @@ export default function Sidebar() {
       await api.delete(`/servers/${encodeURIComponent(id)}`);
       await refreshServers();
       if (activeServerId === id) {
-        // Select another server or go to onboarding
         const remaining = servers.filter((s) => s.id !== id);
         if (remaining.length > 0) {
           selectServer(remaining[0].id);
@@ -125,9 +131,6 @@ export default function Sidebar() {
               )}
               onClick={() => {
                 selectServer(s.id);
-                if (s.connected) {
-                  // Already connected, just select
-                }
               }}
             >
               {s.connected ? (
@@ -192,25 +195,26 @@ export default function Sidebar() {
         </Tooltip>
       )}
 
+      {/* Divider between server list and nav */}
+      <div className="mx-3 my-2 border-b" />
+
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto p-2">
         <ul className="space-y-1">
           {NAV.map((item) => {
             const Icon = item.icon;
+            const active = isPathActive(location.pathname, item.to);
             const link = (
               <NavLink
                 key={item.to}
                 to={item.to}
-                end={item.to === '/'}
-                className={({ isActive }) =>
-                  cn(
-                    'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                    collapsed && 'justify-center',
-                    isActive
-                      ? 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-                  )
-                }
+                className={cn(
+                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+                  collapsed && 'justify-center',
+                  active
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                )}
               >
                 <Icon className="h-4 w-4 shrink-0" />
                 {!collapsed && <span>{item.label}</span>}

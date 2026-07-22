@@ -73,6 +73,21 @@ export interface DockerContainer {
   mounts: { source: string; destination: string; mode: string }[];
 }
 
+/** Per-container resource usage (mirrors docker_stats.go containerStats). */
+export interface ContainerStats {
+  id: string;
+  name: string;
+  cpuPct: number;
+  memUsageBytes: number;
+  memLimitBytes: number;
+  memPct: number;
+  netRxBytes: number;
+  netTxBytes: number;
+  blockReadBytes: number;
+  blockWriteBytes: number;
+  pids: number;
+}
+
 // Storage
 
 /**
@@ -129,6 +144,21 @@ export interface ArrayStatus {
   state: 'started' | 'stopped' | 'checking';
   disks: DiskInfo[];
   cacheDisks: DiskInfo[];
+}
+
+/**
+ * Parity check progress (mirrors array.go parityStatusResp).
+ *
+ * GET /api/storage/parity-status returns this shape. When `state` is "idle",
+ * all other fields are zero/empty. The UI polls this endpoint while a check
+ * is running to update the progress bar.
+ */
+export interface ParityStatus {
+  state: 'checking' | 'idle' | 'unknown';
+  progress: number; // 0-100
+  speed: string; // e.g. "152 MB/s"
+  remaining: string; // e.g. "2h 15m"
+  errors: number;
 }
 
 // Files

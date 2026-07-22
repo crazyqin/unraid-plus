@@ -1,8 +1,11 @@
 package handler
 
 import (
+	"io"
+	"mime/multipart"
 	"net/http"
 	"path"
+	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -144,4 +147,230 @@ func isAllowedRoot(p string) bool {
 		return true
 	}
 	return false
+}
+
+// ---- v0.5: Download / Upload / Rename / Mkdir ----
+
+// DownloadFile streams a single file from the Unraid host via SFTP to the
+// HTTP response. Sets Content-Disposition so the browser saves rather than
+// inline-displays binary files. Path safety is enforced via isAllowedRoot.
+//
+// We deliberately do NOT set Content-Length because SFTP file sizes can
+// change between Stat and read on a live system; chunked transfer encoding
+// handles it transparently.
+func (h *Handler) DownloadFile(c *gin.Context) {
+	cli, ok := h.activeClient(c)
+	if !ok {
+		return
+	}
+	p := path.Clean(c.Query("path"))
+	if p == "" || !isAllowedRoot(p) {
+		errOut(c, http.StatusForbidden, "拒绝下载非允许目录下的文件")
+		return
+	}
+
+	sc, err := cli.SFTP()
+	if err != nil {
+		errOut(c, http.StatusInternalServerError, "SFTP 会话失败: "+err.Error())
+		return
+	}
+	defer sc.Close()
+
+	entry, err := sc.Stat(p)
+	if err != nil {
+		errOut(c, http.StatusNotFound, "文件不存在: "+err.Error())
+		return
+	}
+	if entry.IsDir {
+		errOut(c, http.StatusBadRequest, "不能下载目录，请选择文件")
+		return
+	}
+
+	f, err := sc.Open(p)
+	if err != nil {
+		errOut(c, http.StatusInternalServerError, "打开文件失败: "+err.Error())
+		return
+	}
+	defer f.Close()
+
+	c.Header("Content-Disposition", `attachment; filename="`+filepath.Base(p)+`"`)
+	c.Header("Content-Type", "application/octet-stream")
+	c.Status(http.StatusOK)
+	_, _ = io.Copy(c.Writer, f)
+}
+
+type renameReq struct {
+	OldPath string `json:"oldPath"`
+	NewPath string `json:"newPath"`
+}
+
+// RenameFile renames/moves a file or directory via SFTP Rename. Both paths
+// must be under allowed roots. The destination's parent directory must
+// already exist (SFTP Rename doesn't create intermediate dirs).
+func (h *Handler) RenameFile(c *gin.Context) {
+	cli, ok := h.activeClient(c)
+	if !ok {
+		return
+	}
+	var req renameReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errOut(c, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	req.OldPath = path.Clean(req.OldPath)
+	req.NewPath = path.Clean(req.NewPath)
+	if req.OldPath == "" || req.NewPath == "" {
+		errOut(c, http.StatusBadRequest, "路径不能为空")
+		return
+	}
+	if !isAllowedRoot(req.OldPath) || !isAllowedRoot(req.NewPath) {
+		errOut(c, http.StatusForbidden, "拒绝操作非允许目录下的文件")
+		return
+	}
+
+	sc, err := cli.SFTP()
+	if err != nil {
+		errOut(c, http.StatusInternalServerError, "SFTP 会话失败: "+err.Error())
+		return
+	}
+	defer sc.Close()
+
+	if err := sc.Move(req.OldPath, req.NewPath); err != nil {
+		errOut(c, http.StatusInternalServerError, "重命名失败: "+err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已重命名"})
+}
+
+type mkdirReq struct {
+	Path string `json:"path"`
+}
+
+// MkdirFile creates a directory (including parents) via SFTP MkdirAll.
+func (h *Handler) MkdirFile(c *gin.Context) {
+	cli, ok := h.activeClient(c)
+	if !ok {
+		return
+	}
+	var req mkdirReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errOut(c, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	req.Path = path.Clean(req.Path)
+	if req.Path == "" || !isAllowedRoot(req.Path) {
+		errOut(c, http.StatusForbidden, "拒绝在非允许目录下创建文件夹")
+		return
+	}
+
+	sc, err := cli.SFTP()
+	if err != nil {
+		errOut(c, http.StatusInternalServerError, "SFTP 会话失败: "+err.Error())
+		return
+	}
+	defer sc.Close()
+
+	if err := sc.Mkdir(req.Path); err != nil {
+		errOut(c, http.StatusInternalServerError, "创建目录失败: "+err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已创建目录"})
+}
+
+// UploadFile receives one or more files via multipart/form-data and writes
+// them to the Unraid host via SFTP. The destination directory is specified
+// via the "dir" query parameter (or form field). Each file's original
+// filename is appended to form the full destination path.
+//
+// We stream (io.Copy from multipart Part → SFTP Create) so large files
+// don't need to fit in memory. The SFTP client's WriteCloser handles
+// chunked writes over the SSH channel.
+func (h *Handler) UploadFile(c *gin.Context) {
+	cli, ok := h.activeClient(c)
+	if !ok {
+		return
+	}
+	dir := path.Clean(c.DefaultQuery("dir", "/mnt/user"))
+	if !isAllowedRoot(dir) {
+		errOut(c, http.StatusForbidden, "拒绝上传到非允许目录")
+		return
+	}
+
+	form, err := c.MultipartForm()
+	if err != nil {
+		errOut(c, http.StatusBadRequest, "解析上传表单失败: "+err.Error())
+		return
+	}
+	files := form.File["files"]
+	if len(files) == 0 {
+		// Also try single-file field "file" for convenience.
+		if f, err2 := c.FormFile("file"); err2 == nil {
+			files = []*multipart.FileHeader{f}
+		}
+	}
+	if len(files) == 0 {
+		errOut(c, http.StatusBadRequest, "未找到上传文件")
+		return
+	}
+
+	sc, err := cli.SFTP()
+	if err != nil {
+		errOut(c, http.StatusInternalServerError, "SFTP 会话失败: "+err.Error())
+		return
+	}
+	defer sc.Close()
+
+	uploaded := 0
+	failed := []string{}
+	for _, fh := range files {
+		// Sanitize filename: strip path components (IE sends full paths).
+		name := filepath.Base(fh.Filename)
+		if name == "" || name == "." || name == "/" {
+			name = "unnamed"
+		}
+		dst := path.Join(dir, name)
+
+		src, err := fh.Open()
+		if err != nil {
+			failed = append(failed, name+": "+err.Error())
+			continue
+		}
+
+		dstFile, err := sc.Create(dst)
+		if err != nil {
+			_ = src.Close()
+			failed = append(failed, name+": "+err.Error())
+			continue
+		}
+
+		_, err = io.Copy(dstFile, src)
+		_ = src.Close()
+		_ = dstFile.Close()
+		if err != nil {
+			failed = append(failed, name+": "+err.Error())
+			continue
+		}
+		uploaded++
+	}
+
+	if len(failed) > 0 && uploaded == 0 {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"ok":      false,
+			"message": "全部上传失败",
+			"failed":  failed,
+		})
+		return
+	}
+	if len(failed) > 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      true,
+			"message": "部分上传成功（" + strconv.Itoa(uploaded) + " 成功, " + strconv.Itoa(len(failed)) + " 失败）",
+			"failed":  failed,
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      true,
+		"message": "已上传 " + strconv.Itoa(uploaded) + " 个文件",
+	})
 }

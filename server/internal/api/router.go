@@ -29,9 +29,25 @@ func Build(cfg *config.Config, pool *ssh.Pool, ur *unraid.Client, hub *ssh.Termi
 		AllowCredentials: true,
 	}))
 
+	// UI authentication (v0.5). If UNRAIDPP_UI_PASSWORD is unset, the
+	// middleware is a no-op and the app behaves as v0.1-v0.4 (no login).
+	authH := handler.NewAuthHandler(cfg.UIPassword)
+	authStore := authH.Store()
+
 	r.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 
+	// Auth routes are registered BEFORE the auth middleware group so they
+	// remain accessible without a session. /api/auth/status is public so
+	// the frontend can probe whether login is required on boot.
+	r.POST("/api/auth/login", authH.Login)
+	r.POST("/api/auth/logout", authH.Logout)
+	r.GET("/api/auth/status", authH.AuthStatus)
+
+	// All /api/* routes below require a valid session cookie IF
+	// UNRAIDPP_UI_PASSWORD is set. If unset, AuthRequired is a no-op.
 	api := r.Group("/api")
+	api.Use(authStore.AuthRequired())
+
 	h := handler.New(pool, ur, hub, cfg)
 
 	// Connection / onboarding
@@ -45,34 +61,48 @@ func Build(cfg *config.Config, pool *ssh.Pool, ur *unraid.Client, hub *ssh.Termi
 	// Docker
 	api.GET("/docker/containers", h.ListContainers)
 	api.POST("/docker/containers/:id/:action", h.ContainerAction)
+	api.GET("/docker/stats", h.DockerStats)
 
 	// Storage
 	api.GET("/storage", h.Storage)
 
+	// Array control (v0.5): start/stop the Unraid array + parity check.
+	api.POST("/storage/array/:action", h.ArrayAction)
+	api.POST("/storage/parity/:action", h.ParityCheckAction)
+	api.GET("/storage/parity-status", h.ParityStatus)
+
 	// SMART cache invalidation (manual refresh button on the Storage page).
-	// Does NOT require an active SSH connection — pure in-memory drop.
 	api.POST("/smart/refresh", h.SmartRefresh)
 
-	// Files
+	// Files (v0.5: upload/download/rename/mkdir added)
 	api.GET("/files", h.ListFiles)
+	api.GET("/files/download", h.DownloadFile)
+	api.POST("/files/upload", h.UploadFile)
 	api.POST("/files/delete", h.DeleteFiles)
+	api.POST("/files/rename", h.RenameFile)
+	api.POST("/files/mkdir", h.MkdirFile)
 
 	// VMs
 	api.GET("/vms", h.ListVMs)
 	api.POST("/vms/:id/:action", h.VMAction)
 
-	// WebSocket: SSH terminal
-	r.GET("/ws/terminal", func(c *gin.Context) {
+	// WebSocket: SSH terminal (also gated by auth if enabled)
+	r.GET("/ws/terminal", authStore.AuthRequired(), func(c *gin.Context) {
 		serveTerminal(hub, c.Writer, c.Request)
 	})
 
-	// WebSocket: Docker container logs (follow/tail configured via query).
-	r.GET("/ws/docker-logs", h.DockerLogs)
+	// WebSocket: Docker container logs
+	r.GET("/ws/docker-logs", authStore.AuthRequired(), h.DockerLogs)
 
 	// Serve frontend SPA
 	r.NoRoute(handler.SPA())
 
-	logger.Infof("routes mounted: %d endpoints", len(api.BasePath())+1)
+	if authStore.IsEnabled() {
+		logger.Infof("UI authentication enabled (UNRAIDPP_UI_PASSWORD set)")
+	} else {
+		logger.Infof("UI authentication disabled (set UNRAIDPP_UI_PASSWORD to enable)")
+	}
+	logger.Infof("routes mounted")
 	return r
 }
 

@@ -6,6 +6,7 @@ import {
   RefreshCw,
   Server,
   Shield,
+  ShieldCheck,
 } from 'lucide-react';
 import {
   Card,
@@ -25,6 +26,9 @@ import { api } from '@/lib/api';
 export default function SettingsPage() {
   const server = useAuthStore((s) => s.server);
   const reset = useAuthStore((s) => s.reset);
+  const uiAuthEnabled = useAuthStore((s) => s.uiAuthEnabled);
+  const isUiAuthenticated = useAuthStore((s) => s.isUiAuthenticated);
+  const logout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
 
   const {
@@ -122,6 +126,38 @@ export default function SettingsPage() {
               <KeyRound className="h-3.5 w-3.5" /> 生成 / 轮换密钥
             </Button>
           </div>
+          <Separator />
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="font-medium">界面登录保护</div>
+              <div className="text-xs text-muted-foreground">
+                {uiAuthEnabled
+                  ? '已设置访问密码，未登录用户无法操作。'
+                  : '未启用。设置环境变量 UNRAIDPP_UI_PASSWORD 以开启密码保护。'}
+              </div>
+            </div>
+            <Badge variant={uiAuthEnabled ? 'success' : 'secondary'}>
+              {uiAuthEnabled ? (
+                <>
+                  <ShieldCheck className="mr-1 h-3 w-3" /> 已启用
+                </>
+              ) : (
+                '未启用'
+              )}
+            </Badge>
+          </div>
+          {uiAuthEnabled && isUiAuthenticated && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={async () => {
+                await logout();
+                navigate('/login', { replace: true });
+              }}
+            >
+              <LogOut className="h-3.5 w-3.5" /> 退出登录
+            </Button>
+          )}
         </CardContent>
       </Card>
 

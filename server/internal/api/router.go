@@ -113,6 +113,7 @@ func buildRouter(cfg *config.Config, h *handler.Handler) http.Handler {
 	api.POST("/files/delete", h.DeleteFiles)
 	api.POST("/files/rename", h.RenameFile)
 	api.POST("/files/mkdir", h.MkdirFile)
+	api.POST("/files/save", h.SaveFileContent)
 
 	// VMs
 	api.GET("/vms", h.ListVMs)

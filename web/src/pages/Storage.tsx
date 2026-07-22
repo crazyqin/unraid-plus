@@ -38,6 +38,20 @@ const DISK_STATUS_VARIANT: Record<DiskInfo['status'], 'success' | 'warning' | 'd
   unknown: 'secondary',
 };
 
+const DISK_STATUS_LABEL: Record<DiskInfo['status'], string> = {
+  ok: '正常',
+  warning: '警告',
+  critical: '危险',
+  unknown: '未知',
+};
+
+const ARRAY_STATE_LABEL: Record<string, string> = {
+  started: '已启动',
+  stopped: '已停止',
+  starting: '启动中',
+  stopping: '停止中',
+};
+
 // SMART self-test status → (badge variant, label, icon, text class).
 // We surface SMART whenever smart.available is true, even on 'ok', so the
 // user knows SMART monitoring is active on that disk. 'unknown' is hidden
@@ -173,7 +187,7 @@ export default function StoragePage() {
               variant={data.state === 'started' ? 'success' : 'secondary'}
               className="ml-1"
             >
-              {data.state}
+              {ARRAY_STATE_LABEL[data.state] ?? data.state}
             </Badge>
           </p>
         </div>
@@ -383,7 +397,7 @@ function DiskGroup({ title, disks }: { title: string; disks: DiskInfo[] }) {
                     </Badge>
                   )}
                   <Badge variant={DISK_STATUS_VARIANT[d.status]} className="text-[10px]">
-                    {d.status}
+                    {DISK_STATUS_LABEL[d.status] ?? d.status}
                   </Badge>
                   {d.tempC !== undefined && (
                     <Badge

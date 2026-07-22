@@ -10,6 +10,7 @@ import {
   Home,
   Loader2,
   Pencil,
+  Save,
   Trash2,
   Upload,
 } from 'lucide-react';
@@ -499,6 +500,26 @@ function MkdirDialog({
 
 /* ----------------------------- Preview Dialog ----------------------------- */
 
+const EDITABLE_EXTENSIONS = new Set([
+  '.log', '.txt', '.md', '.json', '.xml', '.yaml', '.yml', '.toml',
+  '.cfg', '.conf', '.ini', '.sh', '.bash', '.zsh', '.fish',
+  '.py', '.js', '.ts', '.jsx', '.tsx', '.go', '.rs', '.c', '.cpp',
+  '.h', '.hpp', '.java', '.rb', '.pl', '.lua', '.vim', '.css',
+  '.scss', '.less', '.html', '.htm', '.svg', '.env', '.gitignore',
+  '.dockerignore', '.editorconfig', '.properties', '.sql', '.csv',
+  '.tsv', '.r', '.m', '.gradle', '.cmake', '.makefile',
+]);
+
+function isEditableFile(name: string): boolean {
+  const lower = name.toLowerCase();
+  for (const ext of EDITABLE_EXTENSIONS) {
+    if (lower.endsWith(ext)) return true;
+  }
+  // Also match dotfiles without extensions (e.g. ".bashrc", ".profile")
+  if (/^\.[a-z]/i.test(lower) && !lower.includes('.', 1)) return true;
+  return false;
+}
+
 function PreviewDialog({
   target,
   onClose,
@@ -511,9 +532,14 @@ function PreviewDialog({
   const [textContent, setTextContent] = useState<string | null>(null);
   const [imgUrl, setImgUrl] = useState<string | null>(null);
   const [truncated, setTruncated] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editContent, setEditContent] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
 
   const targetPath = target?.path ?? '';
   const targetName = target?.name ?? '';
+  const canEdit = target !== null && !target.isDir && isEditableFile(target.name);
 
   useEffect(() => {
     if (!target) return;
@@ -522,6 +548,9 @@ function PreviewDialog({
     setTextContent(null);
     setImgUrl(null);
     setTruncated(false);
+    setEditing(false);
+    setEditContent('');
+    setSaveError('');
 
     let revokeUrl: string | null = null;
 
@@ -567,6 +596,33 @@ function PreviewDialog({
     onClose();
   };
 
+  const startEditing = () => {
+    setEditContent(textContent ?? '');
+    setEditing(true);
+    setSaveError('');
+  };
+
+  const cancelEditing = () => {
+    setEditing(false);
+    setEditContent('');
+    setSaveError('');
+  };
+
+  const saveEdits = async () => {
+    if (!target) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await api.saveFileContent(targetPath, editContent);
+      setTextContent(editContent);
+      setEditing(false);
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <Dialog
       open={!!target}
@@ -597,7 +653,7 @@ function PreviewDialog({
               <img src={imgUrl} alt={targetName} className="max-w-full" />
             </div>
           )}
-          {textContent !== null && !loading && (
+          {textContent !== null && !loading && !editing && (
             <div>
               {truncated && (
                 <p className="mb-2 text-xs text-warning">
@@ -609,8 +665,38 @@ function PreviewDialog({
               </pre>
             </div>
           )}
+          {editing && (
+            <div>
+              <textarea
+                className="h-[55vh] w-full resize-none rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary"
+                value={editContent}
+                onChange={(e) => setEditContent(e.target.value)}
+                spellCheck={false}
+                autoFocus
+              />
+              {saveError && (
+                <p className="mt-1 text-sm text-destructive">{saveError}</p>
+              )}
+            </div>
+          )}
         </div>
-        <DialogFooter>
+        <DialogFooter className="gap-2">
+          {canEdit && !editing && textContent !== null && !truncated && (
+            <Button variant="outline" onClick={startEditing}>
+              <Pencil className="h-3.5 w-3.5" /> 编辑
+            </Button>
+          )}
+          {editing && (
+            <>
+              <Button variant="outline" onClick={cancelEditing} disabled={saving}>
+                取消
+              </Button>
+              <Button onClick={saveEdits} disabled={saving}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                保存
+              </Button>
+            </>
+          )}
           <Button variant="outline" onClick={handleClose}>
             关闭
           </Button>

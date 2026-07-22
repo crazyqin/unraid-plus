@@ -36,6 +36,11 @@ type deleteFilesReq struct {
 	Paths []string `json:"paths"`
 }
 
+type saveFileReq struct {
+	Path    string `json:"path"`
+	Content string `json:"content"`
+}
+
 // ListFiles uses SFTP to read the requested directory. We deliberately refuse
 // to traverse above /mnt and /root for safety, matching the obvious "what is
 // the user actually managing" scope.
@@ -446,4 +451,46 @@ func (h *Handler) UploadFile(c *gin.Context) {
 		"ok":      true,
 		"message": "已上传 " + strconv.Itoa(uploaded) + " 个文件",
 	})
+}
+
+// SaveFileContent writes text content to a remote file via SFTP. The file is
+// truncated and rewritten atomically — this is intended for small text files
+// (configs, logs, scripts) edited in the browser preview pane. Path safety
+// is enforced via isAllowedRoot.
+func (h *Handler) SaveFileContent(c *gin.Context) {
+	cli, ok := h.activeClient(c)
+	if !ok {
+		return
+	}
+	var req saveFileReq
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errOut(c, http.StatusBadRequest, "请求格式错误")
+		return
+	}
+	req.Path = path.Clean(req.Path)
+	if req.Path == "" || !isAllowedRoot(req.Path) {
+		errOut(c, http.StatusForbidden, "拒绝保存到非允许目录")
+		return
+	}
+
+	sc, err := cli.SFTP()
+	if err != nil {
+		errOut(c, http.StatusInternalServerError, "SFTP 会话失败: "+err.Error())
+		return
+	}
+	defer sc.Close()
+
+	// Open file with O_WRONLY|O_CREAT|O_TRUNC (0644 permissions).
+	f, err := sc.Create(req.Path)
+	if err != nil {
+		errOut(c, http.StatusInternalServerError, "打开文件失败: "+err.Error())
+		return
+	}
+	defer f.Close()
+
+	if _, err := f.Write([]byte(req.Content)); err != nil {
+		errOut(c, http.StatusInternalServerError, "写入文件失败: "+err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已保存"})
 }

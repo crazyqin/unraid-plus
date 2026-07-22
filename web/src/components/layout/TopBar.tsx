@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
 import { Activity, HelpCircle, RefreshCw, Wifi, WifiOff } from 'lucide-react';
-import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Switch } from '@/components/ui/switch';
@@ -17,7 +16,12 @@ export default function TopBar() {
 
   const health = useQuery({
     queryKey: ['health'],
-    queryFn: () => api.get<{ ok: boolean; uptime: number }>('/health'),
+    queryFn: async () => {
+      // /health is registered outside /api group, so we fetch directly
+      const res = await fetch('/health', { credentials: 'include' });
+      if (!res.ok) throw new Error('health check failed');
+      return res.json() as Promise<{ ok: boolean; uptime: number }>;
+    },
     refetchInterval: refreshInterval,
   });
 

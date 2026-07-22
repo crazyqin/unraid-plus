@@ -215,6 +215,16 @@ export const api = {
    * automatically for same-origin navigation.
    */
   downloadUrl: (path: string): string => `${BASE}${path}`,
+
+  /**
+   * Save text content to a remote file. Used by the file editor to write
+   * changes back to the Unraid host via SFTP.
+   */
+  saveFileContent: (filePath: string, content: string) =>
+    request<{ ok: boolean; message: string }>('/files/save', {
+      method: 'POST',
+      body: JSON.stringify({ path: filePath, content }),
+    }),
 };
 
 /** Build a WebSocket URL relative to the current origin. */

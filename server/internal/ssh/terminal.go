@@ -81,6 +81,10 @@ func (h *TerminalHub) Serve(c *websocket.Conn) {
 	go pipe(stderr, c, "stderr")
 
 	// Read loop: handle both control JSON (Text) and raw stdin (Binary).
+	// xterm.js term.onData() sends keystrokes as TextMessage (raw UTF-8
+	// strings), NOT BinaryMessage. If the TextMessage doesn't parse as
+	// our JSON control envelope, treat it as raw stdin so keystrokes
+	// flow through to the SSH PTY.
 	for {
 		mtype, data, err := c.ReadMessage()
 		if err != nil {
@@ -89,14 +93,14 @@ func (h *TerminalHub) Serve(c *websocket.Conn) {
 		switch mtype {
 		case websocket.TextMessage:
 			var m msgIn
-			if err := json.Unmarshal(data, &m); err != nil {
+			if err := json.Unmarshal(data, &m); err != nil || m.Type == "" {
+				// Not a JSON control message — treat as raw stdin.
+				_, _ = stdin.Write(data)
 				continue
 			}
 			switch m.Type {
 			case "resize":
 				if m.Cols > 0 && m.Rows > 0 {
-					// Forward the new pty geometry to the remote shell. SSH's
-					// WindowChange expects (height, width) — i.e. rows, cols.
 					if err := sess.WindowChange(m.Rows, m.Cols); err != nil {
 						logger.Warnf("terminal %s: window-change %dx%d failed: %v", id, m.Cols, m.Rows, err)
 					} else {
@@ -107,6 +111,9 @@ func (h *TerminalHub) Serve(c *websocket.Conn) {
 				if m.Data != "" {
 					_, _ = stdin.Write([]byte(m.Data))
 				}
+			default:
+				// Unknown JSON type — write raw data as stdin anyway.
+				_, _ = stdin.Write(data)
 			}
 		case websocket.BinaryMessage:
 			_, _ = stdin.Write(data)

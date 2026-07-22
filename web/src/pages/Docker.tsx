@@ -43,6 +43,15 @@ const STATUS_VARIANT: Record<DockerContainer['status'], 'success' | 'secondary' 
   dead: 'destructive',
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  running: '运行中',
+  exited: '已退出',
+  paused: '已暂停',
+  restarting: '重启中',
+  created: '已创建',
+  dead: '已停止',
+};
+
 export default function DockerPage() {
   const refresh = useSettingsStore((s) => s.refreshInterval);
   const qc = useQueryClient();
@@ -121,7 +130,7 @@ export default function DockerPage() {
                       {truncate(c.image, 38)}
                     </div>
                   </div>
-                  <Badge variant={STATUS_VARIANT[c.status]}>{c.status}</Badge>
+                  <Badge variant={STATUS_VARIANT[c.status]}>{STATUS_LABEL[c.status] ?? c.status}</Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">

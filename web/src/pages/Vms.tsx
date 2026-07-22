@@ -27,6 +27,13 @@ const STATUS_VARIANT: Record<VmInfo['status'], 'success' | 'secondary' | 'warnin
   unknown: 'secondary',
 };
 
+const STATUS_LABEL: Record<string, string> = {
+  running: '运行中',
+  shutoff: '已关机',
+  paused: '已暂停',
+  unknown: '未知',
+};
+
 export default function VmsPage() {
   const qc = useQueryClient();
   const { data, isLoading, isError } = useQuery({
@@ -75,7 +82,7 @@ export default function VmsPage() {
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
                   <CardTitle className="truncate text-sm">{vm.name}</CardTitle>
-                  <Badge variant={STATUS_VARIANT[vm.status]}>{vm.status}</Badge>
+                  <Badge variant={STATUS_VARIANT[vm.status]}>{STATUS_LABEL[vm.status] ?? vm.status}</Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">

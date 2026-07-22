@@ -1,14 +1,3 @@
----
-AIGC:
-  ContentProducer: '001191110102MAD55U9H0F10002'
-  ContentPropagator: '001191110102MAD55U9H0F10002'
-  Label: '1'
-  ProduceID: 'e6445b02-cac7-44fa-9525-3825352a97e1'
-  PropagateID: 'e6445b02-cac7-44fa-9525-3825352a97e1'
-  ReservedCode1: '510778a6-68bc-49f0-9d38-a199e742cac0'
-  ReservedCode2: '510778a6-68bc-49f0-9d38-a199e742cac0'
----
-
 # unraid+
 
 A web-first, self-hosted Unraid server manager.

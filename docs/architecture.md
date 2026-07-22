@@ -1,14 +1,3 @@
----
-AIGC:
-  ContentProducer: '001191110102MAD55U9H0F10002'
-  ContentPropagator: '001191110102MAD55U9H0F10002'
-  Label: '1'
-  ProduceID: '7465dc1f-3fef-4c36-a8d4-e3ea9432c7b8'
-  PropagateID: '7465dc1f-3fef-4c36-a8d4-e3ea9432c7b8'
-  ReservedCode1: '6c97fb2f-f800-4d16-8229-4e681032da21'
-  ReservedCode2: '6c97fb2f-f800-4d16-8229-4e681032da21'
----
-
 # 架构设计（Architecture）
 
 本文档描述 unraid++ 的整体架构、组件协作方式、关键请求路径与数据流。面向想要理解

@@ -1,14 +1,3 @@
----
-AIGC:
-  ContentProducer: '001191110102MAD55U9H0F10002'
-  ContentPropagator: '001191110102MAD55U9H0F10002'
-  Label: '1'
-  ProduceID: '4b437b51-d0b3-49f2-a6d6-47cf63f8bd58'
-  PropagateID: '4b437b51-d0b3-49f2-a6d6-47cf63f8bd58'
-  ReservedCode1: '0b577fea-bff5-4041-895d-32625a9fe2b8'
-  ReservedCode2: '0b577fea-bff5-4041-895d-32625a9fe2b8'
----
-
 # 开发指南（Development）
 
 本文档说明如何在本地把 unraid++ 跑起来、修改代码、调试，以及提交贡献时需要遵守的

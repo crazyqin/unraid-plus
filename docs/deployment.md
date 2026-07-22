@@ -1,14 +1,3 @@
----
-AIGC:
-  ContentProducer: '001191110102MAD55U9H0F10002'
-  ContentPropagator: '001191110102MAD55U9H0F10002'
-  Label: '1'
-  ProduceID: '77cea14a-b16f-4183-a2c8-75cc24542016'
-  PropagateID: '77cea14a-b16f-4183-a2c8-75cc24542016'
-  ReservedCode1: '20b4d762-a905-4c5f-b7c6-36812d0fde2d'
-  ReservedCode2: '20b4d762-a905-4c5f-b7c6-36812d0fde2d'
----
-
 # 部署指南（Deployment）
 
 本文档说明把 unraid++ 跑到生产环境的几种方式、环境变量清单，以及更新与反代配置。

@@ -1,14 +1,3 @@
----
-AIGC:
-  ContentProducer: '001191110102MAD55U9H0F10002'
-  ContentPropagator: '001191110102MAD55U9H0F10002'
-  Label: '1'
-  ProduceID: 'eee6209f-799b-4aae-9de4-b7b8d0c388e9'
-  PropagateID: 'eee6209f-799b-4aae-9de4-b7b8d0c388e9'
-  ReservedCode1: '3514e5ae-4144-4a81-8e91-e4b0aa3a8c36'
-  ReservedCode2: '3514e5ae-4144-4a81-8e91-e4b0aa3a8c36'
----
-
 # 安全模型（Security）
 
 unraid++ 是一个以 root 权限操作 NAS 的代理，安全是头等大事。本文档说明威胁模型、

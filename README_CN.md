@@ -1,14 +1,3 @@
----
-AIGC:
-  ContentProducer: '001191110102MAD55U9H0F10002'
-  ContentPropagator: '001191110102MAD55U9H0F10002'
-  Label: '1'
-  ProduceID: '374001c7-2d8f-475d-8787-29ea9a1942b9'
-  PropagateID: '374001c7-2d8f-475d-8787-29ea9a1942b9'
-  ReservedCode1: 'a1432593-49c2-4309-a117-4f5cfaaed074'
-  ReservedCode2: 'a1432593-49c2-4309-a117-4f5cfaaed074'
----
-
 # unraid+
 
 一个基于 Web 的 Unraid 服务器管理器，通过 SSH 直连你的 NAS，无需安装任何客户端。

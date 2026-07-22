@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  Activity,
   AlertTriangle,
   CheckCircle2,
   HardDrive,
   Loader2,
+  Play,
   RefreshCw,
+  ShieldCheck,
+  Square,
   Thermometer,
   XCircle,
 } from 'lucide-react';
@@ -20,7 +24,7 @@ import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { formatBytes, formatPct, formatRate, cn, timeAgo } from '@/lib/utils';
-import type { ArrayStatus, DiskInfo, SmartInfo } from '@/types';
+import type { ArrayStatus, DiskInfo, ParityStatus, SmartInfo } from '@/types';
 import { useSettingsStore } from '@/stores/settings';
 
 const DISK_STATUS_VARIANT: Record<DiskInfo['status'], 'success' | 'warning' | 'destructive' | 'secondary'> = {
@@ -84,6 +88,57 @@ export default function StoragePage() {
     },
   });
 
+  // Array start/stop (mdcmd start / mdcmd stop).
+  const arrayMut = useMutation({
+    mutationFn: (action: 'start' | 'stop') =>
+      api.post<{ ok: boolean; message?: string; detail?: string }>(
+        `/storage/array/${action}`,
+      ),
+    onSuccess: (r) => {
+      setRefreshMsg({
+        kind: r.ok ? 'ok' : 'err',
+        text: r.ok ? (r.message ?? '操作成功') : (r.detail ?? r.message ?? '操作失败'),
+      });
+      qc.invalidateQueries({ queryKey: ['storage'] });
+      window.setTimeout(() => setRefreshMsg(null), 4000);
+    },
+    onError: (e: unknown) => {
+      const msg = e instanceof ApiError ? e.message : '阵列操作失败';
+      setRefreshMsg({ kind: 'err', text: msg });
+      window.setTimeout(() => setRefreshMsg(null), 4000);
+    },
+  });
+
+  // Parity check start/stop (mdcmd check / mdcmd nocheck).
+  const parityMut = useMutation({
+    mutationFn: (action: 'start' | 'stop') =>
+      api.post<{ ok: boolean; message?: string; detail?: string }>(
+        `/storage/parity/${action}`,
+      ),
+    onSuccess: (r) => {
+      setRefreshMsg({
+        kind: r.ok ? 'ok' : 'err',
+        text: r.ok ? (r.message ?? '操作成功') : (r.detail ?? r.message ?? '操作失败'),
+      });
+      qc.invalidateQueries({ queryKey: ['parity'] });
+      window.setTimeout(() => setRefreshMsg(null), 4000);
+    },
+    onError: (e: unknown) => {
+      const msg = e instanceof ApiError ? e.message : 'Parity 操作失败';
+      setRefreshMsg({ kind: 'err', text: msg });
+      window.setTimeout(() => setRefreshMsg(null), 4000);
+    },
+  });
+
+  // Poll parity status. This is cheap (just reads /proc/mdstat) so we
+  // poll every 3s regardless of whether a check is running — that way
+  // the UI updates immediately when a check starts or finishes.
+  const { data: parity } = useQuery({
+    queryKey: ['parity'],
+    queryFn: () => api.get<ParityStatus>('/storage/parity-status'),
+    refetchInterval: 3000,
+  });
+
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
@@ -116,8 +171,30 @@ export default function StoragePage() {
             </Badge>
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          {/* Show transient result inline — no toast lib in the project yet. */}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Array start/stop */}
+          {data.state === 'started' ? (
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={arrayMut.isPending}
+              onClick={() => {
+                if (confirm('确认停止阵列？所有磁盘将被卸载。')) arrayMut.mutate('stop');
+              }}
+            >
+              <Square className="h-3.5 w-3.5" /> 停止阵列
+            </Button>
+          ) : (
+            <Button
+              size="sm"
+              variant="success"
+              disabled={arrayMut.isPending}
+              onClick={() => arrayMut.mutate('start')}
+            >
+              <Play className="h-3.5 w-3.5" /> 启动阵列
+            </Button>
+          )}
+          {/* Show transient result inline */}
           {refreshMsg && (
             <span
               className={cn(
@@ -139,6 +216,69 @@ export default function StoragePage() {
           </Button>
         </div>
       </div>
+
+      {/* Parity check progress + controls */}
+      {parity && parity.state === 'checking' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center justify-between text-base">
+              <span className="flex items-center gap-2">
+                <Activity className="h-4 w-4 animate-pulse text-primary" />
+                Parity 检查进行中
+              </span>
+              <div className="flex items-center gap-2">
+                {parity.errors > 0 && (
+                  <Badge variant="destructive" className="text-[10px]">
+                    <AlertTriangle className="mr-1 h-3 w-3" />
+                    {parity.errors} 错误
+                  </Badge>
+                )}
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={parityMut.isPending}
+                  onClick={() => parityMut.mutate('stop')}
+                >
+                  <Square className="h-3.5 w-3.5" /> 停止检查
+                </Button>
+              </div>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <div className="flex items-center gap-3">
+              <Progress className="flex-1" value={parity.progress} />
+              <span className="shrink-0 text-sm font-medium tabular-nums">
+                {formatPct(parity.progress)}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+              <span>速度：{parity.speed}</span>
+              <span>剩余：{parity.remaining}</span>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Parity check idle — show start button */}
+      {parity && parity.state === 'idle' && (
+        <div className="flex items-center justify-between rounded-lg border p-3">
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <ShieldCheck className="h-4 w-4 text-muted-foreground" />
+            Parity 检查未运行
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={parityMut.isPending}
+            onClick={() => {
+              if (confirm('启动 Parity 检查？这将读取所有阵列磁盘，可能需要数小时。'))
+                parityMut.mutate('start');
+            }}
+          >
+            <Play className="h-3.5 w-3.5" /> 开始 Parity 检查
+          </Button>
+        </div>
+      )}
 
       <DiskGroup title="阵列磁盘" disks={data.disks} />
       <DiskGroup title="缓存池" disks={data.cacheDisks} />

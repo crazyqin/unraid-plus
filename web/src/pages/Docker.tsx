@@ -2,7 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Boxes,
+  Cpu,
   Loader2,
+  MemoryStick,
+  Network,
   Pause,
   Play,
   RotateCw,
@@ -14,6 +17,7 @@ import { api, wsUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
 import {
   Card,
   CardContent,
@@ -26,9 +30,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { cn, timeAgo, truncate } from '@/lib/utils';
+import { cn, formatBytes, timeAgo, truncate } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
-import type { DockerContainer } from '@/types';
+import type { ContainerStats, DockerContainer } from '@/types';
 
 const STATUS_VARIANT: Record<DockerContainer['status'], 'success' | 'secondary' | 'warning' | 'destructive'> = {
   running: 'success',
@@ -50,6 +54,17 @@ export default function DockerPage() {
     queryFn: () => api.get<DockerContainer[]>('/docker/containers'),
     refetchInterval: refresh || false,
   });
+
+  // Resource stats — polled at the same interval as the container list.
+  // The backend caches stats for 3s so this is cheap even at 1s polling.
+  const { data: statsData } = useQuery({
+    queryKey: ['docker-stats'],
+    queryFn: () => api.get<ContainerStats[]>('/docker/stats'),
+    refetchInterval: refresh || false,
+  });
+
+  const statsMap = new Map<string, ContainerStats>();
+  (statsData ?? []).forEach((s) => statsMap.set(s.id, s));
 
   const act = async (id: string, action: 'start' | 'stop' | 'restart' | 'pause') => {
     await api.post(`/docker/containers/${id}/${action}`);
@@ -122,6 +137,12 @@ export default function DockerPage() {
                     </Badge>
                   )}
                 </div>
+
+                {/* Resource stats (only for running containers) */}
+                {c.status === 'running' && statsMap.get(c.id) && (
+                  <ContainerStatsBar stats={statsMap.get(c.id)!} />
+                )}
+
                 <div className="text-xs text-muted-foreground">
                   启动于 {c.startedAt ? timeAgo(c.startedAt) : '—'}
                 </div>
@@ -158,6 +179,63 @@ export default function DockerPage() {
     </div>
   );
 }
+
+/* --------------------------- Container Stats Bar -------------------------- */
+
+/**
+ * Compact resource-usage display rendered inside each running container's
+ * card. Shows CPU%, memory usage with a progress bar, and network I/O.
+ *
+ * Hidden for non-running containers because `docker stats` only reports
+ * on active containers — showing zeros would be misleading.
+ */
+function ContainerStatsBar({ stats }: { stats: ContainerStats }) {
+  const memPct = stats.memLimitBytes > 0
+    ? (stats.memUsageBytes / stats.memLimitBytes) * 100
+    : 0;
+
+  return (
+    <div className="space-y-1.5 rounded-md border bg-muted/30 p-2">
+      {/* CPU */}
+      <div className="flex items-center gap-2 text-xs">
+        <Cpu className="h-3 w-3 shrink-0 text-muted-foreground" />
+        <Progress
+          className="h-1.5 flex-1"
+          value={Math.min(stats.cpuPct, 100)}
+        />
+        <span className="shrink-0 tabular-nums text-muted-foreground">
+          {stats.cpuPct.toFixed(1)}%
+        </span>
+      </div>
+      {/* Memory */}
+      <div className="flex items-center gap-2 text-xs">
+        <MemoryStick className="h-3 w-3 shrink-0 text-muted-foreground" />
+        <Progress
+          className="h-1.5 flex-1"
+          value={memPct}
+          indicatorClassName={
+            memPct > 90 ? 'bg-destructive' : memPct > 75 ? 'bg-warning' : 'bg-primary'
+          }
+        />
+        <span className="shrink-0 tabular-nums text-muted-foreground">
+          {formatBytes(stats.memUsageBytes)} / {formatBytes(stats.memLimitBytes)}
+        </span>
+      </div>
+      {/* Network I/O */}
+      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+        <Network className="h-3 w-3 shrink-0" />
+        <span className="tabular-nums">
+          ↓ {formatBytes(stats.netRxBytes)} · ↑ {formatBytes(stats.netTxBytes)}
+        </span>
+        <span className="ml-auto tabular-nums">
+          {stats.pids} PIDs
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------- Log Dialog ------------------------------- */
 
 function LogDialog({
   container,

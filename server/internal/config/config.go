@@ -24,18 +24,25 @@ type Config struct {
 
 	// Session signing key. If unset a fresh random one is generated on boot.
 	SessionKey []byte
+
+	// UIPassword protects the web interface with a simple session-based
+	// password gate. If empty (default), auth is disabled — backwards
+	// compatible with v0.1-v0.4 deployments. Set UNRAIDPP_UI_PASSWORD
+	// in the environment to require login before any API access.
+	UIPassword string
 }
 
 // FromEnv resolves configuration from environment variables.
 func FromEnv() (*Config, error) {
 	cfg := &Config{
-		Listen:     getenv("UNRAIDPP_LISTEN", ":8080"),
-		DataDir:    getenv("UNRAIDPP_DATA_DIR", "./data"),
-		LogLevel:   strings.ToLower(getenv("UNRAIDPP_LOG_LEVEL", "info")),
-		DefaultHost: getenv("UNRAIDPP_DEFAULT_HOST", ""),
-		DefaultAPI:  getenv("UNRAIDPP_DEFAULT_API", ""),
-		DefaultUser: getenv("UNRAIDPP_DEFAULT_USER", "root"),
+		Listen:       getenv("UNRAIDPP_LISTEN", ":8080"),
+		DataDir:      getenv("UNRAIDPP_DATA_DIR", "./data"),
+		LogLevel:     strings.ToLower(getenv("UNRAIDPP_LOG_LEVEL", "info")),
+		DefaultHost:  getenv("UNRAIDPP_DEFAULT_HOST", ""),
+		DefaultAPI:   getenv("UNRAIDPP_DEFAULT_API", ""),
+		DefaultUser:  getenv("UNRAIDPP_DEFAULT_USER", "root"),
 		DefaultPasswd: getenv("UNRAIDPP_DEFAULT_PASSWD", ""),
+		UIPassword:   getenv("UNRAIDPP_UI_PASSWORD", ""),
 	}
 
 	if v := getenv("UNRAIDPP_DEFAULT_PORT", ""); v != "" {

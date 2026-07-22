@@ -7,8 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/your-org/unraidpp/server/internal/web"
-	"github.com/your-org/unraidpp/server/pkg/logger"
+	"github.com/crazyqin/unraid-plus/server/internal/web"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 // SPA returns a gin.HandlerFunc that serves the embedded React SPA.

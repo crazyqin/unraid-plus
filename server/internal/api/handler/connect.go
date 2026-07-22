@@ -6,7 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/your-org/unraidpp/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/internal/ssh"
 )
 
 type connectReq struct {

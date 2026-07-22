@@ -3,103 +3,141 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'c2b55054-ecea-4647-9f1a-1a24edc686fc'
-  PropagateID: 'c2b55054-ecea-4647-9f1a-1a24edc686fc'
-  ReservedCode1: '29e36ca8-38d3-448b-a11f-95c5ccd2457f'
-  ReservedCode2: '29e36ca8-38d3-448b-a11f-95c5ccd2457f'
+  ProduceID: 'd850a433-0cc4-409e-831d-51a2c398743b'
+  PropagateID: 'd850a433-0cc4-409e-831d-51a2c398743b'
+  ReservedCode1: '3ec0664e-594a-4e39-965a-e9aa85980db1'
+  ReservedCode2: '3ec0664e-594a-4e39-965a-e9aa85980db1'
 ---
 
-# unraid++
+# unraid+
 
-> 一款更易上手的 Unraid 服务器管理器 · 网页端优先 · 后续支持 Android / iOS / 鸿蒙
+A web-first, self-hosted Unraid server manager.
 
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-[![Frontend](https://img.shields.io/badge/Frontend-React_18-61dafb.svg)](web)
-[![Backend](https://img.shields.io/badge/Backend-Go-00add8.svg)](server)
-[![Deploy](https://img.shields.io/badge/Deploy-Docker-2496ed.svg)](docker-compose.yml)
+Connect via SSH with password or key auth, monitor CPU / memory / storage /
+Docker / VMs, manage files through SFTP, and open a browser-based terminal —
+all from a single dashboard. Supports multi-server, mobile-friendly UI, and
+zero-cloud architecture: your data never leaves your LAN.
 
-`unraid++` 受 [Easy Unraid](https://github.com/wlaosj/easy-unraid-releases) 启发，目标是把 Unraid 服务器的日常管理做得**对新手更友好、对极客更透明**。
+## Features
 
-## 与 Easy Unraid 的差异
+- **Dashboard** — Real-time CPU, memory, network, and disk I/O at a glance
+- **Storage** — Array status, disk temperatures, SMART health with auto-fallback
+- **Docker** — Container list, start/stop, resource stats, and live logs
+- **VMs** — KVM virtual machine status and control
+- **Files** — SFTP-based file browser with upload, download, preview, rename, mkdir, delete
+- **Terminal** — Full SSH terminal in the browser (WebSocket)
+- **Multi-server** — Add and switch between multiple Unraid machines
+- **Security** — Optional UI password; SSH key rotation (ED25519); AES-GCM encrypted credential storage
+- **Mobile-friendly** — Responsive layout works on phones and tablets
+- **Zero cloud** — No data ever leaves your network; all communication is direct SSH
 
-| 维度 | Easy Unraid | unraid++ |
-| --- | --- | --- |
-| 形态 | Flutter 原生客户端（5 端） | 网页端优先，后续原生扩展 |
-| 上手门槛 | 需自行配置 SSH 密钥对 | 默认密码模式，**零配置开箱即用** |
-| 部署 | 各平台分别下载安装包 | **一键 `docker compose up`** |
-| 价格 | 免费 + Pro 付费 | **完全免费开源**（Apache 2.0） |
-| 引导 | 无 | **内嵌新手引导与术语解释** |
-| 通信 | 客户端直连 Unraid IP | 后端中转（可独立部署或装为 Unraid 插件） |
+## Architecture
 
-## 核心功能路线
+```
+Browser ──▶ Go Backend (single binary) ──▶ Unraid (SSH)
+                  │
+                  ├── REST API (Gin)
+                  ├── WebSocket terminal
+                  └── Embedded React SPA (go:embed)
+```
 
-- **📊 实时仪表盘**：CPU 负载 / 各核温度 / 内存 / 网速 / 阵列读写，图形化看板
-- **🐳 Docker 管理**：容器启停 / 实时日志 / Compose 编排 / YAML 编辑
-- **💾 存储监控**：磁盘空间 / 温度 / SMART 健康告警
-- **📁 文件管理**：基于 SFTP，上传 / 下载 / 在线预览 / 解压
-- **🖥️ SSH 终端**：浏览器内 WebSocket 终端，多会话
-- **🚀 虚拟机控制**：VM 启停 / 状态查看
-- **🧭 新手引导**：首次进入零门槛向导，关键术语悬浮解释
+The backend connects to your Unraid server exclusively via SSH. It reads
+structured state files from `/usr/local/emhttp/state/` (the same data source
+as the official Unraid WebUI) for fast, reliable monitoring without fragile
+shell-command parsing.
 
-## 快速开始
+## Quick Start
 
-### 一键 Docker 部署（推荐）
+### Docker (recommended)
 
 ```bash
-git clone https://github.com/your-org/unraid-plus-plus.git
-cd unraid-plus-plus
-docker compose up -d
+docker run -d \
+  --name unraid-plus \
+  -p 9876:9876 \
+  -v unraid-plus-data:/data \
+  -e UNRAIDPP_UI_PASSWORD=changeme \
+  crazyqin/unraid-plus
 ```
 
-打开浏览器访问 `http://<部署机 IP>:8080`，按引导填入 Unraid 地址与 root 密码即可。
+Open `http://localhost:9876` and follow the onboarding wizard.
 
-### 本地开发
+### Binary
 
-详见 [docs/development.md](docs/development.md)。
+```bash
+# Build from source (requires Go 1.23+ and Node 20+)
+git clone https://github.com/crazyqin/unraid-plus.git
+cd unraid-plus
 
-- 前端：`cd web && pnpm install && pnpm dev`
-- 后端：`cd server && go run ./cmd/server`
+# Frontend
+cd web && pnpm install && pnpm build
 
-## 技术栈
+# Sync frontend dist for go:embed
+cp -r web/dist server/internal/web/dist
 
-- **前端**：React 18 · TypeScript · Vite · Tailwind CSS · shadcn/ui · Zustand · TanStack Query · xterm.js
-- **后端**：Go · Gin · `golang.org/x/crypto/ssh` · SFTP · WebSocket · 单二进制
-- **部署**：多阶段 Docker 构建，最终镜像 ~25MB，ARM64 / AMD64 双架构
+# Backend
+cd server && go build -o unraid-plus ./cmd/server
 
-## 架构
-
+# Run
+UNRAIDPP_LISTEN=:9876 UNRAIDPP_DATA_DIR=/var/lib/unraid-plus ./unraid-plus
 ```
-浏览器 ──HTTP/WS──▶ unraid++ 后端（Go）──SSH/SFTP──▶ Unraid 服务器
-                         │
-                         └──HTTP──▶ Unraid 原生 API（/webgui/api）
-```
 
-后端是浏览器与 Unraid 之间的「安全代理 + 协议翻译层」：浏览器永远不直连 SSH，所有 SSH/SFTP 会话都由后端发起并通过 WebSocket 转发。
+## Configuration
 
-详细架构见 [docs/architecture.md](docs/architecture.md)。
+| Environment Variable       | Default   | Description                              |
+|----------------------------|-----------|------------------------------------------|
+| `UNRAIDPP_LISTEN`          | `:9876`   | Listen address (`host:port`)             |
+| `UNRAIDPP_DATA_DIR`        | `./data`  | Directory for persistent state           |
+| `UNRAIDPP_UI_PASSWORD`     | *(empty)* | Set to enable UI login protection        |
+| `UNRAIDPP_LOG_LEVEL`       | `info`    | Log level: debug, info, warn, error      |
+| `UNRAIDPP_SESSION_KEY`     | *(random)*| Session encryption key (auto-generated)   |
 
-## 路线图
+## Connecting to Unraid
 
-- [x] v0.1 项目骨架（前端 + 后端 + Docker）
-- [ ] v0.2 仪表盘 + 系统信息
-- [ ] v0.3 Docker 容器管理
-- [ ] v0.4 文件管理 + SFTP
-- [ ] v0.5 SSH 终端
-- [ ] v0.6 存储监控 + VM 控制
-- [ ] v0.7 新手引导完善
-- [ ] v1.0 网页端 GA
-- [ ] 后续 Android / iOS / 鸿蒙原生客户端
+**Password mode** (zero-config): Enter your Unraid IP and root password.
+The password is used once to establish the SSH session and is never stored.
 
-## 安全说明
+**Key mode** (recommended): Upload or paste your SSH private key during setup.
+After connecting, use **Settings → Rotate Key** to generate a dedicated
+ED25519 key pair — the original password is no longer needed.
 
-- root 密码默认仅存在于后端内存，可启用「密钥对模式」彻底免密
-- 所有通信建议走 HTTPS / WireGuard / Tailscale，**不要把管理端口直接暴露公网**
-- 详见 [docs/security.md](docs/security.md)
+## Tech Stack
+
+| Layer    | Technology                               |
+|----------|------------------------------------------|
+| Frontend | React 18, TypeScript, Tailwind CSS, Vite |
+| Backend  | Go 1.23, Gin, gorilla/websocket          |
+| Protocol | SSH (golang.org/x/crypto/ssh), SFTP       |
 
 ## License
 
-[Apache License 2.0](LICENSE) © unraid++ contributors
+[MIT](LICENSE)
 
-本项目与 Easy Unraid（wlaosj）项目无关联、无派生关系，仅在产品形态上受其启发。
+---
 
-> AI生成
+## 中文说明
+
+unraid+ 是一个基于 Web 的 Unraid 服务器管理器，通过 SSH 连接你的 NAS，无需安装任何客户端。
+
+### 主要功能
+
+- **仪表盘** — 实时监控 CPU、内存、网络、磁盘读写
+- **存储管理** — 阵列状态、磁盘温度、SMART 健康检测
+- **Docker 管理** — 容器列表、启停、资源占用、实时日志
+- **虚拟机管理** — KVM 虚拟机状态和控制
+- **文件管理** — 基于 SFTP 的文件浏览器，支持上传/下载/预览/重命名
+- **Web 终端** — 浏览器内 SSH 命令行（WebSocket）
+- **多服务器** — 添加和切换多台 Unraid 机器
+- **安全** — 可选界面密码、SSH 密钥轮换（ED25519）、AES-GCM 加密存储凭据
+- **零云架构** — 所有数据不离开局域网，直连 SSH
+
+### 快速开始
+
+```bash
+docker run -d \
+  --name unraid-plus \
+  -p 9876:9876 \
+  -v unraid-plus-data:/data \
+  crazyqin/unraid-plus
+```
+
+打开 `http://localhost:9876`，按向导输入 Unraid 的 IP 和密码即可接入。

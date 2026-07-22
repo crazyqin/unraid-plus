@@ -18,13 +18,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/your-org/unraidpp/server/internal/api"
-	"github.com/your-org/unraidpp/server/internal/api/handler"
-	"github.com/your-org/unraidpp/server/internal/config"
-	"github.com/your-org/unraidpp/server/internal/ssh"
-	"github.com/your-org/unraidpp/server/internal/unraid"
-	"github.com/your-org/unraidpp/server/internal/web"
-	"github.com/your-org/unraidpp/server/pkg/logger"
+	"github.com/crazyqin/unraid-plus/server/internal/api"
+	"github.com/crazyqin/unraid-plus/server/internal/api/handler"
+	"github.com/crazyqin/unraid-plus/server/internal/config"
+	"github.com/crazyqin/unraid-plus/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/internal/unraid"
+	"github.com/crazyqin/unraid-plus/server/internal/web"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 // Version metadata is injected by the linker (see Dockerfile -ldflags).

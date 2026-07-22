@@ -1,4 +1,4 @@
-module github.com/your-org/unraidpp/server
+module github.com/crazyqin/unraid-plus/server
 
 go 1.23
 

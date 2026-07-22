@@ -5,7 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/your-org/unraidpp/server/internal/api/middleware"
+	"github.com/crazyqin/unraid-plus/server/internal/api/middleware"
 )
 
 // If cfg.UIPassword is empty, all auth endpoints return {"enabled": false}

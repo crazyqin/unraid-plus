@@ -8,7 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
-	"github.com/your-org/unraidpp/server/pkg/logger"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 // dockerLogsUpgrader is purpose-built for /ws/docker-logs. Same permissive

@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 	xssh "golang.org/x/crypto/ssh"
 
-	"github.com/your-org/unraidpp/server/pkg/logger"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 // TerminalHub multiplexes browser WebSocket terminals onto SSH pty sessions.

@@ -3,7 +3,7 @@ package handler
 import (
 	"strings"
 
-	"github.com/your-org/unraidpp/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/internal/ssh"
 )
 
 // This file implements the "Unraid API channel" by reading Unraid's own

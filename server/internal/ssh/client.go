@@ -10,7 +10,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/your-org/unraidpp/server/pkg/logger"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 // Client wraps a single authenticated ssh.Client plus its underlying config

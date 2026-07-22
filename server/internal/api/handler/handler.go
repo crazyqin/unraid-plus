@@ -9,9 +9,9 @@ package handler
 import (
 	"github.com/gin-gonic/gin"
 
-	"github.com/your-org/unraidpp/server/internal/config"
-	"github.com/your-org/unraidpp/server/internal/ssh"
-	"github.com/your-org/unraidpp/server/internal/unraid"
+	"github.com/crazyqin/unraid-plus/server/internal/config"
+	"github.com/crazyqin/unraid-plus/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/internal/unraid"
 )
 
 // Handler holds shared dependencies for every endpoint.

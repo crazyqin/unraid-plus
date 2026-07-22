@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/your-org/unraidpp/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/internal/ssh"
 )
 
 // smartInfo holds the subset of SMART attributes we surface to the UI.

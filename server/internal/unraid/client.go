@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/your-org/unraidpp/server/internal/config"
-	"github.com/your-org/unraidpp/server/pkg/logger"
+	"github.com/crazyqin/unraid-plus/server/internal/config"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 // Client is the Unraid HTTP API client. It carries the user's session cookie

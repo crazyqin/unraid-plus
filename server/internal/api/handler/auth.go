@@ -7,7 +7,8 @@ import (
 
 	"github.com/your-org/unraidpp/server/internal/api/middleware"
 )
-
+// If cfg.UIPassword is empty, all auth endpoints return {"enabled": false}
+// and the middleware is a no-op — the app behaves exactly as v0.1-v0.4.
 // AuthHandler wraps the session store for UI authentication.
 // If cfg.UIPassword is empty, all auth endpoints return {"enabled": false}
 // and the middleware is a no-op — the app behaves exactly as v0.1-v0.4.
@@ -45,6 +46,16 @@ func (a *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
+	// Rate limit: block IPs with too many failed attempts.
+	clientIP := c.ClientIP()
+	if middleware.IsBlocked(clientIP) {
+		c.JSON(http.StatusTooManyRequests, gin.H{
+			"ok":      false,
+			"message": "登录尝试过多，请 15 分钟后再试",
+		})
+		return
+	}
+
 	var req loginReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errOut(c, http.StatusBadRequest, "请求格式错误")
@@ -53,9 +64,13 @@ func (a *AuthHandler) Login(c *gin.Context) {
 
 	token := a.store.Login(req.Password)
 	if token == "" {
+		middleware.RecordFailure(clientIP)
 		c.JSON(http.StatusUnauthorized, gin.H{"ok": false, "message": "密码错误"})
 		return
 	}
+
+	// Clear failure history on success.
+	middleware.RecordSuccess(clientIP)
 
 	// Set HttpOnly cookie. Secure=false because the app is typically
 	// accessed over LAN HTTP (not HTTPS). SameSite=Lax prevents CSRF

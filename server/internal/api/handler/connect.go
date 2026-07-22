@@ -147,6 +147,18 @@ func (h *Handler) RotateKey(c *gin.Context) {
 		return
 	}
 
+	// Persist connection metadata so the server can auto-reconnect on restart.
+	connCfg, _ := h.pool.ActiveConfig()
+	if connCfg != nil {
+		_ = saveConnMeta(h.cfg.DataDir, connMeta{
+			Host:    connCfg.Host,
+			Port:    connCfg.Port,
+			User:    connCfg.User,
+			APIBase: connCfg.APIBase,
+			Label:   connCfg.Label,
+		})
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"ok":      true,
 		"message": "已生成并部署 ED25519 密钥对，后续将使用免密连接",

@@ -1,4 +1,5 @@
 import { useNavigate } from 'react-router-dom';
+import { useState } from 'react';
 import {
   HelpCircle,
   KeyRound,
@@ -22,6 +23,7 @@ import { Separator } from '@/components/ui/separator';
 import { useAuthStore } from '@/stores/auth';
 import { useSettingsStore } from '@/stores/settings';
 import { api } from '@/lib/api';
+import { ConfirmDialog } from '@/components/ui/alert-dialog';
 
 export default function SettingsPage() {
   const server = useAuthStore((s) => s.server);
@@ -30,6 +32,9 @@ export default function SettingsPage() {
   const isUiAuthenticated = useAuthStore((s) => s.isUiAuthenticated);
   const logout = useAuthStore((s) => s.logout);
   const navigate = useNavigate();
+  const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [confirmRotate, setConfirmRotate] = useState(false);
+  const [rotateLoading, setRotateLoading] = useState(false);
 
   const {
     showHelpers,
@@ -41,7 +46,6 @@ export default function SettingsPage() {
   } = useSettingsStore();
 
   const disconnect = async () => {
-    if (!confirm('断开当前服务器连接？需要重新走一遍连接向导。')) return;
     try {
       await api.post('/disconnect');
     } catch {
@@ -52,13 +56,13 @@ export default function SettingsPage() {
   };
 
   const rotateKey = async () => {
-    if (
-      !confirm(
-        '生成新的密钥对并部署到 Unraid？此操作会替换服务器上现有的 authorized_keys。',
-      )
-    )
-      return;
-    await api.post('/auth/rotate-key');
+    setRotateLoading(true);
+    try {
+      await api.post('/auth/rotate-key');
+    } finally {
+      setRotateLoading(false);
+      setConfirmRotate(false);
+    }
   };
 
   return (
@@ -97,7 +101,7 @@ export default function SettingsPage() {
             <Button variant="outline" size="sm" onClick={() => location.reload()}>
               <RefreshCw className="h-3.5 w-3.5" /> 刷新页面
             </Button>
-            <Button variant="destructive" size="sm" onClick={disconnect}>
+            <Button variant="destructive" size="sm" onClick={() => setConfirmDisconnect(true)}>
               <LogOut className="h-3.5 w-3.5" /> 断开连接
             </Button>
           </div>
@@ -122,7 +126,7 @@ export default function SettingsPage() {
                 后端自动生成并托管 SSH 密钥对，root 密码不出现在内存之外的任何位置。
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={rotateKey}>
+            <Button variant="outline" size="sm" onClick={() => setConfirmRotate(true)}>
               <KeyRound className="h-3.5 w-3.5" /> 生成 / 轮换密钥
             </Button>
           </div>
@@ -207,6 +211,25 @@ export default function SettingsPage() {
       <p className="text-center text-xs text-muted-foreground">
         unraid++ · Apache 2.0 · 完全开源
       </p>
+
+      <ConfirmDialog
+        open={confirmDisconnect}
+        title="断开连接"
+        description="断开当前服务器连接？需要重新走一遍连接向导。"
+        confirmText="断开"
+        variant="destructive"
+        onConfirm={disconnect}
+        onCancel={() => setConfirmDisconnect(false)}
+      />
+      <ConfirmDialog
+        open={confirmRotate}
+        title="轮换密钥"
+        description="生成新的密钥对并部署到 Unraid？此操作会替换服务器上现有的 authorized_keys。"
+        confirmText="生成密钥"
+        loading={rotateLoading}
+        onConfirm={rotateKey}
+        onCancel={() => setConfirmRotate(false)}
+      />
     </div>
   );
 }

@@ -1,5 +1,13 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Cpu, Loader2, MemoryStick, Play, Square } from 'lucide-react';
+import {
+  Cpu,
+  Loader2,
+  MemoryStick,
+  Pause,
+  Play,
+  Power,
+  Square,
+} from 'lucide-react';
 import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,7 +35,7 @@ export default function VmsPage() {
     refetchInterval: 10_000,
   });
 
-  const act = async (id: string, action: 'start' | 'stop') => {
+  const act = async (id: string, action: 'start' | 'stop' | 'shutdown' | 'resume' | 'suspend') => {
     await api.post(`/vms/${id}/${action}`);
     qc.invalidateQueries({ queryKey: ['vms'] });
   };
@@ -87,20 +95,28 @@ export default function VmsPage() {
                     </div>
                   </div>
                 </div>
-                <div className="flex gap-2">
-                  {vm.status !== 'running' && (
+                <div className="flex flex-wrap gap-2">
+                  {vm.status !== 'running' && vm.status !== 'paused' && (
                     <Button size="sm" variant="success" onClick={() => act(vm.id, 'start')}>
                       <Play className="h-3.5 w-3.5" /> 启动
                     </Button>
                   )}
                   {vm.status === 'running' && (
-                    <Button size="sm" variant="destructive" onClick={() => act(vm.id, 'stop')}>
-                      <Square className="h-3.5 w-3.5" /> 强制停止
-                    </Button>
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => act(vm.id, 'shutdown')}>
+                        <Power className="h-3.5 w-3.5" /> 安全关机
+                      </Button>
+                      <Button size="sm" variant="destructive" onClick={() => act(vm.id, 'stop')}>
+                        <Square className="h-3.5 w-3.5" /> 强制停止
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => act(vm.id, 'suspend')}>
+                        <Pause className="h-3.5 w-3.5" /> 暂停
+                      </Button>
+                    </>
                   )}
                   {vm.status === 'paused' && (
-                    <Button size="sm" variant="outline" disabled>
-                      <Play className="h-3.5 w-3.5" /> 恢复（开发中）
+                    <Button size="sm" variant="success" onClick={() => act(vm.id, 'resume')}>
+                      <Play className="h-3.5 w-3.5" /> 恢复
                     </Button>
                   )}
                 </div>

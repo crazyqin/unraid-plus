@@ -12,6 +12,7 @@ import {
 import {
   Activity,
   Cpu,
+  Gauge,
   HardDrive,
   MemoryStick,
   Network,
@@ -35,7 +36,7 @@ import {
   cn,
 } from '@/lib/utils';
 import type { DashboardSummary } from '@/types';
-import { useSettingsStore } from '@/stores/settings';
+import { useSettingsStore, type ChartRange } from '@/stores/settings';
 
 interface Sample {
   t: number;
@@ -46,15 +47,35 @@ interface Sample {
   write: number;
 }
 
+/** Map chart range label to seconds, then derive max buffer size from refresh interval. */
+const RANGE_SECONDS: Record<ChartRange, number> = {
+  '60s': 60,
+  '5m': 300,
+  '30m': 1800,
+  '2h': 7200,
+};
+
+const RANGE_LABELS: Record<ChartRange, string> = {
+  '60s': '1 分钟',
+  '5m': '5 分钟',
+  '30m': '30 分钟',
+  '2h': '2 小时',
+};
+
 export default function DashboardPage() {
   const refreshInterval = useSettingsStore((s) => s.refreshInterval);
+  const chartRange = useSettingsStore((s) => s.chartRange);
+  const setChartRange = useSettingsStore((s) => s.setChartRange);
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api.get<DashboardSummary>('/dashboard'),
     refetchInterval: refreshInterval || false,
   });
 
-  // Rolling history (last 60 samples ≈ 2min at 2s interval).
+  // Rolling history buffer. Size depends on chartRange × refreshInterval.
+  const maxSamples = refreshInterval > 0
+    ? Math.ceil(RANGE_SECONDS[chartRange] / (refreshInterval / 1000))
+    : 60;
   const [history, setHistory] = useState<Sample[]>([]);
   useEffect(() => {
     if (!data) return;
@@ -70,24 +91,41 @@ export default function DashboardPage() {
           write: data.arrayRwBytesPerSec.write,
         },
       ];
-      return next.slice(-60);
+      return next.slice(-maxSamples);
     });
-  }, [data]);
+  }, [data, maxSamples]);
 
   return (
     <div className="space-y-4 p-4 md:p-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-xl font-semibold">仪表盘</h1>
           <p className="text-sm text-muted-foreground">
             服务器实时状态 · 每 {refreshInterval / 1000}s 刷新
           </p>
         </div>
-        {data && (
-          <Badge variant="secondary">
-            启动 {Math.floor(data.uptime / 3600)}h {Math.floor((data.uptime % 3600) / 60)}m
-          </Badge>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          {data && (
+            <Badge variant="secondary" className="tabular-nums">
+              <Gauge className="mr-1 h-3 w-3" />
+              负载 {data.loadAvg[0].toFixed(2)} / {data.loadAvg[1].toFixed(2)} / {data.loadAvg[2].toFixed(2)}
+            </Badge>
+          )}
+          {data && (
+            <Badge variant="secondary">
+              启动 {Math.floor(data.uptime / 3600)}h {Math.floor((data.uptime % 3600) / 60)}m
+            </Badge>
+          )}
+          <select
+            className="rounded border bg-background px-2 py-1 text-xs"
+            value={chartRange}
+            onChange={(e) => setChartRange(e.target.value as ChartRange)}
+          >
+            {(Object.keys(RANGE_LABELS) as ChartRange[]).map((r) => (
+              <option key={r} value={r}>{RANGE_LABELS[r]}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       {isError && (
@@ -156,7 +194,7 @@ export default function DashboardPage() {
             <CardTitle className="flex items-center gap-2 text-base">
               <Cpu className="h-4 w-4 text-orange-500" /> CPU 使用率
             </CardTitle>
-            <CardDescription>最近 2 分钟</CardDescription>
+            <CardDescription>最近 {RANGE_LABELS[chartRange]}</CardDescription>
           </CardHeader>
           <CardContent className="h-56">
             <LineChart data={history} dataKey="cpu" color="#f97316" unit="%" />

@@ -151,6 +151,79 @@ func isAllowedRoot(p string) bool {
 
 // ---- v0.5: Download / Upload / Rename / Mkdir ----
 
+// PreviewFile returns a small excerpt of a text file (first 64KB) for inline
+// preview in the browser. If the file is larger than 64KB, only the head is
+// returned with a "truncated" flag. Non-text files (images, PDFs) are served
+// with their detected content type so the browser can render them natively.
+//
+// We use a simple heuristic to distinguish text from binary: if the first 512
+// bytes contain a NUL byte, we treat it as binary and serve with the detected
+// MIME type; otherwise we serve as text/plain.
+func (h *Handler) PreviewFile(c *gin.Context) {
+	cli, ok := h.activeClient(c)
+	if !ok {
+		return
+	}
+	p := path.Clean(c.Query("path"))
+	if p == "" || !isAllowedRoot(p) {
+		errOut(c, http.StatusForbidden, "拒绝预览非允许目录下的文件")
+		return
+	}
+
+	sc, err := cli.SFTP()
+	if err != nil {
+		errOut(c, http.StatusInternalServerError, "SFTP 会话失败: "+err.Error())
+		return
+	}
+	defer sc.Close()
+
+	entry, err := sc.Stat(p)
+	if err != nil {
+		errOut(c, http.StatusNotFound, "文件不存在: "+err.Error())
+		return
+	}
+	if entry.IsDir {
+		errOut(c, http.StatusBadRequest, "不能预览目录")
+		return
+	}
+
+	f, err := sc.Open(p)
+	if err != nil {
+		errOut(c, http.StatusInternalServerError, "打开文件失败: "+err.Error())
+		return
+	}
+	defer f.Close()
+
+	// Read up to 64KB for preview.
+	previewSize := int64(64 * 1024)
+	buf := make([]byte, previewSize)
+	n, _ := io.ReadFull(f, buf)
+	buf = buf[:n]
+
+	// Detect content type from the first 512 bytes.
+	sniffLen := n
+	if sniffLen > 512 {
+		sniffLen = 512
+	}
+	ct := http.DetectContentType(buf[:sniffLen])
+
+	c.Header("Content-Type", ct)
+	if int64(n) < previewSize {
+		// File fit entirely in the preview buffer.
+		c.Status(http.StatusOK)
+		_, _ = c.Writer.Write(buf)
+		return
+	}
+
+	// File is larger — check if there's more data.
+	remaining := entry.Size - int64(n)
+	c.Header("X-Preview-Truncated", "true")
+	c.Header("X-Preview-Total-Size", strconv.FormatInt(entry.Size, 10))
+	c.Status(http.StatusOK)
+	_, _ = c.Writer.Write(buf)
+	_ = remaining // remaining bytes not served
+}
+
 // DownloadFile streams a single file from the Unraid host via SFTP to the
 // HTTP response. Sets Content-Disposition so the browser saves rather than
 // inline-displays binary files. Path safety is enforced via isAllowedRoot.

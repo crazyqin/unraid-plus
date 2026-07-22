@@ -48,14 +48,16 @@ type rwRate struct {
 
 // Dashboard returns a snapshot of CPU / memory / network / array throughput.
 //
-// Implementation notes: we run a small batch of shell commands over the active
-// SSH connection, sleep ~900ms, and run them again to compute deltas. This is
-// cheap and accurate enough for the 2s polling cadence the UI uses.
+// v0.7+ uses Unraid state files (/usr/local/emhttp/state/var.ini) for
+// server metadata (version, name) when available. Live CPU/mem/net/disk
+// stats still come from /proc/* since those need real-time deltas.
 func (h *Handler) Dashboard(c *gin.Context) {
 	cli, ok := h.activeClient(c)
 	if !ok {
 		return
 	}
+
+	readStateFiles(cli) // reads var.ini/disks.ini for metadata (best-effort)
 
 	cpu1, _ := cli.Run("cat /proc/stat")
 	memInfo, _ := cli.Run("cat /proc/meminfo")

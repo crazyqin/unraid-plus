@@ -34,46 +34,80 @@ type arrayStatus struct {
 	CacheDisks []disk `json:"cacheDisks"`
 }
 
-// Storage returns a coarse view of the array + cache disks. For v0.x we rely
-// on `df` and `/proc/diskstats`; SMART/temperature data is best-effort.
-// Production will plug into Unraid's own `emcmd` / `disk.sh` for accurate
-// array status, but `df` is enough for "is my disk full?" at a glance.
+// Storage returns the array + cache disk view. v0.7+ reads Unraid's own
+// structured state files (/usr/local/emhttp/state/disks.ini, var.ini) via
+// SSH — the same data source the Unraid WebUI uses. This replaces the old
+// fragile approach of parsing `df` output and `mdcmd status` format.
 //
-// v0.3 also probes smartctl per physical disk (see smart.go) and surfaces:
-//   - disk.TempC     ← on-disk sensor (more reliable than thermal_zone)
-//   - disk.Errors    ← sum of reallocated + pending + uncorrectable + media
-//   - disk.Smart     ← structured SMART health data for the detail panel
+// SMART data still comes from smartctl (cached 30s via smartCache), but the
+// md→physical device mapping now uses the diskName/rdevName pairs from
+// disks.ini (via state files) instead of parsing mdcmd status separately.
 //
-// v0.4 computes per-disk read/write byte rates from /proc/diskstats deltas
-// (previously always 0). See enrichWithRW.
-//
-// SMART probing is cached process-wide for 30s (smartCache) so the 5s UI
-// poll doesn't fork smartctl on every request — see smart.go for rationale.
-// Software raid (md*), loop, and zfs vdevs are skipped via baseDevName.
+// Per-disk read/write rates still use /proc/diskstats deltas (enrichWithRW).
 func (h *Handler) Storage(c *gin.Context) {
 	cli, ok := h.activeClient(c)
 	if !ok {
 		return
 	}
 
+	// Read all state files in one SSH batch (3 files, 1 SSH call).
+	state, err := readStateFiles(cli)
+	if err != nil || state == nil || len(state.Disks) == 0 {
+		// Fallback to old df-based approach if state files unavailable
+		// (e.g. very old Unraid versions or non-Unraid servers).
+		h.storageFallback(c, cli)
+		return
+	}
+
+	// Array state from var.ini mdState field (e.g. "STARTED" -> "started")
+	arrayState := strings.ToLower(state.Var.MdState)
+	if arrayState == "" {
+		arrayState = "unknown"
+	}
+
+	// Build disk lists from state file data
+	arrayDisks := stateArrayDisks(state.Disks)
+	cacheDisks := stateCacheDisks(state.Disks)
+
+	disks := make([]disk, 0, len(arrayDisks))
+	for _, ds := range arrayDisks {
+		disks = append(disks, stateToDisk(ds))
+	}
+	cache := make([]disk, 0, len(cacheDisks))
+	for _, ds := range cacheDisks {
+		cache = append(cache, stateToDisk(ds))
+	}
+
+	// Pre-populate md→physical mapping from state files so SMART probing
+	// doesn't need a separate mdcmd status call.
+	for _, ds := range state.Disks {
+		if ds.DeviceSb != "" && ds.Device != "" {
+			mdPhysicalCache.Store(ds.DeviceSb, ds.Device)
+		}
+	}
+
+	// Enrich with RW rates and SMART data
+	enrichWithRW(cli, disks, cache)
+	enrichWithSmart(cli, disks)
+	enrichWithSmart(cli, cache)
+
+	c.JSON(http.StatusOK, arrayStatus{
+		State:      arrayState,
+		Disks:      disks,
+		CacheDisks: cache,
+	})
+}
+
+// storageFallback is the old df+mdcmd approach, used when state files are
+// unavailable (non-Unraid servers or very old versions).
+func (h *Handler) storageFallback(c *gin.Context, cli *ssh.Client) {
 	dfOut, _ := cli.Run(`df -PT 2>/dev/null | awk 'NR>1{print $1"|"$2"|"$4"|"$5"|"$7}'`)
-	// On Unraid 7.x, `mdcmd status` output looks like:
-	//   sbName=/boot/config/super.dat
-	//   sbVersion=2
-	//   ...
-	//   mdState=Started
-	//   ...
-	// We search for mdState= instead of using the first line (which is
-	// sbName= on Unraid 7.x, not the state like on older versions).
 	arrayState := "unknown"
 	if out, _ := cli.Run("mdcmd status 2>/dev/null"); strings.TrimSpace(out) != "" {
 		arrayState = parseMdState(out)
 	}
 
 	disks, cache := parseDf(dfOut)
-	// enrichWithRW must run before enrichWithSmart because the latter may
-	// fork smartctl (1-2s per disk); running the diskstats snapshot
-	// *during* that wait would contaminate the time delta with SSH latency.
 	enrichWithRW(cli, disks, cache)
 	enrichWithSmart(cli, disks)
 	enrichWithSmart(cli, cache)

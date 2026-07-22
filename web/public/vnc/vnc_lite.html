@@ -2,16 +2,22 @@
 <html lang="zh-CN">
 <head>
     <!--
-    noVNC for unraid-plus: lightweight VNC viewer customized for unraid-plus.
+    noVNC for unraid-plus: lightweight VNC viewer with clipboard support.
 
     Connect parameters are provided in query string:
         /vnc/vnc_lite.html?url=ws://host:port/ws/vnc?vm=VMNAME&scale=true
+
+    Clipboard: Click "粘贴" button or Shift+Insert to open the paste panel.
+    Text pasted in the panel is sent to the VM clipboard via the VNC
+    extended clipboard pseudo-encoding, so Ctrl+V inside the guest
+    will paste the content.
 
     Based on noVNC vnc_lite.html (MPL 2.0 / 2-Clause BSD).
     -->
     <title>VNC 控制台</title>
 
     <style>
+        * { box-sizing: border-box; }
         body {
             margin: 0;
             background-color: #1a1a2e;
@@ -19,9 +25,7 @@
             display: flex;
             flex-direction: column;
         }
-        html {
-            height: 100%;
-        }
+        html { height: 100%; }
 
         #top_bar {
             background-color: #2d2d44;
@@ -32,10 +36,15 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
+            flex-shrink: 0;
         }
         #status {
             text-align: center;
             flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding: 0 8px;
         }
         .top-btn {
             border: 1px solid #5a5a8a;
@@ -46,6 +55,7 @@
             border-radius: 3px;
             font-size: 11px;
             margin: 0 3px;
+            white-space: nowrap;
         }
         .top-btn:hover {
             background-color: #5a5a8a;
@@ -54,6 +64,73 @@
         #screen {
             flex: 1;
             overflow: hidden;
+            position: relative;
+        }
+
+        /* Clipboard panel overlay */
+        #clipboard_panel {
+            display: none;
+            position: absolute;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: 320px;
+            background-color: rgba(30, 30, 50, 0.95);
+            border-left: 1px solid #3d3d5c;
+            z-index: 100;
+            flex-direction: column;
+            padding: 10px;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        }
+        #clipboard_panel.open {
+            display: flex;
+        }
+        #clipboard_panel h3 {
+            color: #e0e0e0;
+            font-size: 13px;
+            margin: 0 0 4px 0;
+        }
+        #clipboard_panel p {
+            color: #a0a0b8;
+            font-size: 11px;
+            margin: 0 0 8px 0;
+        }
+        #clipboard_text {
+            flex: 1;
+            width: 100%;
+            resize: none;
+            background-color: #1a1a2e;
+            color: #e0e0e0;
+            border: 1px solid #3d3d5c;
+            border-radius: 3px;
+            padding: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+        #clipboard_text:focus {
+            outline: none;
+            border-color: #7a7aaa;
+        }
+        .clip-btn {
+            margin-top: 8px;
+            padding: 6px 14px;
+            border: 1px solid #5a5a8a;
+            background-color: #3d3d5c;
+            color: #e0e0e0;
+            border-radius: 3px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .clip-btn:hover {
+            background-color: #5a5a8a;
+        }
+        .clip-btn.primary {
+            background-color: #4a6fa5;
+            border-color: #5a8ad5;
+        }
+        .clip-btn.primary:hover {
+            background-color: #5a8ad5;
         }
 
     </style>
@@ -108,26 +185,76 @@
             return defaultValue;
         }
 
+        /* ---- Clipboard ---- */
+
+        // When the VM sends clipboard data, store it so the user can copy it.
+        function onClipboard(e) {
+            document.getElementById('clipboard_text').value = e.detail.text;
+        }
+
+        // Toggle the clipboard panel open/closed.
+        function toggleClipboard() {
+            const panel = document.getElementById('clipboard_panel');
+            panel.classList.toggle('open');
+            if (panel.classList.contains('open')) {
+                document.getElementById('clipboard_text').focus();
+            }
+        }
+
+        // Send the textarea content to the VM clipboard so Ctrl+V in the
+        // guest OS will paste it.  noVNC's clipboardPasteFrom() sends a
+        // VNC clipboard CutText message which the guest receives as its
+        // primary clipboard content.
+        function sendClipboard() {
+            if (!rfb) return;
+            const text = document.getElementById('clipboard_text').value;
+            if (text) {
+                rfb.clipboardPasteFrom(text);
+            }
+        }
+
+        // Close the clipboard panel.
+        function closeClipboard() {
+            document.getElementById('clipboard_panel').classList.remove('open');
+        }
+
+        // Global keyboard shortcut: Shift+Insert opens clipboard panel.
+        // This is a common terminal convention and avoids conflicting with
+        // the VNC keyboard grab.
+        document.addEventListener('keydown', (e) => {
+            if (e.shiftKey && e.key === 'Insert') {
+                e.preventDefault();
+                toggleClipboard();
+            }
+        });
+
+        /* ---- Wire up buttons ---- */
+
         document.getElementById('sendCtrlAltDelButton').onclick = sendCtrlAltDel;
         document.getElementById('disconnectButton').onclick = disconnect;
+        document.getElementById('clipboardButton').onclick = toggleClipboard;
+        document.getElementById('clipboardSend').onclick = sendClipboard;
+        document.getElementById('clipboardClose').onclick = closeClipboard;
 
-        // Read the full WebSocket URL directly (unraid-plus provides it)
-        const wsUrl = readQueryVariable('url');
+        /* ---- Connect ---- */
 
-        if (!wsUrl) {
+        const url = readQueryVariable('url');
+
+        if (!url) {
             status('错误：缺少 url 参数');
         } else {
             status("连接中…");
 
             const password = readQueryVariable('password');
 
-            rfb = new RFB(document.getElementById('screen'), wsUrl,
+            rfb = new RFB(document.getElementById('screen'), url,
                           { credentials: { password: password } });
 
             rfb.addEventListener("connect",  connectedToServer);
             rfb.addEventListener("disconnect", disconnectedFromServer);
             rfb.addEventListener("credentialsrequired", credentialsAreRequired);
             rfb.addEventListener("desktopname", updateDesktopName);
+            rfb.addEventListener("clipboard", onClipboard);
 
             rfb.viewOnly = readQueryVariable('view_only', false);
             rfb.scaleViewport = readQueryVariable('scale', true);
@@ -138,12 +265,26 @@
 
 <body>
     <div id="top_bar">
-        <button class="top-btn" id="disconnectButton">断开</button>
+        <div style="display:flex;align-items:center;gap:3px">
+            <button class="top-btn" id="disconnectButton">断开</button>
+            <button class="top-btn" id="clipboardButton">粘贴</button>
+        </div>
         <div id="status">加载中</div>
         <button class="top-btn" id="sendCtrlAltDelButton">Ctrl+Alt+Del</button>
     </div>
     <div id="screen">
         <!-- This is where the remote screen will appear -->
+
+        <!-- Clipboard panel -->
+        <div id="clipboard_panel">
+            <h3>剪贴板</h3>
+            <p>粘贴文本到下方，点击"发送到虚拟机"，然后在虚拟机中按 Ctrl+V 即可粘贴。</p>
+            <textarea id="clipboard_text" placeholder="在此粘贴文本…" spellcheck="false"></textarea>
+            <div style="display:flex;gap:8px">
+                <button class="clip-btn primary" id="clipboardSend">发送到虚拟机</button>
+                <button class="clip-btn" id="clipboardClose">关闭</button>
+            </div>
+        </div>
     </div>
 </body>
 </html>

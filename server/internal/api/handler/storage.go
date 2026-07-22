@@ -56,7 +56,7 @@ func (h *Handler) Storage(c *gin.Context) {
 		return
 	}
 
-	dfOut, _ := cli.Run(`df -PT 2>/dev/null | awk 'NR>1{print $1"|"$2"|"$3"|"$4"|"$7}'`)
+	dfOut, _ := cli.Run(`df -PT 2>/dev/null | awk 'NR>1{print $1"|"$2"|"$4"|"$5"|"$7}'`)
 	arrayState := "started"
 	if out, _ := cli.Run("mdcmd status 2>/dev/null | head -n1"); strings.TrimSpace(out) != "" {
 		arrayState = strings.TrimSpace(out)

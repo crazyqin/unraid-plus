@@ -1,7 +1,6 @@
 package ssh
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -46,17 +45,18 @@ func (c *Client) Close() error {
 func (c *Client) Run(cmd string) (string, error) {
 	sess, err := c.newSession()
 	if err != nil {
+		logger.Debugf("[ssh.Run] NewSession error for %q: %v", cmd, err)
 		return "", err
 	}
 	defer sess.Close()
 
-	var buf bytes.Buffer
-	sess.Stdout = &buf
-	sess.Stderr = &buf
-	if err := sess.Run(cmd); err != nil {
-		return buf.String(), err
+	out, err := sess.CombinedOutput(cmd)
+	if err != nil {
+		logger.Debugf("[ssh.Run] error for %q: %v (output len=%d)", cmd, err, len(out))
+		return string(out), err
 	}
-	return buf.String(), nil
+	logger.Debugf("[ssh.Run] OK %q -> %d bytes", cmd, len(out))
+	return string(out), nil
 }
 
 // RunStream executes a command and lines its stdout/stderr into the writer.

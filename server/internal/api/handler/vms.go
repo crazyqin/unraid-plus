@@ -60,6 +60,10 @@ func (h *Handler) VMAction(c *gin.Context) {
 		cmd = "virsh destroy " + shellQuote(id)
 	case "shutdown":
 		cmd = "virsh shutdown " + shellQuote(id)
+	case "resume":
+		cmd = "virsh resume " + shellQuote(id)
+	case "suspend":
+		cmd = "virsh suspend " + shellQuote(id)
 	default:
 		errOut(c, http.StatusBadRequest, "不支持的操作: "+action)
 		return

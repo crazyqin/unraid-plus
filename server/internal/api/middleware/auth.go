@@ -13,6 +13,77 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// loginAttempt tracks failed login attempts per client IP for rate limiting.
+// After maxFailedAttempts (5) within the attemptWindow (5 minutes), the IP
+// is blocked for blockDuration (15 minutes). This prevents brute-force
+// password guessing without needing an external rate-limiter.
+type loginTracker struct {
+	mu       sync.Mutex
+	attempts map[string]*attemptState
+}
+
+type attemptState struct {
+	failures  int
+	firstFail time.Time
+	blockedAt time.Time
+}
+
+const (
+	maxFailedAttempts = 5
+	attemptWindow     = 5 * time.Minute
+	blockDuration     = 15 * time.Minute
+)
+
+var loginTrackerInst = &loginTracker{
+	attempts: map[string]*attemptState{},
+}
+
+// IsBlocked checks if the given IP is currently rate-limited.
+func IsBlocked(ip string) bool {
+	loginTrackerInst.mu.Lock()
+	defer loginTrackerInst.mu.Unlock()
+	s, ok := loginTrackerInst.attempts[ip]
+	if !ok {
+		return false
+	}
+	if s.blockedAt.IsZero() {
+		return false
+	}
+	if time.Since(s.blockedAt) < blockDuration {
+		return true
+	}
+	// Block expired — reset.
+	delete(loginTrackerInst.attempts, ip)
+	return false
+}
+
+// RecordFailure increments the failure count for an IP.
+func RecordFailure(ip string) {
+	loginTrackerInst.mu.Lock()
+	defer loginTrackerInst.mu.Unlock()
+	s, ok := loginTrackerInst.attempts[ip]
+	if !ok {
+		s = &attemptState{}
+		loginTrackerInst.attempts[ip] = s
+	}
+	if s.firstFail.IsZero() || time.Since(s.firstFail) > attemptWindow {
+		s.firstFail = time.Now()
+		s.failures = 1
+	} else {
+		s.failures++
+	}
+	if s.failures >= maxFailedAttempts && s.blockedAt.IsZero() {
+		s.blockedAt = time.Now()
+	}
+}
+
+// RecordSuccess clears the failure history for an IP.
+func RecordSuccess(ip string) {
+	loginTrackerInst.mu.Lock()
+	defer loginTrackerInst.mu.Unlock()
+	delete(loginTrackerInst.attempts, ip)
+}
+
 // SessionStore is an in-memory store for session tokens. Each token maps
 // to an expiry time. Tokens are 32-byte random hex strings set as
 // HttpOnly cookies. The store is process-local — sessions don't survive

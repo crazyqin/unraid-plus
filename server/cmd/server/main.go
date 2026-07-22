@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/your-org/unraidpp/server/internal/api"
+	"github.com/your-org/unraidpp/server/internal/api/handler"
 	"github.com/your-org/unraidpp/server/internal/config"
 	"github.com/your-org/unraidpp/server/internal/ssh"
 	"github.com/your-org/unraidpp/server/internal/unraid"
@@ -34,6 +35,7 @@ var (
 )
 
 func main() {
+	startTime := time.Now()
 	logLevel := flag.String("log-level", "", "override UNRAIDPP_LOG_LEVEL (debug|info|warn|error)")
 	flag.Parse()
 
@@ -63,6 +65,11 @@ func main() {
 	logger.Infof("data dir: %s", cfg.DataDir)
 	logger.Infof("listening on %s", cfg.Listen)
 
+	// Share version + start time with the API package so the /health
+	// endpoint can report them to the frontend.
+	api.Version = Version
+	api.StartTime = startTime
+
 	// Compose services
 	pool := ssh.NewPool(cfg.DataDir)
 	ur := unraid.NewClient(cfg)
@@ -83,6 +90,32 @@ func main() {
 			})
 			if err != nil {
 				logger.Warnf("auto-connect failed: %v", err)
+			}
+		}()
+	} else {
+		// v0.6: Try to auto-reconnect using a persisted SSH key + conn meta.
+		// This only works if the user previously went through RotateKey
+		// (which saves both the private key and the connection parameters).
+		go func() {
+			if meta, err := handler.LoadPersistedConn(cfg.DataDir); err != nil {
+				logger.Warnf("auto-reconnect: failed to load conn meta: %v", err)
+			} else if meta != nil {
+				logger.Infof("auto-reconnecting to %s:%d as %s (key auth)", meta.Host, meta.Port, meta.User)
+				_, err := pool.Connect(&ssh.ConnConfig{
+					Host:       meta.Host,
+					Port:       meta.Port,
+					User:       meta.User,
+					AuthMode:   ssh.AuthKey,
+					PrivateKey: meta.PrivateKey,
+					APIBase:    meta.APIBase,
+					Label:      meta.Label,
+				})
+				if err != nil {
+					logger.Warnf("auto-reconnect failed: %v", err)
+				} else {
+					logger.Infof("auto-reconnect succeeded")
+					ur.SetBase(meta.APIBase)
+				}
 			}
 		}()
 	}

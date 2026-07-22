@@ -37,7 +37,7 @@ func (h *Handler) ListContainers(c *gin.Context) {
 
 	cmd := `docker ps -a --format '{{json .}}' 2>/dev/null`
 	out, err := cli.Run(cmd)
-	if err != nil && !strings.Contains(out, "") {
+	if err != nil && strings.TrimSpace(out) == "" {
 		// Docker not installed or daemon down.
 		c.JSON(http.StatusOK, []container{})
 		return

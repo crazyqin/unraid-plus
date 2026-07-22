@@ -3,6 +3,7 @@ package api
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
@@ -14,6 +15,13 @@ import (
 	"github.com/your-org/unraidpp/server/internal/ssh"
 	"github.com/your-org/unraidpp/server/internal/unraid"
 	"github.com/your-org/unraidpp/server/pkg/logger"
+)
+
+// Version and StartTime are set by main.go at startup. They default to "dev"
+// and the process start time so the health endpoint works standalone.
+var (
+	Version   = "dev"
+	StartTime = time.Now()
 )
 
 // Build constructs the HTTP server.
@@ -34,7 +42,13 @@ func Build(cfg *config.Config, pool *ssh.Pool, ur *unraid.Client, hub *ssh.Termi
 	authH := handler.NewAuthHandler(cfg.UIPassword)
 	authStore := authH.Store()
 
-	r.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
+	r.GET("/health", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"ok":      true,
+			"version": Version,
+			"uptime":  int(time.Since(StartTime).Seconds()),
+		})
+	})
 
 	// Auth routes are registered BEFORE the auth middleware group so they
 	// remain accessible without a session. /api/auth/status is public so
@@ -74,8 +88,9 @@ func Build(cfg *config.Config, pool *ssh.Pool, ur *unraid.Client, hub *ssh.Termi
 	// SMART cache invalidation (manual refresh button on the Storage page).
 	api.POST("/smart/refresh", h.SmartRefresh)
 
-	// Files (v0.5: upload/download/rename/mkdir added)
+	// Files (v0.5: upload/download/rename/mkdir; v0.6: preview)
 	api.GET("/files", h.ListFiles)
+	api.GET("/files/preview", h.PreviewFile)
 	api.GET("/files/download", h.DownloadFile)
 	api.POST("/files/upload", h.UploadFile)
 	api.POST("/files/delete", h.DeleteFiles)

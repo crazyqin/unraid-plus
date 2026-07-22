@@ -101,6 +101,20 @@ func (p *Pool) Active() (*Client, error) {
 	return nil, errors.New("no active SSH connection")
 }
 
+// ActiveConfig returns the ConnConfig of the (first) active connection.
+// Used by RotateKey and other operations that need connection params
+// but don't have host:port in scope.
+func (p *Pool) ActiveConfig() (*ConnConfig, error) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	for _, mc := range p.conns {
+		if mc.conn != nil && mc.conn.IsAlive() {
+			return mc.cfg, nil
+		}
+	}
+	return nil, errors.New("no active SSH connection")
+}
+
 // ConfigOf returns the stored config for a host:port (including sensitive
 // credential material) — used by RotateKey and similar privileged operations.
 func (p *Pool) ConfigOf(host string, port int) (*ConnConfig, error) {

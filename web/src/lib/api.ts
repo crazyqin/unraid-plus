@@ -109,6 +109,85 @@ export const api = {
   },
 
   /**
+   * Upload files via multipart/form-data with progress tracking.
+   * Uses XHR instead of fetch() because fetch() does not support
+   * upload progress events. Returns a promise that resolves with
+   * the parsed response (JSON or text).
+   */
+  uploadWithProgress: <T>(
+    path: string,
+    formData: FormData,
+    onProgress?: (loaded: number, total: number) => void,
+  ): Promise<T> => {
+    return new Promise<T>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open('POST', `${BASE}${path}`);
+      xhr.withCredentials = true;
+
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(e.loaded, e.total);
+        }
+      };
+
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          const ct = xhr.getResponseHeader('content-type') ?? '';
+          if (ct.includes('application/json')) {
+            resolve(JSON.parse(xhr.responseText) as T);
+          } else {
+            resolve(xhr.responseText as unknown as T);
+          }
+        } else {
+          let body: unknown = null;
+          try {
+            body = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+          } catch {
+            body = xhr.responseText;
+          }
+          const msg =
+            (body && typeof body === 'object' && 'message' in body
+              ? String((body as { message: unknown }).message)
+              : undefined) ?? xhr.statusText ?? 'upload failed';
+          handleAuthRedirect(xhr.status, body);
+          reject(new ApiError(msg, xhr.status, body));
+        }
+      };
+
+      xhr.onerror = () => reject(new ApiError('网络错误，上传失败', 0, null));
+      xhr.send(formData);
+    });
+  },
+
+  /**
+   * Fetch a file preview (first 64KB) from the backend. Returns the
+   * response object so the caller can inspect Content-Type and
+   * X-Preview-Truncated headers.
+   */
+  preview: async (path: string): Promise<Response> => {
+    const res = await fetch(
+      `${BASE}/files/preview?path=${encodeURIComponent(path)}`,
+      { credentials: 'include' },
+    );
+    if (!res.ok) {
+      let body: unknown = null;
+      const text = await res.text();
+      try {
+        body = text ? JSON.parse(text) : null;
+      } catch {
+        body = text;
+      }
+      const msg =
+        (body && typeof body === 'object' && 'message' in body
+          ? String((body as { message: unknown }).message)
+          : undefined) ?? res.statusText ?? 'preview failed';
+      handleAuthRedirect(res.status, body);
+      throw new ApiError(msg, res.status, body);
+    }
+    return res;
+  },
+
+  /**
    * Build a download URL for same-origin file download. The browser handles
    * the Content-Disposition header and saves the file. Cookies are sent
    * automatically for same-origin navigation.

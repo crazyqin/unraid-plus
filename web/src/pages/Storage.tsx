@@ -26,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { formatBytes, formatPct, formatRate, cn, timeAgo } from '@/lib/utils';
 import type { ArrayStatus, DiskInfo, ParityStatus, SmartInfo } from '@/types';
 import { useSettingsStore } from '@/stores/settings';
+import { ConfirmDialog } from '@/components/ui/alert-dialog';
 
 const DISK_STATUS_VARIANT: Record<DiskInfo['status'], 'success' | 'warning' | 'destructive' | 'secondary'> = {
   ok: 'success',
@@ -63,6 +64,8 @@ export default function StoragePage() {
   // Transient status line shown next to the refresh button after a refresh
   // attempt ("已刷新全部 N 块" / "刷新失败"). Cleared after 3s. Null = idle.
   const [refreshMsg, setRefreshMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [confirmStopArray, setConfirmStopArray] = useState(false);
+  const [confirmParity, setConfirmParity] = useState(false);
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['storage'],
@@ -178,9 +181,7 @@ export default function StoragePage() {
               size="sm"
               variant="destructive"
               disabled={arrayMut.isPending}
-              onClick={() => {
-                if (confirm('确认停止阵列？所有磁盘将被卸载。')) arrayMut.mutate('stop');
-              }}
+              onClick={() => setConfirmStopArray(true)}
             >
               <Square className="h-3.5 w-3.5" /> 停止阵列
             </Button>
@@ -270,10 +271,7 @@ export default function StoragePage() {
             size="sm"
             variant="outline"
             disabled={parityMut.isPending}
-            onClick={() => {
-              if (confirm('启动 Parity 检查？这将读取所有阵列磁盘，可能需要数小时。'))
-                parityMut.mutate('start');
-            }}
+            onClick={() => setConfirmParity(true)}
           >
             <Play className="h-3.5 w-3.5" /> 开始 Parity 检查
           </Button>
@@ -282,6 +280,32 @@ export default function StoragePage() {
 
       <DiskGroup title="阵列磁盘" disks={data.disks} />
       <DiskGroup title="缓存池" disks={data.cacheDisks} />
+
+      <ConfirmDialog
+        open={confirmStopArray}
+        title="确认停止阵列"
+        description="所有磁盘将被卸载。确认要停止阵列吗？"
+        confirmText="停止阵列"
+        variant="destructive"
+        loading={arrayMut.isPending}
+        onConfirm={() => {
+          arrayMut.mutate('stop');
+          setConfirmStopArray(false);
+        }}
+        onCancel={() => setConfirmStopArray(false)}
+      />
+      <ConfirmDialog
+        open={confirmParity}
+        title="启动 Parity 检查"
+        description="这将读取所有阵列磁盘，可能需要数小时。确认启动？"
+        confirmText="开始检查"
+        loading={parityMut.isPending}
+        onConfirm={() => {
+          parityMut.mutate('start');
+          setConfirmParity(false);
+        }}
+        onCancel={() => setConfirmParity(false)}
+      />
     </div>
   );
 }

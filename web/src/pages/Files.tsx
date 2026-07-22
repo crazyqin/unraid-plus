@@ -1,8 +1,9 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronRight,
   Download,
+  Eye,
   File as FileIcon,
   Folder,
   FolderPlus,
@@ -17,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Progress } from '@/components/ui/progress';
 import {
   Dialog,
   DialogContent,
@@ -24,15 +26,20 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import { formatBytes, timeAgo, cn } from '@/lib/utils';
 import type { FileEntry, ListFilesResponse } from '@/types';
 
 export default function FilesPage() {
   const [path, setPath] = useState('/mnt/user');
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const [renameTarget, setRenameTarget] = useState<FileEntry | null>(null);
   const [mkdirOpen, setMkdirOpen] = useState(false);
+  const [previewTarget, setPreviewTarget] = useState<FileEntry | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
 
@@ -65,10 +72,15 @@ export default function FilesPage() {
 
   const del = async () => {
     if (selected.size === 0) return;
-    if (!confirm(`确认删除 ${selected.size} 个文件？此操作不可恢复。`)) return;
-    await api.post('/files/delete', { paths: [...selected] });
-    setSelected(new Set());
-    qc.invalidateQueries({ queryKey: ['files', path] });
+    try {
+      await api.post('/files/delete', { paths: [...selected] });
+      setSelected(new Set());
+      qc.invalidateQueries({ queryKey: ['files', path] });
+    } catch (err) {
+      setUploadError(err instanceof ApiError ? err.message : '删除失败');
+    } finally {
+      setConfirmDelete(false);
+    }
   };
 
   const download = () => {
@@ -81,19 +93,23 @@ export default function FilesPage() {
 
   const upload = async (files: FileList) => {
     if (files.length === 0) return;
-    setUploading(true);
+    setUploadProgress(0);
+    setUploadError(null);
     try {
       const formData = new FormData();
       for (const f of files) {
         formData.append('files', f);
       }
-      await api.upload(`/files/upload?dir=${encodeURIComponent(path)}`, formData);
+      await api.uploadWithProgress(
+        `/files/upload?dir=${encodeURIComponent(path)}`,
+        formData,
+        (loaded, total) => setUploadProgress(Math.round((loaded / total) * 100)),
+      );
       qc.invalidateQueries({ queryKey: ['files', path] });
     } catch (err) {
-      const msg = err instanceof ApiError ? err.message : '上传失败';
-      alert(msg);
+      setUploadError(err instanceof ApiError ? err.message : '上传失败');
     } finally {
-      setUploading(false);
+      setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
@@ -138,10 +154,10 @@ export default function FilesPage() {
           <Button
             size="sm"
             variant="outline"
-            disabled={uploading}
+            disabled={uploadProgress !== null}
             onClick={() => fileInputRef.current?.click()}
           >
-            {uploading ? (
+            {uploadProgress !== null ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <Upload className="h-3.5 w-3.5" />
@@ -159,7 +175,7 @@ export default function FilesPage() {
             size="sm"
             variant="outline"
             disabled={selected.size === 0}
-            onClick={del}
+            onClick={() => setConfirmDelete(true)}
           >
             <Trash2 className="h-3.5 w-3.5" /> 删除
           </Button>
@@ -180,10 +196,52 @@ export default function FilesPage() {
           >
             <Pencil className="h-3.5 w-3.5" /> 重命名
           </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={selected.size !== 1 || selectedEntries[0]?.isDir}
+            onClick={() => selectedEntries[0] && setPreviewTarget(selectedEntries[0])}
+          >
+            <Eye className="h-3.5 w-3.5" /> 预览
+          </Button>
         </div>
       </div>
 
-      <Card className="flex-1 overflow-hidden">
+      {/* Upload progress bar */}
+      {uploadProgress !== null && (
+        <div className="mb-2 flex items-center gap-2 rounded-md border bg-muted/30 p-2">
+          <span className="text-xs text-muted-foreground">上传中…</span>
+          <Progress className="flex-1" value={uploadProgress} />
+          <span className="text-xs tabular-nums text-muted-foreground">{uploadProgress}%</span>
+        </div>
+      )}
+
+      {/* Upload error toast */}
+      {uploadError && (
+        <div className="mb-2 flex items-center justify-between rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
+          <span>{uploadError}</span>
+          <button
+            className="text-xs underline"
+            onClick={() => setUploadError(null)}
+          >
+            关闭
+          </button>
+        </div>
+      )}
+
+      <Card
+        className="relative flex-1 overflow-hidden"
+        onDragOver={(e) => {
+          e.preventDefault();
+          setDragOver(true);
+        }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={(e) => {
+          e.preventDefault();
+          setDragOver(false);
+          if (e.dataTransfer.files.length > 0) upload(e.dataTransfer.files);
+        }}
+      >
         <CardContent className="h-full p-0">
           {isLoading ? (
             <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -208,7 +266,7 @@ export default function FilesPage() {
                     <tr
                       key={e.path}
                       onClick={() => (e.isDir ? enter(e) : toggle(e.path))}
-                      onDoubleClick={() => !e.isDir && setRenameTarget(e)}
+                      onDoubleClick={() => !e.isDir && setPreviewTarget(e)}
                       className={cn(
                         'cursor-pointer border-b border-border/50 hover:bg-accent/50',
                         selected.has(e.path) && 'bg-primary/10',
@@ -244,6 +302,16 @@ export default function FilesPage() {
             </div>
           )}
         </CardContent>
+
+        {/* Drag-and-drop overlay */}
+        {dragOver && (
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10 backdrop-blur-sm">
+            <div className="flex flex-col items-center gap-2 text-primary">
+              <Upload className="h-8 w-8" />
+              <span className="text-sm font-medium">松开以上传文件到当前目录</span>
+            </div>
+          </div>
+        )}
       </Card>
 
       <RenameDialog
@@ -256,6 +324,19 @@ export default function FilesPage() {
         basePath={path}
         onClose={() => setMkdirOpen(false)}
         onDone={() => qc.invalidateQueries({ queryKey: ['files', path] })}
+      />
+      <PreviewDialog
+        target={previewTarget}
+        onClose={() => setPreviewTarget(null)}
+      />
+      <ConfirmDialog
+        open={confirmDelete}
+        title="确认删除"
+        description={`确认删除 ${selected.size} 个文件？此操作不可恢复。`}
+        confirmText="删除"
+        variant="destructive"
+        onConfirm={del}
+        onCancel={() => setConfirmDelete(false)}
       />
     </div>
   );
@@ -409,6 +490,129 @@ function MkdirDialog({
           </Button>
           <Button onClick={submit} disabled={loading || !name}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : '创建'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+/* ----------------------------- Preview Dialog ----------------------------- */
+
+function PreviewDialog({
+  target,
+  onClose,
+}: {
+  target: FileEntry | null;
+  onClose: () => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [textContent, setTextContent] = useState<string | null>(null);
+  const [imgUrl, setImgUrl] = useState<string | null>(null);
+  const [truncated, setTruncated] = useState(false);
+
+  const targetPath = target?.path ?? '';
+  const targetName = target?.name ?? '';
+
+  useEffect(() => {
+    if (!target) return;
+    setLoading(true);
+    setError('');
+    setTextContent(null);
+    setImgUrl(null);
+    setTruncated(false);
+
+    let revokeUrl: string | null = null;
+
+    api.preview(targetPath)
+      .then(async (res) => {
+        const ct = res.headers.get('content-type') ?? '';
+        const trunc = res.headers.get('x-preview-truncated') === '1';
+        setTruncated(trunc);
+
+        if (ct.startsWith('image/')) {
+          const blob = await res.blob();
+          const url = URL.createObjectURL(blob);
+          revokeUrl = url;
+          setImgUrl(url);
+        } else if (
+          ct.startsWith('text/') ||
+          ct.includes('json') ||
+          ct.includes('javascript') ||
+          ct.includes('xml') ||
+          ct.includes('yaml') ||
+          ct.includes('shell') ||
+          ct.includes('csv') ||
+          ct.includes('application/x-sh')
+        ) {
+          const text = await res.text();
+          setTextContent(text);
+        } else {
+          setError('不支持预览此文件类型，请下载后查看。');
+        }
+      })
+      .catch((err) => {
+        setError(err instanceof ApiError ? err.message : '预览加载失败');
+      })
+      .finally(() => setLoading(false));
+
+    return () => {
+      if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+    };
+  }, [target, targetPath]);
+
+  const handleClose = () => {
+    if (imgUrl) URL.revokeObjectURL(imgUrl);
+    onClose();
+  };
+
+  return (
+    <Dialog
+      open={!!target}
+      onOpenChange={(o) => {
+        if (!o) handleClose();
+      }}
+    >
+      <DialogContent className="max-h-[80vh] max-w-3xl">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <FileIcon className="h-4 w-4" />
+            <span className="truncate">{targetName}</span>
+          </DialogTitle>
+        </DialogHeader>
+        <div className="min-h-[200px]">
+          {loading && (
+            <div className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="h-4 w-4 animate-spin" /> 加载预览…
+            </div>
+          )}
+          {error && !loading && (
+            <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+              {error}
+            </div>
+          )}
+          {imgUrl && !loading && (
+            <div className="flex max-h-[60vh] items-center justify-center overflow-auto">
+              <img src={imgUrl} alt={targetName} className="max-w-full" />
+            </div>
+          )}
+          {textContent !== null && !loading && (
+            <div>
+              {truncated && (
+                <p className="mb-2 text-xs text-warning">
+                  文件较大，仅显示前 64KB 内容。
+                </p>
+              )}
+              <pre className="max-h-[55vh] overflow-auto rounded-md bg-muted/40 p-3 text-xs leading-relaxed">
+                <code>{textContent}</code>
+              </pre>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={handleClose}>
+            关闭
           </Button>
         </DialogFooter>
       </DialogContent>

@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -148,6 +149,18 @@ func parseSmartJSON(buf []byte) smartInfo {
 		}
 	}
 
+	// Temperature: prefer the top-level temperature.current field
+	// (smartctl 7+) which works for both SATA and NVMe. The SATA raw
+	// value for attr 194 is a multi-byte encoded integer (not the
+	// actual temperature), so we only fall back to it if the top-level
+	// field is missing.
+	if temp, ok := top["temperature"].(map[string]any); ok {
+		if t, ok := temp["current"].(float64); ok {
+			ti := int(t)
+			info.Temperature = &ti
+		}
+	}
+
 	// SATA path.
 	if attrs, ok := top["ata_smart_attributes"].(map[string]any); ok {
 		if tbl, ok := attrs["table"].([]any); ok {
@@ -169,22 +182,39 @@ func parseSmartJSON(buf []byte) smartInfo {
 					info.Pending = int(val)
 				case 198:
 					info.Uncorrectable = int(val)
-				case 194: // Temperature_Celsius / Temperature_Internal
-					t := int(val)
-					info.Temperature = &t
+				case 194: // Temperature_Celsius — fallback only
+					if info.Temperature == nil {
+						// raw.value for temp is multi-byte encoded;
+						// try raw.string first (e.g. "45 (Min/Max 18/80)")
+						if s, ok := raw["string"].(string); ok {
+							t := parseTempFromString(s)
+							if t > 0 {
+								info.Temperature = &t
+							}
+						}
+					}
 				}
 			}
 		}
 	}
 
-	// NVMe path.
-	if nl, ok := top["nvme_smart_health_information_log"].(map[string]any); ok {
-		if t, ok := nl["temperature"].(float64); ok {
-			ti := int(t)
-			info.Temperature = &ti
+	// NVMe path — only if top-level temperature didn't provide it.
+	if info.Temperature == nil {
+		if nl, ok := top["nvme_smart_health_information_log"].(map[string]any); ok {
+			if t, ok := nl["temperature"].(float64); ok {
+				ti := int(t)
+				info.Temperature = &ti
+			}
+			if me, ok := nl["media_errors"].(float64); ok {
+				info.MediaErrors = int(me)
+			}
 		}
-		if me, ok := nl["media_errors"].(float64); ok {
-			info.MediaErrors = int(me)
+	} else {
+		// Temperature already set, but still grab media_errors
+		if nl, ok := top["nvme_smart_health_information_log"].(map[string]any); ok {
+			if me, ok := nl["media_errors"].(float64); ok {
+				info.MediaErrors = int(me)
+			}
 		}
 	}
 
@@ -240,6 +270,93 @@ func baseDevName(devPath string) string {
 	return ""
 }
 
+// mdPhysicalCache caches md→physical device mappings (e.g. "md1p1" -> "sdb").
+// The mapping is stable for the process lifetime — it only changes if the
+// array is reconfigured (disk replaced in same slot keeps same mapping).
+var mdPhysicalCache sync.Map // map[string]string
+
+// resolveMdBase finds the underlying physical device for an md device path
+// (e.g. /dev/md1p1 -> "sdb"). This is needed because smartctl can't probe
+// md devices directly — we need to probe the physical disk underneath.
+//
+// On Unraid, each array slot (md1, md2, ...) is backed by exactly one
+// physical disk. The mapping is discovered by parsing `mdcmd status` output,
+// which contains paired lines like:
+//   diskName.1=md1p1
+//   rdevName.1=sdb
+//
+// Returns "" if the path is not an md device or no backing device is found.
+func resolveMdBase(cli *ssh.Client, devPath string) string {
+	d := strings.TrimPrefix(devPath, "/dev/")
+	if d == devPath || !strings.HasPrefix(d, "md") {
+		return ""
+	}
+
+	// Check cache first
+	if v, ok := mdPhysicalCache.Load(d); ok {
+		return v.(string)
+	}
+
+	// Parse mdcmd status to build the full md→physical mapping.
+	// This populates the cache for all md devices in one SSH call.
+	out, _ := cli.Run("mdcmd status 2>/dev/null")
+	mapping := parseMdcmdPhysicalMap(out)
+	for mdName, physName := range mapping {
+		mdPhysicalCache.Store(mdName, physName)
+	}
+
+	if v, ok := mdPhysicalCache.Load(d); ok {
+		return v.(string)
+	}
+
+	// Cache negative result to avoid re-querying
+	mdPhysicalCache.Store(d, "")
+	return ""
+}
+
+// parseMdcmdPhysicalMap parses `mdcmd status` output and returns a map
+// from md device name (e.g. "md1p1") to physical device base name (e.g. "sdb").
+// Only entries with non-empty diskName and rdevName are included.
+func parseMdcmdPhysicalMap(out string) map[string]string {
+	diskNames := map[string]string{} // slot number -> md device name
+	rdevNames := map[string]string{} // slot number -> physical device name
+
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "diskName.") {
+			kv := strings.SplitN(line, "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			num := strings.TrimPrefix(kv[0], "diskName.")
+			diskNames[num] = kv[1]
+		} else if strings.HasPrefix(line, "rdevName.") {
+			kv := strings.SplitN(line, "=", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			num := strings.TrimPrefix(kv[0], "rdevName.")
+			rdevNames[num] = kv[1]
+		}
+	}
+
+	mapping := map[string]string{}
+	for num, mdName := range diskNames {
+		if mdName == "" {
+			continue
+		}
+		physName, ok := rdevNames[num]
+		if !ok || physName == "" {
+			continue
+		}
+		// Verify it's a real disk device (sd*, nvme*, vd*, mmcblk*)
+		if baseDevName("/dev/" + physName) != "" {
+			mapping[mdName] = physName
+		}
+	}
+	return mapping
+}
+
 // invalidateSmartCache drops cache entries, returning the list of device keys
 // that were actually removed. If `devices` is empty the whole cache is
 // cleared. Keys that aren't present are silently skipped (not erroring on
@@ -273,4 +390,36 @@ func invalidateSmartCache(devices []string) []string {
 		}
 	}
 	return cleared
+}
+
+// parseTempFromString extracts the first integer from a smartctl raw.string
+// value like "45 (Min/Max 18/80)" → 45. Returns 0 if no number is found.
+// Used as a fallback when the top-level temperature.current field is missing.
+func parseTempFromString(s string) int {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	// Extract the first sequence of digits
+	start := -1
+	for i, c := range s {
+		if c >= '0' && c <= '9' {
+			if start == -1 {
+				start = i
+			}
+		} else if start != -1 {
+			n, err := strconv.Atoi(s[start:i])
+			if err == nil {
+				return n
+			}
+			start = -1
+		}
+	}
+	if start != -1 {
+		n, err := strconv.Atoi(s[start:])
+		if err == nil {
+			return n
+		}
+	}
+	return 0
 }

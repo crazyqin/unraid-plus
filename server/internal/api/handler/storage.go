@@ -57,9 +57,17 @@ func (h *Handler) Storage(c *gin.Context) {
 	}
 
 	dfOut, _ := cli.Run(`df -PT 2>/dev/null | awk 'NR>1{print $1"|"$2"|"$4"|"$5"|"$7}'`)
-	arrayState := "started"
-	if out, _ := cli.Run("mdcmd status 2>/dev/null | head -n1"); strings.TrimSpace(out) != "" {
-		arrayState = strings.TrimSpace(out)
+	// On Unraid 7.x, `mdcmd status` output looks like:
+	//   sbName=/boot/config/super.dat
+	//   sbVersion=2
+	//   ...
+	//   mdState=Started
+	//   ...
+	// We search for mdState= instead of using the first line (which is
+	// sbName= on Unraid 7.x, not the state like on older versions).
+	arrayState := "unknown"
+	if out, _ := cli.Run("mdcmd status 2>/dev/null"); strings.TrimSpace(out) != "" {
+		arrayState = parseMdState(out)
 	}
 
 	disks, cache := parseDf(dfOut)
@@ -147,13 +155,17 @@ func diskStatsKey(devPath string) string {
 
 // enrichWithSmart probes SMART for each disk in-place. The probe is cached
 // per base device name (smartCache), so calling this on every poll is cheap
-// after the first hit. Disks whose device path doesn't map to a real block
-// device (md*, loop, zfs vdevs) are left untouched.
+// after the first hit. For md* devices (Unraid array disks), we resolve the
+// underlying physical device via sysfs and probe SMART on that.
 func enrichWithSmart(cli *ssh.Client, disks []disk) {
 	for i := range disks {
 		base := baseDevName(disks[i].Device)
 		if base == "" {
-			continue
+			// For md devices, try to find the underlying physical disk
+			base = resolveMdBase(cli, disks[i].Device)
+			if base == "" {
+				continue
+			}
 		}
 		info := fetchSmart(cli, base)
 		if !info.Available {
@@ -170,6 +182,9 @@ func enrichWithSmart(cli *ssh.Client, disks []disk) {
 
 // parseDf turns the pipe-separated df output into disk entries.
 // Mounts under /mnt/disk* are array disks; under /mnt/cache* are cache.
+// Only real block devices (dev starts with /dev/) are included — this
+// filters out tmpfs, fuse (CloudFS, shfs), overlay, etc. that may be
+// mounted under /mnt/disk* or /mnt/cache* on Unraid.
 func parseDf(s string) (array []disk, cache []disk) {
 	for _, line := range strings.Split(s, "\n") {
 		f := strings.Split(line, "|")
@@ -177,6 +192,10 @@ func parseDf(s string) (array []disk, cache []disk) {
 			continue
 		}
 		dev, fsType, used, avail, mount := f[0], f[1], atoi64Safe(f[2])*1024, atoi64Safe(f[3])*1024, f[4]
+		// Skip pseudo filesystems — only include real block devices.
+		if !strings.HasPrefix(dev, "/dev/") {
+			continue
+		}
 		size := used + avail
 		if size <= 0 {
 			continue
@@ -197,6 +216,19 @@ func parseDf(s string) (array []disk, cache []disk) {
 		}
 	}
 	return array, cache
+}
+
+// parseMdState extracts the array state from `mdcmd status` output.
+// Looks for a "mdState=" line (e.g. "mdState=Started" → "started").
+// Returns "unknown" if the line is not found.
+func parseMdState(out string) string {
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "mdState=") {
+			return strings.ToLower(strings.TrimPrefix(line, "mdState="))
+		}
+	}
+	return "unknown"
 }
 
 // diskStatus returns "warning" / "critical" / "ok" based on fill ratio.

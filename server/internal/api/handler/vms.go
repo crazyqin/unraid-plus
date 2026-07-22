@@ -91,7 +91,11 @@ func parseDominfo(name, info string) vm {
 		case "CPU(s)":
 			v.Vcpus = atoiSafe(val, 0)
 		case "Max memory":
-			v.MemoryBytes = atoi64Safe(strings.Fields(val)[0])
+			// virsh reports in KiB; convert to bytes
+			fields := strings.Fields(val)
+			if len(fields) > 0 {
+				v.MemoryBytes = atoi64Safe(fields[0]) * 1024
+			}
 		case "Autostart":
 			v.Autostart = val == "enable"
 		}

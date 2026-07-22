@@ -65,7 +65,7 @@ func (h *Handler) Dashboard(c *gin.Context) {
 	loadStr, _ := cli.Run("cat /proc/loadavg")
 	modelName, _ := cli.Run("grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //'")
 	coreCountStr, _ := cli.Run("nproc")
-	temps, _ := cli.Run("for z in /sys/class/thermal/thermal_zone*; do cat $z/temp 2>/dev/null; done")
+	temps, _ := cli.Run("for z in /sys/class/thermal/thermal_zone*; do cat $z/temp 2>/dev/null || true; done")
 
 	time.Sleep(900 * time.Millisecond)
 

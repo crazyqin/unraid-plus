@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'd850a433-0cc4-409e-831d-51a2c398743b'
-  PropagateID: 'd850a433-0cc4-409e-831d-51a2c398743b'
-  ReservedCode1: '3ec0664e-594a-4e39-965a-e9aa85980db1'
-  ReservedCode2: '3ec0664e-594a-4e39-965a-e9aa85980db1'
+  ProduceID: '1a3c81f2-cf3c-40b3-9c2a-f11ffcaf81d9'
+  PropagateID: '1a3c81f2-cf3c-40b3-9c2a-f11ffcaf81d9'
+  ReservedCode1: '6cbed0ea-4e66-444d-8828-c8f281209a3d'
+  ReservedCode2: '6cbed0ea-4e66-444d-8828-c8f281209a3d'
 ---
 
 # unraid+
@@ -114,30 +114,4 @@ ED25519 key pair — the original password is no longer needed.
 
 ---
 
-## 中文说明
-
-unraid+ 是一个基于 Web 的 Unraid 服务器管理器，通过 SSH 连接你的 NAS，无需安装任何客户端。
-
-### 主要功能
-
-- **仪表盘** — 实时监控 CPU、内存、网络、磁盘读写
-- **存储管理** — 阵列状态、磁盘温度、SMART 健康检测
-- **Docker 管理** — 容器列表、启停、资源占用、实时日志
-- **虚拟机管理** — KVM 虚拟机状态和控制
-- **文件管理** — 基于 SFTP 的文件浏览器，支持上传/下载/预览/重命名
-- **Web 终端** — 浏览器内 SSH 命令行（WebSocket）
-- **多服务器** — 添加和切换多台 Unraid 机器
-- **安全** — 可选界面密码、SSH 密钥轮换（ED25519）、AES-GCM 加密存储凭据
-- **零云架构** — 所有数据不离开局域网，直连 SSH
-
-### 快速开始
-
-```bash
-docker run -d \
-  --name unraid-plus \
-  -p 9876:9876 \
-  -v unraid-plus-data:/data \
-  crazyqin/unraid-plus
-```
-
-打开 `http://localhost:9876`，按向导输入 Unraid 的 IP 和密码即可接入。
+[中文说明](README_CN.md)

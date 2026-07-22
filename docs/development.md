@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: 'a05a9404-d934-4fca-b500-4d500d16ce0d'
-  PropagateID: 'a05a9404-d934-4fca-b500-4d500d16ce0d'
-  ReservedCode1: 'da684763-3e4e-4480-831a-bb653e144809'
-  ReservedCode2: 'da684763-3e4e-4480-831a-bb653e144809'
+  ProduceID: '4b437b51-d0b3-49f2-a6d6-47cf63f8bd58'
+  PropagateID: '4b437b51-d0b3-49f2-a6d6-47cf63f8bd58'
+  ReservedCode1: '0b577fea-bff5-4041-895d-32625a9fe2b8'
+  ReservedCode2: '0b577fea-bff5-4041-895d-32625a9fe2b8'
 ---
 
 # 开发指南（Development）
@@ -141,7 +141,7 @@ CGO_ENABLED=0 go build -trimpath \
 ### 4.2 后端
 
 - **Go 版本**：1.23 起步，以 Dockerfile 中 `golang:1.23-alpine` 为准。
-- **module path**：`github.com/your-org/unraidpp/server`（占位，正式开源前替换）。
+- **module path**：`github.com/crazyqin/unraid-plus/server`。
 - **分层**：`cmd/` 只做装配；业务在 `internal/`；可被外部引用的放 `pkg/`。
   **不要**让 `internal/api` 直接调用 `golang.org/x/crypto/ssh`——一律走
   `internal/ssh.Client`。

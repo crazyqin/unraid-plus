@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '79ed9c97-97e1-4ec8-bf0f-56cf9b315fd2'
-  PropagateID: '79ed9c97-97e1-4ec8-bf0f-56cf9b315fd2'
-  ReservedCode1: 'd989d25e-0ad8-4734-95b0-c6f7bde6791c'
-  ReservedCode2: 'd989d25e-0ad8-4734-95b0-c6f7bde6791c'
+  ProduceID: '7465dc1f-3fef-4c36-a8d4-e3ea9432c7b8'
+  PropagateID: '7465dc1f-3fef-4c36-a8d4-e3ea9432c7b8'
+  ReservedCode1: '6c97fb2f-f800-4d16-8229-4e681032da21'
+  ReservedCode2: '6c97fb2f-f800-4d16-8229-4e681032da21'
 ---
 
 # 架构设计（Architecture）

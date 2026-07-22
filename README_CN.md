@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '5e605d5c-34ce-452f-9b32-09a0fa69fb8a'
-  PropagateID: '5e605d5c-34ce-452f-9b32-09a0fa69fb8a'
-  ReservedCode1: 'c2d4a821-cbe4-4fbf-9a17-484cf951fdff'
-  ReservedCode2: 'c2d4a821-cbe4-4fbf-9a17-484cf951fdff'
+  ProduceID: '374001c7-2d8f-475d-8787-29ea9a1942b9'
+  PropagateID: '374001c7-2d8f-475d-8787-29ea9a1942b9'
+  ReservedCode1: 'a1432593-49c2-4309-a117-4f5cfaaed074'
+  ReservedCode2: 'a1432593-49c2-4309-a117-4f5cfaaed074'
 ---
 
 # unraid+

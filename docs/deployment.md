@@ -3,10 +3,10 @@ AIGC:
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
-  ProduceID: '8c77a831-7735-4213-944d-235cbe994431'
-  PropagateID: '8c77a831-7735-4213-944d-235cbe994431'
-  ReservedCode1: '5b48a118-c2ff-4f56-b95d-4c22fb5ec219'
-  ReservedCode2: '5b48a118-c2ff-4f56-b95d-4c22fb5ec219'
+  ProduceID: '77cea14a-b16f-4183-a2c8-75cc24542016'
+  PropagateID: '77cea14a-b16f-4183-a2c8-75cc24542016'
+  ReservedCode1: '20b4d762-a905-4c5f-b7c6-36812d0fde2d'
+  ReservedCode2: '20b4d762-a905-4c5f-b7c6-36812d0fde2d'
 ---
 
 # 部署指南（Deployment）
@@ -30,7 +30,7 @@ AIGC:
 仓库根目录已提供 `docker-compose.yml`：
 
 ```bash
-git clone https://github.com/your-org/unraid-plus-plus.git
+git clone https://github.com/crazyqin/unraid-plus.git
 cd unraid-plus-plus
 docker compose up -d
 ```
@@ -41,7 +41,7 @@ docker compose up -d
 ```yaml
 services:
   unraidpp:
-    image: ghcr.io/your-org/unraidpp:latest
+    image: ghcr.io/crazyqin/unraid-plus:latest
     container_name: unraidpp
     restart: unless-stopped
     ports:
@@ -66,7 +66,7 @@ Dockerfile 是多阶段的，CI 里构建时用 `docker buildx` 同时出 amd64 
 ```bash
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
-  -t ghcr.io/your-org/unraidpp:latest \
+  -t ghcr.io/crazyqin/unraid-plus:latest \
   --push .
 ```
 
@@ -98,7 +98,7 @@ docker run -d \
   -e UNRAIDPP_DATA_DIR=/data \
   -e TZ=Asia/Shanghai \
   -v unraidpp-data:/data \
-  ghcr.io/your-org/unraidpp:latest
+  ghcr.io/crazyqin/unraid-plus:latest
 ```
 
 ## 4. 裸二进制 + systemd

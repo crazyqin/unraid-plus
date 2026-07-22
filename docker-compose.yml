@@ -7,11 +7,11 @@
 services:
   unraidpp:
     # Build from source. To use a prebuilt image instead, comment `build:`
-    # and uncomment `image: ghcr.io/your-org/unraidpp:latest`.
+    # and uncomment `image: ghcr.io/crazyqin/unraid-plus:latest`.
     build:
       context: .
       dockerfile: Dockerfile
-    # image: ghcr.io/your-org/unraidpp:latest
+    # image: ghcr.io/crazyqin/unraid-plus:latest
     container_name: unraidpp
     restart: unless-stopped
     ports:

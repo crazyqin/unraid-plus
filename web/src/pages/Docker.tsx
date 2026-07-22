@@ -338,7 +338,7 @@ function LogStream({ containerId }: { containerId?: string }) {
       </div>
       <pre
         ref={preRef}
-        className="h-80 overflow-auto rounded-md bg-black/80 p-3 font-mono text-xs leading-relaxed text-green-400"
+        className="h-80 overflow-auto overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-black/80 p-3 font-mono text-xs leading-relaxed text-green-400"
       >
         {buffer || (ended ? '（无日志输出）' : '等待日志…')}
       </pre>

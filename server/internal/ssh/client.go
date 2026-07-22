@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -163,7 +164,17 @@ func (c *Client) SFTP() (*SFTPClient, error) {
 	return newSFTPClient(pr, pw, sc)
 }
 
-// Connect dials the SSH server using the provided config, performing
+// DialTCP opens a raw TCP connection through the SSH tunnel to the remote
+// host:port. This is the building block for port-forwarding — used by the
+// VNC WebSocket proxy to connect to the VNC port on the Unraid host.
+func (c *Client) DialTCP(network, addr string) (net.Conn, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.conn == nil || c.closed {
+		return nil, errors.New("connection closed")
+	}
+	return c.conn.Dial(network, addr)
+}
 // trust-on-first-use host key verification via the pool's knownHosts cache.
 func (p *Pool) Connect(cfg *ConnConfig) (*ConnectResult, error) {
 	authMethods, err := authMethodsFor(cfg)

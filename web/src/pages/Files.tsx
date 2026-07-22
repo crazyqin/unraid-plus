@@ -660,7 +660,7 @@ function PreviewDialog({
                   文件较大，仅显示前 64KB 内容。
                 </p>
               )}
-              <pre className="max-h-[55vh] overflow-auto rounded-md bg-muted/40 p-3 text-xs leading-relaxed">
+              <pre className="max-h-[55vh] overflow-auto overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted/40 p-3 text-xs leading-relaxed">
                 <code>{textContent}</code>
               </pre>
             </div>
@@ -668,11 +668,12 @@ function PreviewDialog({
           {editing && (
             <div>
               <textarea
-                className="h-[55vh] w-full resize-none rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed focus:outline-none focus:ring-2 focus:ring-primary"
+                className="h-[55vh] w-full resize-none rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed break-all focus:outline-none focus:ring-2 focus:ring-primary"
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
                 spellCheck={false}
                 autoFocus
+                wrap="soft"
               />
               {saveError && (
                 <p className="mt-1 text-sm text-destructive">{saveError}</p>

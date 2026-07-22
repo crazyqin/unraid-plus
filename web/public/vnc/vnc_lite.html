@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <!--
+    noVNC for unraid-plus: lightweight VNC viewer customized for unraid-plus.
+
+    Connect parameters are provided in query string:
+        /vnc/vnc_lite.html?url=ws://host:port/ws/vnc?vm=VMNAME&scale=true
+
+    Based on noVNC vnc_lite.html (MPL 2.0 / 2-Clause BSD).
+    -->
+    <title>VNC 控制台</title>
+
+    <style>
+        body {
+            margin: 0;
+            background-color: #1a1a2e;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+        }
+        html {
+            height: 100%;
+        }
+
+        #top_bar {
+            background-color: #2d2d44;
+            color: #e0e0e0;
+            font: bold 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+            padding: 6px 5px 4px 5px;
+            border-bottom: 1px solid #3d3d5c;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        #status {
+            text-align: center;
+            flex: 1;
+        }
+        .top-btn {
+            border: 1px solid #5a5a8a;
+            background-color: #3d3d5c;
+            color: #e0e0e0;
+            padding: 4px 10px;
+            cursor: pointer;
+            border-radius: 3px;
+            font-size: 11px;
+            margin: 0 3px;
+        }
+        .top-btn:hover {
+            background-color: #5a5a8a;
+        }
+
+        #screen {
+            flex: 1;
+            overflow: hidden;
+        }
+
+    </style>
+
+    <script type="module" crossorigin="anonymous">
+        import RFB from './core/rfb.js';
+
+        let rfb;
+        let desktopName;
+
+        function connectedToServer(e) {
+            status("已连接" + (desktopName ? " - " + desktopName : ""));
+        }
+
+        function disconnectedFromServer(e) {
+            if (e.detail.clean) {
+                status("已断开连接");
+            } else {
+                status("连接异常关闭");
+            }
+        }
+
+        function credentialsAreRequired(e) {
+            const password = prompt("请输入 VNC 密码：");
+            rfb.sendCredentials({ password: password });
+        }
+
+        function updateDesktopName(e) {
+            desktopName = e.detail.name;
+            status("已连接 - " + desktopName);
+        }
+
+        function sendCtrlAltDel() {
+            if (rfb) rfb.sendCtrlAltDel();
+            return false;
+        }
+
+        function disconnect() {
+            if (rfb) rfb.disconnect();
+        }
+
+        function status(text) {
+            document.getElementById('status').textContent = text;
+        }
+
+        function readQueryVariable(name, defaultValue) {
+            const re = new RegExp('.*[?&]' + name + '=([^&#]*)'),
+                  match = document.location.href.match(re);
+            if (match) {
+                return decodeURIComponent(match[1]);
+            }
+            return defaultValue;
+        }
+
+        document.getElementById('sendCtrlAltDelButton').onclick = sendCtrlAltDel;
+        document.getElementById('disconnectButton').onclick = disconnect;
+
+        // Read the full WebSocket URL directly (unraid-plus provides it)
+        const wsUrl = readQueryVariable('url');
+
+        if (!wsUrl) {
+            status('错误：缺少 url 参数');
+        } else {
+            status("连接中…");
+
+            const password = readQueryVariable('password');
+
+            rfb = new RFB(document.getElementById('screen'), wsUrl,
+                          { credentials: { password: password } });
+
+            rfb.addEventListener("connect",  connectedToServer);
+            rfb.addEventListener("disconnect", disconnectedFromServer);
+            rfb.addEventListener("credentialsrequired", credentialsAreRequired);
+            rfb.addEventListener("desktopname", updateDesktopName);
+
+            rfb.viewOnly = readQueryVariable('view_only', false);
+            rfb.scaleViewport = readQueryVariable('scale', true);
+            rfb.resizeSession = readQueryVariable('resize', false);
+        }
+    </script>
+</head>
+
+<body>
+    <div id="top_bar">
+        <button class="top-btn" id="disconnectButton">断开</button>
+        <div id="status">加载中</div>
+        <button class="top-btn" id="sendCtrlAltDelButton">Ctrl+Alt+Del</button>
+    </div>
+    <div id="screen">
+        <!-- This is where the remote screen will appear -->
+    </div>
+</body>
+</html>

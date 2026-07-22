@@ -1,14 +1,16 @@
+import { useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Cpu,
   Loader2,
   MemoryStick,
+  Monitor,
   Pause,
   Play,
   Power,
   Square,
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, wsUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -17,6 +19,12 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { formatBytes } from '@/lib/utils';
 import type { VmInfo } from '@/types';
 
@@ -36,6 +44,7 @@ const STATUS_LABEL: Record<string, string> = {
 
 export default function VmsPage() {
   const qc = useQueryClient();
+  const [vncVm, setVncVm] = useState<VmInfo | null>(null);
   const { data, isLoading, isError } = useQuery({
     queryKey: ['vms'],
     queryFn: () => api.get<VmInfo[]>('/vms'),
@@ -126,12 +135,57 @@ export default function VmsPage() {
                       <Play className="h-3.5 w-3.5" /> 恢复
                     </Button>
                   )}
+                  {vm.status === 'running' && (
+                    <Button size="sm" variant="outline" onClick={() => setVncVm(vm)}>
+                      <Monitor className="h-3.5 w-3.5" /> 控制台
+                    </Button>
+                  )}
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
       )}
+
+      <VNCDialog vm={vncVm} onClose={() => setVncVm(null)} />
     </div>
+  );
+}
+
+/* ------------------------------- VNC Dialog ------------------------------- */
+
+function VNCDialog({ vm, onClose }: { vm: VmInfo | null; onClose: () => void }) {
+  if (!vm) return null;
+
+  // Build the WebSocket URL for the VNC proxy endpoint.
+  // The noVNC viewer (iframe) will connect to this URL.
+  const vncWsUrl = wsUrl(`/ws/vnc?vm=${encodeURIComponent(vm.id)}`);
+
+  // The noVNC lite viewer is served from /vnc/vnc_lite.html (public dir).
+  // We pass the WebSocket URL via the "url" query parameter.
+  const iframeSrc = `/vnc/vnc_lite.html?url=${encodeURIComponent(vncWsUrl)}&scale=true`;
+
+  return (
+    <Dialog open={!!vm} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-4xl p-0 gap-0 overflow-hidden">
+        <DialogHeader className="px-4 pt-4 pb-2">
+          <DialogTitle className="flex items-center gap-2">
+            <Monitor className="h-4 w-4" />
+            VNC 控制台 · {vm.name}
+          </DialogTitle>
+        </DialogHeader>
+        <div className="px-4 pb-1 text-xs text-muted-foreground">
+          通过 SSH 隧道连接到虚拟机的 VNC 服务。如无画面，请确认虚拟机已配置 VNC 显卡。
+        </div>
+        <div className="relative" style={{ height: '70vh' }}>
+          <iframe
+            src={iframeSrc}
+            className="absolute inset-0 h-full w-full border-0"
+            title={`VNC - ${vm.name}`}
+            sandbox="allow-scripts allow-same-origin"
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

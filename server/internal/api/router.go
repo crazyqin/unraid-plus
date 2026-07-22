@@ -118,6 +118,7 @@ func buildRouter(cfg *config.Config, h *handler.Handler) http.Handler {
 	// VMs
 	api.GET("/vms", h.ListVMs)
 	api.POST("/vms/:id/:action", h.VMAction)
+	api.GET("/vms/vnc-info", h.VNCDialInfo)
 
 	// WebSocket: SSH terminal (also gated by auth if enabled)
 	r.GET("/ws/terminal", authStore.AuthRequired(), func(c *gin.Context) {
@@ -126,6 +127,9 @@ func buildRouter(cfg *config.Config, h *handler.Handler) http.Handler {
 
 	// WebSocket: Docker container logs
 	r.GET("/ws/docker-logs", authStore.AuthRequired(), h.DockerLogs)
+
+	// WebSocket: VNC proxy for VM consoles
+	r.GET("/ws/vnc", authStore.AuthRequired(), h.VNCProxy)
 
 	// Serve frontend SPA
 	r.NoRoute(handler.SPA())

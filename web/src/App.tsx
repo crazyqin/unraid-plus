@@ -16,13 +16,13 @@ import { useSettingsStore } from './stores/settings';
 
 export default function App() {
   const server = useAuthStore((s) => s.server);
-  const onboardingDone = useSettingsStore((s) => s.onboardingDone);
+  const servers = useAuthStore((s) => s.servers);
   const uiAuthEnabled = useAuthStore((s) => s.uiAuthEnabled);
   const isUiAuthenticated = useAuthStore((s) => s.isUiAuthenticated);
   const authChecked = useAuthStore((s) => s.authChecked);
   const checkAuth = useAuthStore((s) => s.checkAuth);
 
-  // Probe auth status on boot to determine if login is required.
+  // Probe auth status + servers on boot.
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
@@ -33,9 +33,7 @@ export default function App() {
     document.documentElement.classList.toggle('sidebar-collapsed', collapsed);
   }, [collapsed]);
 
-  // Wait for the auth probe before rendering any routes. This prevents
-  // a flash of the login page (or the main app) before we know whether
-  // auth is enabled.
+  // Wait for the auth probe before rendering any routes.
   if (!authChecked) {
     return (
       <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-muted-foreground">
@@ -46,22 +44,29 @@ export default function App() {
 
   const needsLogin = uiAuthEnabled && !isUiAuthenticated;
 
+  // v0.8+: If backend has saved servers with active connections, the user
+  // goes straight to the dashboard. If no servers at all, go to onboarding.
+  // If servers exist but none connected, still show main app (user can
+  // reconnect from the server list).
+  const hasServers = servers.length > 0;
+  const hasActiveConnection = server?.status === 'connected';
+  const showApp = server || hasServers;
+
   return (
     <Routes>
-      {/* Login page — standalone, outside the sidebar layout. */}
+      {/* Login page */}
       <Route
         path="/login"
         element={needsLogin ? <LoginPage /> : <Navigate to="/" replace />}
       />
 
-      {/* First-time wizard — bypasses the main layout.
-          Requires auth if UI auth is enabled. */}
+      {/* Onboarding wizard */}
       <Route
         path="/onboarding"
         element={
           needsLogin ? (
             <Navigate to="/login" replace />
-          ) : server && onboardingDone ? (
+          ) : hasActiveConnection || hasServers ? (
             <Navigate to="/" replace />
           ) : (
             <OnboardingPage />
@@ -69,13 +74,13 @@ export default function App() {
         }
       />
 
-      {/* Everything else sits inside the sidebar layout. */}
+      {/* Main app */}
       <Route
         path="/*"
         element={
           needsLogin ? (
             <Navigate to="/login" replace />
-          ) : server ? (
+          ) : showApp ? (
             <AppLayout />
           ) : (
             <Navigate to="/onboarding" replace />

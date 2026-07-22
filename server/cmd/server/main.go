@@ -75,6 +75,9 @@ func main() {
 	ur := unraid.NewClient(cfg)
 	hub := ssh.NewTerminalHub(pool)
 
+	// Wire the handler so we can access the server manager for auto-reconnect.
+	h := handler.New(pool, ur, hub, cfg)
+
 	// If env provided default credentials, connect eagerly so the onboarding
 	// wizard is skipped (useful for unattended deployments).
 	if cfg.DefaultHost != "" && cfg.DefaultPasswd != "" {
@@ -93,34 +96,28 @@ func main() {
 			}
 		}()
 	} else {
-		// v0.6: Try to auto-reconnect using a persisted SSH key + conn meta.
-		// This only works if the user previously went through RotateKey
-		// (which saves both the private key and the connection parameters).
+		// v0.8+: Auto-reconnect all saved servers that have stored credentials.
+		// This replaces the old LoadPersistedConn (single-server) approach.
 		go func() {
-			if meta, err := handler.LoadPersistedConn(cfg.DataDir); err != nil {
-				logger.Warnf("auto-reconnect: failed to load conn meta: %v", err)
-			} else if meta != nil {
-				logger.Infof("auto-reconnecting to %s:%d as %s (key auth)", meta.Host, meta.Port, meta.User)
-				_, err := pool.Connect(&ssh.ConnConfig{
-					Host:       meta.Host,
-					Port:       meta.Port,
-					User:       meta.User,
-					AuthMode:   ssh.AuthKey,
-					PrivateKey: meta.PrivateKey,
-					APIBase:    meta.APIBase,
-					Label:      meta.Label,
-				})
+			time.Sleep(500 * time.Millisecond) // small delay for network readiness
+			for _, entry := range h.ServerManager().List() {
+				cfg, err := h.ServerManager().ConnConfigFor(entry.ID)
 				if err != nil {
-					logger.Warnf("auto-reconnect failed: %v", err)
+					logger.Warnf("auto-reconnect: skip %s: %v", entry.ID, err)
+					continue
+				}
+				_, err = pool.Connect(cfg)
+				if err != nil {
+					logger.Warnf("auto-reconnect %s: failed: %v", entry.ID, err)
 				} else {
-					logger.Infof("auto-reconnect succeeded")
-					ur.SetBase(meta.APIBase)
+					logger.Infof("auto-reconnect %s: success", entry.ID)
+					ur.SetBase(cfg.APIBase)
 				}
 			}
 		}()
 	}
 
-	handler := api.Build(cfg, pool, ur, hub)
+	handler := api.BuildWithHandler(cfg, pool, ur, hub, h)
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,

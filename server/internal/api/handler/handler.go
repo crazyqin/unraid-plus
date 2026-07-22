@@ -20,16 +20,44 @@ type Handler struct {
 	ur   *unraid.Client
 	hub  *ssh.TerminalHub
 	cfg  *config.Config
+	sm   *serverManager // v0.8+: multi-server persistence
 }
 
 // New constructs a Handler.
 func New(pool *ssh.Pool, ur *unraid.Client, hub *ssh.TerminalHub, cfg *config.Config) *Handler {
-	return &Handler{pool: pool, ur: ur, hub: hub, cfg: cfg}
+	return &Handler{
+		pool: pool,
+		ur:   ur,
+		hub:  hub,
+		cfg:  cfg,
+		sm:   newServerManager(cfg.DataDir),
+	}
+}
+
+// ServerManager returns the server persistence manager (for auto-reconnect).
+func (h *Handler) ServerManager() *serverManager {
+	return h.sm
+}
+
+// Hub returns the SSH terminal hub (for WebSocket upgrade).
+func (h *Handler) Hub() *ssh.TerminalHub {
+	return h.hub
 }
 
 // activeClient returns the currently-connected SSH client or aborts the
 // request with a 503. Used as a one-liner at the top of every data handler.
 func (h *Handler) activeClient(c *gin.Context) (*ssh.Client, bool) {
+	// v0.8+: check for ?serverId= parameter to support multi-server
+	if id := c.Query("serverId"); id != "" && h.sm != nil {
+		entry := h.sm.Get(id)
+		if entry != nil {
+			cli, err := h.pool.Get(entry.Host, entry.Port)
+			if err == nil {
+				return cli, true
+			}
+		}
+	}
+	// Fallback: return the first active connection (legacy single-server)
 	cli, err := h.pool.Active()
 	if err != nil {
 		c.AbortWithStatusJSON(503, gin.H{

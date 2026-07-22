@@ -24,8 +24,18 @@ var (
 	StartTime = time.Now()
 )
 
-// Build constructs the HTTP server.
+// Build constructs the HTTP server (legacy — creates its own handler).
 func Build(cfg *config.Config, pool *ssh.Pool, ur *unraid.Client, hub *ssh.TerminalHub) http.Handler {
+	h := handler.New(pool, ur, hub, cfg)
+	return buildRouter(cfg, h)
+}
+
+// BuildWithHandler constructs the HTTP server using a pre-created handler.
+func BuildWithHandler(cfg *config.Config, pool *ssh.Pool, ur *unraid.Client, hub *ssh.TerminalHub, h *handler.Handler) http.Handler {
+	return buildRouter(cfg, h)
+}
+
+func buildRouter(cfg *config.Config, h *handler.Handler) http.Handler {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Recovery())
@@ -62,12 +72,17 @@ func Build(cfg *config.Config, pool *ssh.Pool, ur *unraid.Client, hub *ssh.Termi
 	api := r.Group("/api")
 	api.Use(authStore.AuthRequired())
 
-	h := handler.New(pool, ur, hub, cfg)
+	// h is the handler passed from main.go (needed for auto-reconnect).
 
 	// Connection / onboarding
 	api.POST("/connect", h.Connect)
 	api.POST("/disconnect", h.Disconnect)
 	api.POST("/auth/rotate-key", h.RotateKey)
+
+	// Server management (v0.8+): multi-server persistence
+	api.GET("/servers", h.ListServers)
+	api.POST("/servers/:id/reconnect", h.ReconnectServer)
+	api.DELETE("/servers/:id", h.DeleteServer)
 
 	// Dashboard
 	api.GET("/dashboard", h.Dashboard)
@@ -103,7 +118,7 @@ func Build(cfg *config.Config, pool *ssh.Pool, ur *unraid.Client, hub *ssh.Termi
 
 	// WebSocket: SSH terminal (also gated by auth if enabled)
 	r.GET("/ws/terminal", authStore.AuthRequired(), func(c *gin.Context) {
-		serveTerminal(hub, c.Writer, c.Request)
+		serveTerminal(h.Hub(), c.Writer, c.Request)
 	})
 
 	// WebSocket: Docker container logs

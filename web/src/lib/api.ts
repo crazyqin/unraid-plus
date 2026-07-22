@@ -15,6 +15,27 @@ export class ApiError extends Error {
 
 const BASE = '/api';
 
+/** v0.8+: Active server ID for multi-server data isolation. */
+let _activeServerId: string | null = null;
+
+/** Set the active server ID (called by auth store). All subsequent API
+ *  requests will include `?serverId=` so the backend routes to the
+ *  correct SSH connection. */
+export function setActiveServerId(id: string | null) {
+  _activeServerId = id;
+}
+
+/** Inject ?serverId= into paths that need it (data endpoints, not auth/connect). */
+function withServerId(path: string): string {
+  if (!_activeServerId) return path;
+  // Don't add serverId to auth/connect/server-management routes
+  if (path.startsWith('/auth/') || path === '/connect' || path === '/disconnect' || path.startsWith('/servers')) {
+    return path;
+  }
+  const sep = path.includes('?') ? '&' : '?';
+  return `${path}${sep}serverId=${encodeURIComponent(_activeServerId)}`;
+}
+
 /**
  * Handle 401 AUTH_REQUIRED responses by redirecting to /login.
  * Skips the redirect if we're already on /login (to avoid loops).
@@ -38,7 +59,8 @@ async function request<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
+  const resolvedPath = withServerId(path);
+  const res = await fetch(`${BASE}${resolvedPath}`, {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -83,7 +105,7 @@ export const api = {
    * manually — that's why this is a separate method, not using request().
    */
   upload: async <T>(path: string, formData: FormData): Promise<T> => {
-    const res = await fetch(`${BASE}${path}`, {
+    const res = await fetch(`${BASE}${withServerId(path)}`, {
       method: 'POST',
       body: formData,
       credentials: 'include',
@@ -120,8 +142,8 @@ export const api = {
     onProgress?: (loaded: number, total: number) => void,
   ): Promise<T> => {
     return new Promise<T>((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('POST', `${BASE}${path}`);
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${BASE}${withServerId(path)}`);
       xhr.withCredentials = true;
 
       xhr.upload.onprogress = (e) => {

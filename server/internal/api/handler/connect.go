@@ -10,14 +10,14 @@ import (
 )
 
 type connectReq struct {
-	Host      string `json:"host"`
-	APIBase   string `json:"apiBase"`
-	SSHPort   int    `json:"sshPort"`
-	User      string `json:"user"`
-	Password  string `json:"password"`
+	Host       string `json:"host"`
+	APIBase    string `json:"apiBase"`
+	SSHPort    int    `json:"sshPort"`
+	User       string `json:"user"`
+	Password   string `json:"password"`
 	PrivateKey []byte `json:"privateKey"`
 	Passphrase string `json:"passphrase"`
-	Label     string `json:"label"`
+	Label      string `json:"label"`
 }
 
 type connectResp struct {
@@ -25,11 +25,16 @@ type connectResp struct {
 	Message         string `json:"message"`
 	HostFingerprint string `json:"hostFingerprint,omitempty"`
 	ServerVersion   string `json:"serverVersion,omitempty"`
+	ServerID        string `json:"serverId,omitempty"`
 }
 
 // Connect handles the onboarding wizard's "test and connect" step. We
 // deliberately accept either password or pre-supplied private key — the
 // "zero-config" UX is just password mode with a friendly wizard.
+//
+// v0.8+: After a successful connect, the server config is persisted to
+// servers.json so it survives restarts and page refreshes. The frontend
+// can query GET /api/servers to restore connection state.
 func (h *Handler) Connect(c *gin.Context) {
 	var req connectReq
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -47,7 +52,6 @@ func (h *Handler) Connect(c *gin.Context) {
 		req.User = "root"
 	}
 	if req.APIBase == "" {
-		// Best-effort: assume same host, https.
 		req.APIBase = "https://" + req.Host
 	}
 	if req.Password == "" && len(req.PrivateKey) == 0 {
@@ -63,7 +67,7 @@ func (h *Handler) Connect(c *gin.Context) {
 	// Forget any prior connection to the same host — TOFU will revalidate.
 	_ = h.pool.Forget(req.Host, req.SSHPort)
 
-	result, err := h.pool.Connect(&ssh.ConnConfig{
+	connCfg := &ssh.ConnConfig{
 		Host:       req.Host,
 		Port:       req.SSHPort,
 		User:       req.User,
@@ -73,7 +77,9 @@ func (h *Handler) Connect(c *gin.Context) {
 		Passphrase: req.Passphrase,
 		APIBase:    req.APIBase,
 		Label:      req.Label,
-	})
+	}
+
+	result, err := h.pool.Connect(connCfg)
 	if err != nil {
 		status := http.StatusUnauthorized
 		if isNetworkErr(err) {
@@ -83,9 +89,20 @@ func (h *Handler) Connect(c *gin.Context) {
 		return
 	}
 
-	// Tell the Unraid client which API base to talk to. We don't probe here —
-	// SSH success is enough for onboarding; the dashboard will surface any
-	// HTTP API problems.
+	// Persist server config to servers.json (v0.8+)
+	id := serverID(req.Host, req.SSHPort)
+	if h.sm != nil {
+		if err := h.sm.Upsert(connCfg, req.Password); err != nil {
+			// Log but don't fail the connect — persistence is best-effort
+			_ = err
+		}
+		// If key auth, save the private key for auto-reconnect
+		if mode == ssh.AuthKey && len(req.PrivateKey) > 0 {
+			_ = h.sm.SaveServerKey(id, req.PrivateKey)
+		}
+	}
+
+	// Tell the Unraid client which API base to talk to.
 	h.ur.SetBase(req.APIBase)
 
 	c.JSON(http.StatusOK, connectResp{
@@ -93,21 +110,137 @@ func (h *Handler) Connect(c *gin.Context) {
 		Message:         "连接成功",
 		HostFingerprint: result.HostFingerprint,
 		ServerVersion:   result.ServerVersion,
+		ServerID:        id,
 	})
 }
 
-// Disconnect tears down the active connection (used by Settings → 断开连接).
-func (h *Handler) Disconnect(c *gin.Context) {
-	cli, err := h.pool.Active()
-	if err != nil {
-		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "本就没有活动连接"})
+// ListServers returns all saved servers and their connection status.
+// The frontend calls this on boot to restore connection state.
+func (h *Handler) ListServers(c *gin.Context) {
+	if h.sm == nil {
+		c.JSON(http.StatusOK, gin.H{"servers": []any{}})
 		return
 	}
-	// We don't have an explicit host:port at the API layer; the pool exposes
-	// Active() only. To forget we iterate: just call ForgetAll — v0.x is
-	// single-server. Future multi-server builds will need a host param here.
-	_ = cli
-	h.pool.ForgetAll()
+
+	entries := h.sm.List()
+	type serverInfo struct {
+		ID        string `json:"id"`
+		Host      string `json:"host"`
+		Port      int    `json:"port"`
+		User      string `json:"user"`
+		AuthMode  string `json:"authMode"`
+		Label     string `json:"label"`
+		Connected bool   `json:"connected"`
+		LastSeen  string `json:"lastSeen"`
+	}
+
+	out := make([]serverInfo, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, serverInfo{
+			ID:       e.ID,
+			Host:     e.Host,
+			Port:     e.Port,
+			User:     e.User,
+			AuthMode: e.AuthMode,
+			Label:    e.Label,
+			Connected: h.pool.Connected(e.Host, e.Port),
+			LastSeen: e.LastSeen,
+		})
+	}
+	c.JSON(http.StatusOK, gin.H{"servers": out})
+}
+
+// DisconnectServer tears down the SSH connection for a specific server.
+func (h *Handler) DisconnectServer(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		// Fallback: disconnect all (legacy behavior)
+		h.pool.ForgetAll()
+		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已断开所有连接"})
+		return
+	}
+
+	entry := h.sm.Get(id)
+	if entry == nil {
+		errOut(c, http.StatusNotFound, "服务器不存在")
+		return
+	}
+	_ = h.pool.Forget(entry.Host, entry.Port)
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已断开"})
+}
+
+// DeleteServer removes a saved server config and disconnects it.
+func (h *Handler) DeleteServer(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		errOut(c, http.StatusBadRequest, "缺少服务器 ID")
+		return
+	}
+
+	entry := h.sm.Get(id)
+	if entry == nil {
+		errOut(c, http.StatusNotFound, "服务器不存在")
+		return
+	}
+
+	// Disconnect first
+	_ = h.pool.Forget(entry.Host, entry.Port)
+
+	// Remove from persisted config
+	if err := h.sm.Delete(id); err != nil {
+		errOut(c, http.StatusInternalServerError, "删除失败: "+err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已删除"})
+}
+
+// ReconnectServer attempts to reconnect to a previously saved server.
+func (h *Handler) ReconnectServer(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		errOut(c, http.StatusBadRequest, "缺少服务器 ID")
+		return
+	}
+
+	cfg, err := h.sm.ConnConfigFor(id)
+	if err != nil {
+		errOut(c, http.StatusBadRequest, "无法重连: "+err.Error())
+		return
+	}
+
+	// Forget existing connection if any
+	_ = h.pool.Forget(cfg.Host, cfg.Port)
+
+	result, err := h.pool.Connect(cfg)
+	if err != nil {
+		status := http.StatusUnauthorized
+		if isNetworkErr(err) {
+			status = http.StatusBadGateway
+		}
+		errOut(c, status, friendlySSHError(err))
+		return
+	}
+
+	h.ur.SetBase(cfg.APIBase)
+
+	c.JSON(http.StatusOK, connectResp{
+		Ok:              true,
+		Message:         "重连成功",
+		HostFingerprint: result.HostFingerprint,
+		ServerID:        id,
+	})
+}
+
+// Disconnect is the legacy single-server disconnect handler.
+// v0.8+: redirects to DisconnectServer with the active server ID.
+func (h *Handler) Disconnect(c *gin.Context) {
+	// Try to find the active server
+	activeCfg, err := h.pool.ActiveConfig()
+	if err == nil && activeCfg != nil {
+		_ = h.pool.Forget(activeCfg.Host, activeCfg.Port)
+	} else {
+		h.pool.ForgetAll()
+	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已断开"})
 }
 
@@ -130,7 +263,6 @@ func (h *Handler) RotateKey(c *gin.Context) {
 	}
 
 	// Append the public key to authorized_keys on the Unraid flash drive.
-	// Unraid persists root's authorized_keys at this path across reboots.
 	cmd := `mkdir -p /boot/config/ssh && ` +
 		`grep -qvxF '%s' /boot/config/ssh/authorized_keys 2>/dev/null && ` +
 		`echo '%s' >> /boot/config/ssh/authorized_keys; ` +
@@ -142,21 +274,19 @@ func (h *Handler) RotateKey(c *gin.Context) {
 	}
 
 	// Persist the new private key and switch the pool to key auth.
-	if err := saveKey(h.cfg.DataDir, priv); err != nil {
-		errOut(c, http.StatusInternalServerError, "保存私钥失败: "+err.Error())
-		return
-	}
-
-	// Persist connection metadata so the server can auto-reconnect on restart.
 	connCfg, _ := h.pool.ActiveConfig()
+	id := ""
 	if connCfg != nil {
-		_ = saveConnMeta(h.cfg.DataDir, connMeta{
-			Host:    connCfg.Host,
-			Port:    connCfg.Port,
-			User:    connCfg.User,
-			APIBase: connCfg.APIBase,
-			Label:   connCfg.Label,
-		})
+		id = serverID(connCfg.Host, connCfg.Port)
+		_ = saveKey(h.cfg.DataDir, priv)
+		// Also save to server-specific key file
+		if h.sm != nil && id != "" {
+			_ = h.sm.SaveServerKey(id, priv)
+		}
+		// Update the saved server entry to use key auth
+		if h.sm != nil {
+			_ = h.sm.Upsert(connCfg, "")
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{

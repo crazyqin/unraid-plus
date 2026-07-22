@@ -83,9 +83,12 @@ export default function OnboardingPage() {
       authMode: 'password',
       status: 'connected',
       label: label || host,
+      id: result?.serverId,
     };
     configure(cfg);
     setOnboardingDone(true);
+    // Refresh server list from backend
+    useAuthStore.getState().refreshServers();
     navigate('/', { replace: true });
   };
 

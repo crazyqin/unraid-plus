@@ -19,6 +19,20 @@ export interface ServerConfig {
   hasKeyPair?: boolean;
   status: ServerStatus;
   label?: string;
+  /** v0.8+: unique server ID from backend (host:port) */
+  id?: string;
+}
+
+/** Server entry returned by GET /api/servers (v0.8+). */
+export interface ServerInfo {
+  id: string;
+  host: string;
+  port: number;
+  user: string;
+  authMode: string;
+  label: string;
+  connected: boolean;
+  lastSeen: string;
 }
 
 export interface HealthSummary {
@@ -214,4 +228,6 @@ export interface ConnectResult {
   /** Fingerprint of the server SSH host key, to confirm trust. */
   hostFingerprint?: string;
   serverVersion?: string;
+  /** v0.8+: unique server ID (host:port) for multi-server support. */
+  serverId?: string;
 }

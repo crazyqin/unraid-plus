@@ -120,10 +120,10 @@ export default function OnboardingPage() {
       {/* Header */}
       <header className="flex items-center gap-3 border-b px-6 py-4">
         <div className="grid h-9 w-9 place-items-center rounded-md bg-primary text-primary-foreground font-bold">
-          D+
+          U+
         </div>
         <div className="leading-tight">
-          <div className="text-base font-semibold">unraid++ 初始化</div>
+          <div className="text-base font-semibold">unraid-plus 初始化</div>
           <div className="text-xs text-muted-foreground">
             三分钟把你的 Unraid 接入管理
           </div>
@@ -239,7 +239,7 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
   return (
     <div className="animate-fade-in space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">欢迎使用 unraid++</h1>
+        <h1 className="text-2xl font-semibold">欢迎使用 unraid-plus</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           一个比官方 WebUI 更直观、比手机客户端更好部署的 Unraid 管理器。
           只需要你的 Unraid 局域网 IP 和 root 密码，三分钟接入。
@@ -389,7 +389,7 @@ function ConnectStep(props: {
   return (
     <div className="animate-fade-in space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">把 unraid++ 连到你的 NAS</h1>
+        <h1 className="text-2xl font-semibold">把 unraid-plus 连到你的 NAS</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           支持密码和密钥两种认证方式。密码仅在后端内存中用于本次配对，
           密钥模式下后端会保存私钥用于自动重连。
@@ -626,7 +626,7 @@ function VerifyStep({
           </div>
           <p className="text-xs text-muted-foreground">
             首次连接时浏览器/服务端会记住这个指纹。如果之后指纹变了，
-            unraid++ 会拒绝连接并提示你确认是否安全。
+            unraid-plus 会拒绝连接并提示你确认是否安全。
           </p>
         </CardContent>
       </Card>
@@ -686,7 +686,7 @@ function SecurityStep({
       <div>
         <h1 className="text-2xl font-semibold">安全设置</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          为 unraid++ 网页界面设置一个访问密码，防止局域网内其他人随意操作你的 NAS。
+            为 unraid-plus 网页界面设置一个访问密码，防止局域网内其他人随意操作你的 NAS。
         </p>
       </div>
 
@@ -708,7 +708,7 @@ function SecurityStep({
             <div className="flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning-foreground">
               <Lock className="h-4 w-4 shrink-0 text-warning" />
               <span className="text-foreground/80">
-                不设密码 = 局域网内任何人都能访问你的 unraid++，
+                不设密码 = 局域网内任何人都能访问你的 unraid-plus，
                 包括执行 SSH 命令、重启容器等高危操作。
               </span>
             </div>

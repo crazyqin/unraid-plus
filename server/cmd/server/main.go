@@ -1,4 +1,4 @@
-// Package main is the unraid++ server entry point.
+// Package main is the unraid-plus server entry point.
 //
 // It resolves configuration from env vars, wires the SSH pool, the Unraid API
 // client, the WebSocket terminal hub, the HTTP router, and serves everything
@@ -61,7 +61,7 @@ func main() {
 		logger.Fatal("mkdir data dir: %v", err)
 	}
 
-	logger.Infof("unraid++ %s (commit=%s built=%s)", Version, Commit, BuildTime)
+	logger.Infof("unraid-plus %s (commit=%s built=%s)", Version, Commit, BuildTime)
 	logger.Infof("data dir: %s", cfg.DataDir)
 	logger.Infof("listening on %s", cfg.Listen)
 

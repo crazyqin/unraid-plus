@@ -1,13 +1,25 @@
+
+---
+AIGC:
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: '03dc0358-6dc5-4426-a240-b53e6a864d66'
+  PropagateID: '03dc0358-6dc5-4426-a240-b53e6a864d66'
+  ReservedCode1: '7f3bff43-be0e-42ac-851a-13263d2ad88a'
+  ReservedCode2: '7f3bff43-be0e-42ac-851a-13263d2ad88a'
+---
+
 # 架构设计（Architecture）
 
-本文档描述 unraid++ 的整体架构、组件协作方式、关键请求路径与数据流。面向想要理解
+本文档描述 unraid-plus 的整体架构、组件协作方式、关键请求路径与数据流。面向想要理解
 内部实现、贡献代码或做二次集成开发者。
 
 ## 1. 高层架构
 
 ```
 ┌─────────────┐       HTTP / WebSocket        ┌──────────────────┐    SSH / SFTP    ┌──────────────┐
-│   浏览器     │ ───────────────────────────▶ │  unraid++ 后端   │ ───────────────▶ │   Unraid     │
+│   浏览器     │ ───────────────────────────▶ │ unraid-plus 后端  │ ───────────────▶ │   Unraid     │
 │ (React SPA) │ ◀─────────────────────────── │   (Go, 单二进制)  │ ◀─────────────── │   服务器     │
 └─────────────┘      REST + xterm WS          └──────────────────┘   HTTP /webgui   └──────────────┘
                           ▲                           │
@@ -145,12 +157,12 @@ resize 消息走带类型的 WS 帧，到达后转 `sess.WindowChange`。
 
 ## 5. 部署形态
 
-unraid++ 后端可以三种方式部署，前端都是同一个二进制内嵌的资源：
+unraid-plus 后端可以三种方式部署，前端都是同一个二进制内嵌的资源：
 
 1. **独立容器**（推荐）：`docker compose up`，暴露 8080。
 2. **Unraid 插件**：作为 Community Applications 里的一个插件安装到 NAS 本机，
    此时后端和 Unraid 同主机，SSH 走 `127.0.0.1`。
-3. **裸二进制**：把编译出来的 `unraidpp` 放到任意 Linux/ARM 机器，配合 systemd。
+3. **裸二进制**：把编译出来的 `unraid-plus` 放到任意 Linux/ARM 机器，配合 systemd。
 
 详见 [deployment.md](deployment.md)。
 

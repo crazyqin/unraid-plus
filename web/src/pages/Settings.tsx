@@ -80,7 +80,7 @@ export default function SettingsPage() {
           <CardTitle className="flex items-center gap-2 text-base">
             <Server className="h-4 w-4" /> 当前连接
           </CardTitle>
-          <CardDescription>这台 unraid++ 正在管理的服务器</CardDescription>
+          <CardDescription>这台 unraid-plus 正在管理的服务器</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <Row label="昵称 / 主机" value={server ? `${server.label} · ${server.host}` : '—'} />
@@ -214,7 +214,7 @@ export default function SettingsPage() {
       </Card>
 
       <p className="text-center text-xs text-muted-foreground">
-        unraid++ · Apache 2.0 · 完全开源
+        unraid-plus · Apache 2.0 · 完全开源
       </p>
 
       <ConfirmDialog

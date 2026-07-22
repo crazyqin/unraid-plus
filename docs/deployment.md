@@ -1,6 +1,7 @@
+
 # 部署指南（Deployment）
 
-本文档说明把 unraid++ 跑到生产环境的几种方式、环境变量清单，以及更新与反代配置。
+本文档说明把 unraid-plus 跑到生产环境的几种方式、环境变量清单，以及更新与反代配置。
 
 ## 1. 部署方式总览
 
@@ -11,7 +12,7 @@
 | 裸二进制 + systemd | 不方便装 Docker 的机器 | ★★★ | |
 | 安装到 Unraid 本机（插件） | 想让管理器和 NAS 同机 | ★★ | 后期规划 |
 
-所有方式最终都是跑同一个二进制 `unraidpp`，默认监听 `:8080`，**不要直接暴露公网**
+所有方式最终都是跑同一个二进制 `unraid-plus`，默认监听 `:8080`，**不要直接暴露公网**
 （见 [security.md](security.md)）。
 
 ## 2. Docker Compose（推荐）
@@ -20,7 +21,7 @@
 
 ```bash
 git clone https://github.com/crazyqin/unraid-plus.git
-cd unraid-plus-plus
+cd unraid-plus
 docker compose up -d
 ```
 
@@ -29,9 +30,9 @@ docker compose up -d
 
 ```yaml
 services:
-  unraidpp:
+  unraid-plus:
     image: ghcr.io/crazyqin/unraid-plus:latest
-    container_name: unraidpp
+    container_name: unraid-plus
     restart: unless-stopped
     ports:
       - "8080:8080"
@@ -40,10 +41,10 @@ services:
       UNRAIDPP_DATA_DIR: "/data"
       TZ: Asia/Shanghai
     volumes:
-      - unraidpp-data:/data
+      - unraid-plus-data:/data
 
 volumes:
-  unraidpp-data:
+  unraid-plus-data:
 ```
 
 打开 `http://<部署机 IP>:8080`，引导向导里填 Unraid IP + root 密码即可。
@@ -63,11 +64,11 @@ Unraid 多数跑在 Intel（amd64），少数装在树莓派 / 瑞芯微 SoC（a
 
 ### 2.2 使用 host 网络模式
 
-如果你的 NAS 与 unraid++ 同机，或想省一层端口转发，可用 `network_mode: host`：
+如果你的 NAS 与 unraid-plus 同机，或想省一层端口转发，可用 `network_mode: host`：
 
 ```yaml
 services:
-  unraidpp:
+  unraid-plus:
     # …
     network_mode: host
     # ports: 段需要去掉
@@ -78,15 +79,15 @@ services:
 ## 3. 单 Docker 容器（已有编排）
 
 ```bash
-docker volume create unraidpp-data
+docker volume create unraid-plus-data
 docker run -d \
-  --name unraidpp \
+  --name unraid-plus \
   --restart unless-stopped \
   -p 8080:8080 \
   -e UNRAIDPP_LISTEN=:8080 \
   -e UNRAIDPP_DATA_DIR=/data \
   -e TZ=Asia/Shanghai \
-  -v unraidpp-data:/data \
+  -v unraid-plus-data:/data \
   ghcr.io/crazyqin/unraid-plus:latest
 ```
 
@@ -109,26 +110,26 @@ rsync -a dist/ ../server/internal/web/dist/
 cd ../server
 CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
   -trimpath -ldflags "-s -w -X main.Version=v0.1" \
-  -o /tmp/unraidpp ./cmd/server
+  -o /tmp/unraid-plus ./cmd/server
 ```
 
 ### 4.2 systemd 单元
 
-把二进制放到 `/usr/local/bin/unraidpp`，配置目录 `/var/lib/unraidpp`：
+把二进制放到 `/usr/local/bin/unraid-plus`，配置目录 `/var/lib/unraid-plus`：
 
 ```ini
-# /etc/systemd/system/unraidpp.service
+# /etc/systemd/system/unraid-plus.service
 [Unit]
-Description=unraid++ server
+Description=unraid-plus server
 After=network-online.target
 
 [Service]
 Type=simple
-User=unraidpp
-Group=unraidpp
-ExecStart=/usr/local/bin/unraidpp
+User=unraid-plus
+Group=unraid-plus
+ExecStart=/usr/local/bin/unraid-plus
 Environment=UNRAIDPP_LISTEN=:8080
-Environment=UNRAIDPP_DATA_DIR=/var/lib/unraidpp
+Environment=UNRAIDPP_DATA_DIR=/var/lib/unraid-plus
 Environment=UNRAIDPP_LOG_LEVEL=info
 Environment=TZ=Asia/Shanghai
 Restart=on-failure
@@ -139,18 +140,18 @@ NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
-ReadWritePaths=/var/lib/unraidpp
+ReadWritePaths=/var/lib/unraid-plus
 
 [Install]
 WantedBy=multi-user.target
 ```
 
 ```bash
-sudo useradd -r -d /var/lib/unraidpp -s /usr/sbin/nologin unraidpp
-sudo mkdir -p /var/lib/unraidpp && sudo chown unraidpp:unraidpp /var/lib/unraidpp
+sudo useradd -r -d /var/lib/unraid-plus -s /usr/sbin/nologin unraid-plus
+sudo mkdir -p /var/lib/unraid-plus && sudo chown unraid-plus:unraid-plus /var/lib/unraid-plus
 sudo systemctl daemon-reload
-sudo systemctl enable --now unraidpp
-sudo journalctl -u unraidpp -f
+sudo systemctl enable --now unraid-plus
+sudo journalctl -u unraid-plus -f
 ```
 
 ## 5. 环境变量参考
@@ -174,14 +175,14 @@ sudo journalctl -u unraidpp -f
 
 ## 6. 反向代理
 
-强烈建议在 unraid++ 前面套一层 HTTPS 反代（Caddy / Nginx / Traefik）。原因：
+强烈建议在 unraid-plus 前面套一层 HTTPS 反代（Caddy / Nginx / Traefik）。原因：
 - 浏览器到后端的流量包含 root 密码与终端字节流，**必须加密**。
 - 现代浏览器对非 HTTPS 的 WebSocket 越来越严格，`wss://` 才稳。
 
 ### 6.1 Caddy（最省心）
 
 ```caddyfile
-unraidpp.example.com {
+unraid-plus.example.com {
     reverse_proxy 127.0.0.1:8080
 }
 ```
@@ -193,7 +194,7 @@ Caddy 自动签 Let's Encrypt 证书，WebSocket 反代开箱即用。
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name unraidpp.example.com;
+    server_name unraid-plus.example.com;
 
     ssl_certificate     /etc/ssl/private/fullchain.pem;
     ssl_certificate_key /etc/ssl/private/privkey.pem;
@@ -232,17 +233,17 @@ docker compose pull
 docker compose up -d
 ```
 
-由于配置保存在 `unraidpp-data` 卷里，升级不丢引导状态；前端 onboarding 标记在
+由于配置保存在 `unraid-plus-data` 卷里，升级不丢引导状态；前端 onboarding 标记在
 浏览器 localStorage 里，也不受影响。
 
 ### 裸二进制
 
 ```bash
-sudo systemctl stop unraidpp
-sudo mv /usr/local/bin/unraidpp /usr/local/bin/unraidpp.bak
-sudo install -m 0755 unraidpp /usr/local/bin/unraidpp
-sudo systemctl start unraidpp
-sudo journalctl -u unraidpp -f --since "1 min ago"
+sudo systemctl stop unraid-plus
+sudo mv /usr/local/bin/unraid-plus /usr/local/bin/unraid-plus.bak
+sudo install -m 0755 unraid-plus /usr/local/bin/unraid-plus
+sudo systemctl start unraid-plus
+sudo journalctl -u unraid-plus -f --since "1 min ago"
 ```
 
 ## 8. 数据与卸载
@@ -261,11 +262,11 @@ sudo journalctl -u unraidpp -f --since "1 min ago"
 docker compose down -v
 
 # systemd
-sudo systemctl disable --now unraidpp
-sudo rm /usr/local/bin/unraidpp /etc/systemd/system/unraidpp.service
-sudo rm -rf /var/lib/unraidpp
+sudo systemctl disable --now unraid-plus
+sudo rm /usr/local/bin/unraid-plus /etc/systemd/system/unraid-plus.service
+sudo rm -rf /var/lib/unraid-plus
 sudo systemctl daemon-reload
-sudo userdel unraidpp
+sudo userdel unraid-plus
 ```
 
 ## 9. 相关文档
@@ -273,5 +274,3 @@ sudo userdel unraidpp
 - [architecture.md](architecture.md) — 系统架构
 - [development.md](development.md) — 本地开发
 - [security.md](security.md) — 安全模型与加固
-
-> AI生成

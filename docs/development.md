@@ -1,6 +1,7 @@
+
 # 开发指南（Development）
 
-本文档说明如何在本地把 unraid++ 跑起来、修改代码、调试，以及提交贡献时需要遵守的
+本文档说明如何在本地把 unraid-plus 跑起来、修改代码、调试，以及提交贡献时需要遵守的
 约定。
 
 ## 1. 前置依赖
@@ -22,7 +23,7 @@ Windows 用户可用 nvm-windows / fnm 装 Node，Go 直接下 MSI 即可。pnpm
 ## 2. 项目布局
 
 ```
-unraid++/
+unraid-plus/
 ├─ web/                # React 前端
 │  ├─ src/
 │  ├─ dist/            # 构建产物（后端 go:embed 会用到）
@@ -109,10 +110,10 @@ cd web && pnpm build
 cd ../server
 CGO_ENABLED=0 go build -trimpath \
   -ldflags "-s -w -X main.Version=dev -X main.Commit=$(git rev-parse --short HEAD 2>/dev/null || echo none)" \
-  -o .temp/unraidpp ./cmd/server
+  -o .temp/unraid-plus ./cmd/server
 ```
 
-产物在 `server/.temp/unraidpp`，体积约 14 MB（含前端）。
+产物在 `server/.temp/unraid-plus`，体积约 14 MB（含前端）。
 
 ## 4. 代码约定
 

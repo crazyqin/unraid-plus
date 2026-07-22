@@ -1,31 +1,34 @@
-# unraid+
+
+# unraid-plus
 
 A web-first, self-hosted Unraid server manager.
 
 Connect via SSH with password or key auth, monitor CPU / memory / storage /
-Docker / VMs, manage files through SFTP, and open a browser-based terminal 鈥?all from a single dashboard. Supports multi-server, mobile-friendly UI, and
+Docker / VMs, manage files through SFTP, and open a browser-based terminal —
+all from a single dashboard. Supports multi-server, mobile-friendly UI, and
 zero-cloud architecture: your data never leaves your LAN.
 
 ## Features
 
-- **Dashboard** 鈥?Real-time CPU, memory, network, and disk I/O at a glance
-- **Storage** 鈥?Array status, disk temperatures, SMART health with auto-fallback
-- **Docker** 鈥?Container list, start/stop, resource stats, and live logs
-- **VMs** 鈥?KVM virtual machine status and control
-- **Files** 鈥?SFTP-based file browser with upload, download, preview, rename, mkdir, delete
-- **Terminal** 鈥?Full SSH terminal in the browser (WebSocket)
-- **Multi-server** 鈥?Add and switch between multiple Unraid machines
-- **Security** 鈥?Optional UI password; SSH key rotation (ED25519); AES-GCM encrypted credential storage
-- **Mobile-friendly** 鈥?Responsive layout works on phones and tablets
-- **Zero cloud** 鈥?No data ever leaves your network; all communication is direct SSH
+- **Dashboard** — Real-time CPU, memory, network, and disk I/O at a glance
+- **Storage** — Array status, disk temperatures, SMART health with auto-fallback
+- **Docker** — Container list, start/stop, resource stats, and live logs
+- **VMs** — KVM virtual machine status and control
+- **Files** — SFTP-based file browser with upload, download, preview, rename, mkdir, delete
+- **Terminal** — Full SSH terminal in the browser (WebSocket)
+- **Multi-server** — Add and switch between multiple Unraid machines
+- **Security** — Optional UI password; SSH key rotation (ED25519); AES-GCM encrypted credential storage
+- **Mobile-friendly** — Responsive layout works on phones and tablets
+- **Zero cloud** — No data ever leaves your network; all communication is direct SSH
 
 ## Architecture
 
 ```
-Browser 鈹€鈹€鈻?Go Backend (single binary) 鈹€鈹€鈻?Unraid (SSH)
-                  鈹?                  鈹溾攢鈹€ REST API (Gin)
-                  鈹溾攢鈹€ WebSocket terminal
-                  鈹斺攢鈹€ Embedded React SPA (go:embed)
+Browser ──▶ Go Backend (single binary) ──▶ Unraid (SSH)
+                  │
+                  ├── REST API (Gin)
+                  ├── WebSocket terminal
+                  └── Embedded React SPA (go:embed)
 ```
 
 The backend connects to your Unraid server exclusively via SSH. It reads
@@ -84,8 +87,8 @@ UNRAIDPP_LISTEN=:9876 UNRAIDPP_DATA_DIR=/var/lib/unraid-plus ./unraid-plus
 The password is used once to establish the SSH session and is never stored.
 
 **Key mode** (recommended): Upload or paste your SSH private key during setup.
-After connecting, use **Settings 鈫?Rotate Key** to generate a dedicated
-ED25519 key pair 鈥?the original password is no longer needed.
+After connecting, use **Settings → Rotate Key** to generate a dedicated
+ED25519 key pair — the original password is no longer needed.
 
 ## Tech Stack
 
@@ -101,4 +104,4 @@ ED25519 key pair 鈥?the original password is no longer needed.
 
 ---
 
-[涓枃璇存槑](README_CN.md)
+[中文说明](README_CN.md)

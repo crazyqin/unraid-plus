@@ -1,4 +1,4 @@
-// Package middleware contains HTTP middleware for the unraid++ API.
+// Package middleware contains HTTP middleware for the unraid-plus API.
 package middleware
 
 import (
@@ -119,7 +119,7 @@ func NewSessionStore(password string, dataDir string) *SessionStore {
 }
 
 const (
-	sessionCookieName = "unraidpp_session"
+	sessionCookieName = "unraid_plus_session"
 	sessionTTL        = 24 * time.Hour
 )
 

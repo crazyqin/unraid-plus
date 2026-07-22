@@ -1,9 +1,9 @@
 {
-  "name": "unraidpp-web",
+  "name": "unraid-plus-web",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "unraid++ web frontend — a friendlier Unraid manager",
+  "description": "unraid-plus web frontend — a friendlier Unraid manager",
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",

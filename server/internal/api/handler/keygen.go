@@ -25,7 +25,7 @@ func genED25519() (pub []byte, priv []byte, err error) {
 	}
 	pub = ssh.MarshalAuthorizedKey(sshPub)
 
-	block, err := ssh.MarshalPrivateKey(privKey, "unraidpp@server")
+	block, err := ssh.MarshalPrivateKey(privKey, "unraid-plus@server")
 	if err != nil {
 		return nil, nil, err
 	}

@@ -1,4 +1,4 @@
-// Package handler contains all HTTP handlers for the unraid++ API.
+// Package handler contains all HTTP handlers for the unraid-plus API.
 //
 // Each handler is a method on Handler so they share the SSH pool, the Unraid
 // API client, the terminal hub and the resolved config. Handlers stay thin:

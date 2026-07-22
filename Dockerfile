@@ -1,5 +1,5 @@
 # **************************************************************************
-# unraid++ multi-arch production image
+# unraid-plus multi-arch production image
 #   Stage 1: build React frontend (node)
 #   Stage 2: build Go backend (golang) — embeds the frontend dist
 #   Stage 3: minimal runtime (alpine)
@@ -46,7 +46,7 @@ RUN go mod tidy
 RUN CGO_ENABLED=0 go build \
     -trimpath \
     -ldflags "-s -w -X main.Version=${VERSION:-dev} -X main.Commit=${COMMIT:-none} -X main.BuildTime=${BUILD_TIME:-unknown}" \
-    -o /out/unraidpp ./cmd/server
+    -o /out/unraid-plus ./cmd/server
 
 # -----------------------------------------------------------------------------
 # Stage 3: runtime
@@ -58,7 +58,7 @@ WORKDIR /app
 RUN apk add --no-cache tini ca-certificates tzdata && \
     addgroup -S app && adduser -S -G app app
 
-COPY --from=server-builder /out/unraidpp /app/unraidpp
+COPY --from=server-builder /out/unraid-plus /app/unraid-plus
 
 USER app
 EXPOSE 8080
@@ -68,4 +68,4 @@ ENV TZ=Asia/Shanghai \
     UNRAIDPP_DATA_DIR=/data
 
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["/app/unraidpp"]
+CMD ["/app/unraid-plus"]

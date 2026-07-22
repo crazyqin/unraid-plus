@@ -93,11 +93,11 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="flex h-14 items-center gap-2 border-b px-4">
         <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground font-bold">
-          D+
+          U+
         </div>
         {!collapsed && (
           <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold">unraid++</span>
+            <span className="text-sm font-semibold">unraid-plus</span>
             <span className="text-[10px] text-muted-foreground">
               friendlier NAS manager
             </span>

@@ -113,7 +113,7 @@ export default function Sidebar() {
               服务器
             </span>
             <button
-              onClick={() => navigate('/onboarding')}
+              onClick={() => navigate('/onboarding?mode=add')}
               className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
               title="添加服务器"
             >

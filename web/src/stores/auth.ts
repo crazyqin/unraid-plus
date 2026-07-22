@@ -76,13 +76,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({
         uiAuthEnabled: res.enabled,
         isUiAuthenticated: res.enabled ? res.authenticated : true,
-        authChecked: true,
       });
     } catch {
-      set({ uiAuthEnabled: false, isUiAuthenticated: true, authChecked: true });
+      set({ uiAuthEnabled: false, isUiAuthenticated: true });
     }
-    // v0.8+: Also fetch saved servers from backend
+    // v0.8+: Also fetch saved servers from backend.
+    // CRITICAL: set authChecked AFTER refreshServers so that the route
+    // guard doesn't evaluate showApp=false before servers are loaded.
     await get().refreshServers();
+    set({ authChecked: true });
   },
 
   refreshServers: async () => {

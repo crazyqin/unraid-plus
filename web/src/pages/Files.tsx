@@ -646,6 +646,10 @@ function PreviewDialog({
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const [confirmDiscard, setConfirmDiscard] = useState<'close' | 'cancel' | null>(null);
+
+  // Check if there are unsaved edits (editContent differs from loaded content)
+  const hasUnsavedChanges = editing && editContent !== (textContent ?? '');
 
   const targetPath = target?.path ?? '';
   const targetName = target?.name ?? '';
@@ -703,6 +707,10 @@ function PreviewDialog({
   }, [target, targetPath]);
 
   const handleClose = () => {
+    if (hasUnsavedChanges) {
+      setConfirmDiscard('close');
+      return;
+    }
     if (imgUrl) URL.revokeObjectURL(imgUrl);
     onClose();
   };
@@ -715,6 +723,10 @@ function PreviewDialog({
   };
 
   const cancelEditing = () => {
+    if (hasUnsavedChanges) {
+      setConfirmDiscard('cancel');
+      return;
+    }
     setEditing(false);
     setEditContent('');
     setSaveError('');
@@ -888,6 +900,25 @@ function PreviewDialog({
           </Button>
         </DialogFooter>
       </DialogContent>
+      <ConfirmDialog
+        open={confirmDiscard !== null}
+        title="未保存的修改"
+        description="当前编辑内容尚未保存，确定要放弃修改吗？"
+        confirmText="放弃修改"
+        variant="destructive"
+        onConfirm={() => {
+          setEditing(false);
+          setEditContent('');
+          setSaveError('');
+          setSaveSuccess(false);
+          if (confirmDiscard === 'close') {
+            if (imgUrl) URL.revokeObjectURL(imgUrl);
+            onClose();
+          }
+          setConfirmDiscard(null);
+        }}
+        onCancel={() => setConfirmDiscard(null)}
+      />
     </Dialog>
   );
 }

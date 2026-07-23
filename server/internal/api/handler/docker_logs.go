@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -86,7 +87,9 @@ func (h *Handler) DockerLogs(c *gin.Context) {
 
 	// wsWriter adapts the WebSocket connection to an io.Writer for RunStream.
 	// Any write error (client gone, network drop) propagates up through
-	// RunStream, which terminates the SSH session.
+	// RunStream, which terminates the SSH session. The mutex serializes all
+	// WebSocket writes so the exit-frame goroutine can't race with the
+	// stream goroutine.
 	w := &wsWriter{conn: conn}
 
 	// Run the streaming command in a goroutine so the main goroutine can
@@ -106,9 +109,9 @@ func (h *Handler) DockerLogs(c *gin.Context) {
 		if err != nil {
 			logger.Debugf("docker-logs stream ended: %v", err)
 		}
-		// Best-effort: client may already be gone.
-		_ = conn.WriteMessage(websocket.TextMessage,
-			[]byte(`{"type":"exit"}`))
+		// Best-effort: client may already be gone. Use the same mutex
+		// as wsWriter to avoid concurrent WriteMessage on the conn.
+		w.writeRaw(websocket.TextMessage, []byte(`{"type":"exit"}`))
 		_ = conn.Close()
 	}()
 
@@ -125,12 +128,23 @@ func (h *Handler) DockerLogs(c *gin.Context) {
 // WebSocket TextMessage. We deliberately do NOT buffer or frame-chunk: the
 // frontend appends whatever bytes arrive to a <pre>, so chunk boundaries are
 // irrelevant and zero-buffer keeps memory tight on long-lived streams.
+// The mutex serializes writes so concurrent callers (stream goroutine +
+// exit-frame goroutine) don't corrupt the WebSocket frame stream.
 type wsWriter struct {
 	conn *websocket.Conn
+	mu   sync.Mutex
+}
+
+// writeRaw sends a single message under the mutex. Used by both Write and
+// the exit-frame goroutine to guarantee serial access to conn.
+func (w *wsWriter) writeRaw(msgType int, data []byte) error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.conn.WriteMessage(msgType, data)
 }
 
 func (w *wsWriter) Write(p []byte) (int, error) {
-	if err := w.conn.WriteMessage(websocket.TextMessage, p); err != nil {
+	if err := w.writeRaw(websocket.TextMessage, p); err != nil {
 		return 0, err
 	}
 	return len(p), nil

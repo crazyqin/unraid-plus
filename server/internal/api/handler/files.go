@@ -12,6 +12,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// maxUploadSize limits the total request body for file uploads (100MB).
+// This prevents a single upload from exhausting server memory.
+const maxUploadSize = 100 << 20
+
 type listFilesReq struct {
 	Path string `form:"path"`
 }
@@ -271,7 +275,16 @@ func (h *Handler) DownloadFile(c *gin.Context) {
 	}
 	defer f.Close()
 
-	c.Header("Content-Disposition", `attachment; filename="`+filepath.Base(p)+`"`)
+	// Sanitize filename: strip characters that could break the Content-Disposition
+	// header (quotes, backslashes, CR, LF). This prevents header injection.
+	filename := filepath.Base(p)
+	filename = strings.Map(func(r rune) rune {
+		if r == '"' || r == '\\' || r == '\r' || r == '\n' {
+			return '_'
+		}
+		return r
+	}, filename)
+	c.Header("Content-Disposition", `attachment; filename="`+filename+`"`)
 	c.Header("Content-Type", "application/octet-stream")
 	c.Status(http.StatusOK)
 	_, _ = io.Copy(c.Writer, f)
@@ -373,6 +386,9 @@ func (h *Handler) UploadFile(c *gin.Context) {
 		errOut(c, http.StatusForbidden, "拒绝上传到非允许目录")
 		return
 	}
+
+	// Limit total request body size to prevent memory exhaustion.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxUploadSize)
 
 	form, err := c.MultipartForm()
 	if err != nil {

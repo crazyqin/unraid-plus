@@ -57,7 +57,7 @@ export default function TopBar() {
             <option value={0}>暂停</option>
           </select>
         </div>
-        <span className="text-xs text-muted-foreground">
+        <span className="max-w-[200px] truncate text-xs text-muted-foreground" title={server?.label || server?.host}>
           {server?.label || server?.host}
         </span>
       </div>

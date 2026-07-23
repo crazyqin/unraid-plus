@@ -107,11 +107,16 @@ func (sm *serverManager) load() {
 
 func (sm *serverManager) save() error {
 	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.saveLocked()
+}
+
+// saveLocked writes entries to disk. Caller must hold at least RLock.
+func (sm *serverManager) saveLocked() error {
 	servers := make([]serverEntry, 0, len(sm.entries))
 	for _, e := range sm.entries {
 		servers = append(servers, *e)
 	}
-	sm.mu.RUnlock()
 
 	sf := serversFile{Servers: servers}
 	data, err := json.MarshalIndent(sf, "", "  ")
@@ -179,11 +184,7 @@ func (sm *serverManager) Upsert(cfg *ssh.ConnConfig, password string) error {
 	}
 
 	sm.entries[id] = entry
-	// Release lock before I/O
-	sm.mu.Unlock()
-	err := sm.save()
-	sm.mu.Lock()
-	return err
+	return sm.saveLocked()
 }
 
 // Get returns a server entry by ID.
@@ -207,8 +208,8 @@ func (sm *serverManager) List() []serverEntry {
 // Delete removes a server entry and its key file.
 func (sm *serverManager) Delete(id string) error {
 	sm.mu.Lock()
+	defer sm.mu.Unlock()
 	delete(sm.entries, id)
-	sm.mu.Unlock()
 
 	// Clean up key files
 	keyPath := filepath.Join(sm.dir, "keys", id)
@@ -216,7 +217,7 @@ func (sm *serverManager) Delete(id string) error {
 	pubPath := filepath.Join(sm.dir, "keys", id+".pub")
 	os.Remove(pubPath)
 
-	return sm.save()
+	return sm.saveLocked()
 }
 
 // ConnConfigFor returns an ssh.ConnConfig that can be used to reconnect to a

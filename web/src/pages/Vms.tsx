@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Cpu,
@@ -8,6 +8,7 @@ import {
   Pause,
   Play,
   Power,
+  Search,
   Square,
 } from 'lucide-react';
 import { api, ApiError, wsUrl } from '@/lib/api';
@@ -26,6 +27,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { formatBytes } from '@/lib/utils';
 import type { VmInfo } from '@/types';
 
@@ -49,6 +51,7 @@ export default function VmsPage() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ id: string; action: 'stop'; name: string } | null>(null);
+  const [search, setSearch] = useState('');
   const { data, isLoading, isError } = useQuery({
     queryKey: ['vms'],
     queryFn: () => api.get<VmInfo[]>('/vms'),
@@ -77,6 +80,9 @@ export default function VmsPage() {
   };
 
   const running = (data ?? []).filter((v) => v.status === 'running').length;
+  const filtered = (data ?? []).filter((v) =>
+    v.name.toLowerCase().includes(search.toLowerCase()),
+  );
 
   return (
     <div className="space-y-4 p-4 md:p-6">
@@ -88,11 +94,24 @@ export default function VmsPage() {
           </button>
         </div>
       )}
-      <div>
-        <h1 className="text-xl font-semibold">虚拟机</h1>
-        <p className="text-sm text-muted-foreground">
-          {running} 个运行中 / {data?.length ?? 0} 个总计
-        </p>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-xl font-semibold">虚拟机</h1>
+          <p className="text-sm text-muted-foreground">
+            {running} 个运行中 / {data?.length ?? 0} 个总计
+          </p>
+        </div>
+        {(data ?? []).length > 0 && (
+          <div className="relative w-48 shrink-0">
+            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="搜索虚拟机…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="h-8 pl-8 text-sm"
+            />
+          </div>
+        )}
       </div>
 
       {isLoading ? (
@@ -112,9 +131,16 @@ export default function VmsPage() {
             没有虚拟机。
           </CardContent>
         </Card>
+      ) : filtered.length === 0 ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
+            <Cpu className="h-8 w-8" />
+            没有匹配的虚拟机。
+          </CardContent>
+        </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {(data ?? []).map((vm) => (
+          {filtered.map((vm) => (
             <Card key={vm.id}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
@@ -193,6 +219,13 @@ export default function VmsPage() {
 /* ------------------------------- VNC Dialog ------------------------------- */
 
 function VNCDialog({ vm, onClose }: { vm: VmInfo | null; onClose: () => void }) {
+  const [vncLoading, setVncLoading] = useState(true);
+
+  // Reset loading state when vm changes
+  useEffect(() => {
+    if (vm) setVncLoading(true);
+  }, [vm]);
+
   if (!vm) return null;
 
   // Build the WebSocket URL for the VNC proxy endpoint.
@@ -216,11 +249,20 @@ function VNCDialog({ vm, onClose }: { vm: VmInfo | null; onClose: () => void }) 
           通过 SSH 隧道连接到虚拟机的 VNC 服务。如无画面，请确认虚拟机已配置 VNC 显卡。
         </div>
         <div className="relative" style={{ height: '70vh' }}>
+          {vncLoading && (
+            <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0b0b0d]">
+              <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin" />
+                正在连接 VNC…
+              </div>
+            </div>
+          )}
           <iframe
             src={iframeSrc}
             className="absolute inset-0 h-full w-full border-0"
             title={`VNC - ${vm.name}`}
             sandbox="allow-scripts allow-same-origin"
+            onLoad={() => setVncLoading(false)}
           />
         </div>
       </DialogContent>

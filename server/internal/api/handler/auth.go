@@ -1,3 +1,4 @@
+// Package handler ...
 package handler
 
 import (
@@ -7,6 +8,21 @@ import (
 
 	"github.com/crazyqin/unraid-plus/server/internal/api/middleware"
 )
+
+// setSessionCookie sets the session cookie with SameSite=Lax to prevent CSRF.
+// We use http.SetCookie instead of gin's SetCookie because the latter doesn't
+// expose the SameSite attribute.
+func setSessionCookie(c *gin.Context, name, value string, maxAge int) {
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     name,
+		Value:    value,
+		MaxAge:   maxAge,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   false, // self-hosted LAN app, typically HTTP
+		SameSite: http.SameSiteLaxMode,
+	})
+}
 
 // If cfg.UIPassword is empty, all auth endpoints return {"enabled": false}
 // and the middleware is a no-op — the app behaves exactly as v0.1-v0.4.
@@ -65,7 +81,7 @@ func (a *AuthHandler) Login(c *gin.Context) {
 	}
 
 	middleware.RecordSuccess(clientIP)
-	c.SetCookie(a.store.CookieName(), token, int(a.store.TTL().Seconds()), "/", "", false, true)
+	setSessionCookie(c, a.store.CookieName(), token, int(a.store.TTL().Seconds()))
 	c.JSON(http.StatusOK, gin.H{"ok": true, "enabled": true, "message": "登录成功"})
 }
 
@@ -73,7 +89,7 @@ func (a *AuthHandler) Login(c *gin.Context) {
 func (a *AuthHandler) Logout(c *gin.Context) {
 	token, _ := c.Cookie(a.store.CookieName())
 	a.store.Logout(token)
-	c.SetCookie(a.store.CookieName(), "", -1, "/", "", false, true)
+	setSessionCookie(c, a.store.CookieName(), "", -1)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已登出"})
 }
 
@@ -114,7 +130,7 @@ func (a *AuthHandler) SetupPassword(c *gin.Context) {
 	a.store.SetPassword(req.Password)
 	// Auto-login after setup
 	token := a.store.Login(req.Password)
-	c.SetCookie(a.store.CookieName(), token, int(a.store.TTL().Seconds()), "/", "", false, true)
+	setSessionCookie(c, a.store.CookieName(), token, int(a.store.TTL().Seconds()))
 	c.JSON(http.StatusOK, gin.H{"ok": true, "enabled": true, "message": "密码设置成功"})
 }
 
@@ -150,6 +166,6 @@ func (a *AuthHandler) ChangePassword(c *gin.Context) {
 	a.store.RevokeAll()
 	a.store.SetPassword(req.New)
 	newToken := a.store.Login(req.New)
-	c.SetCookie(a.store.CookieName(), newToken, int(a.store.TTL().Seconds()), "/", "", false, true)
+	setSessionCookie(c, a.store.CookieName(), newToken, int(a.store.TTL().Seconds()))
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "密码已修改"})
 }

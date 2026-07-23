@@ -8,9 +8,11 @@
         /vnc/vnc_lite.html?url=ws://host:port/ws/vnc?vm=VMNAME&scale=true
 
     Clipboard: Click "粘贴" button or Shift+Insert to open the paste panel.
-    Text pasted in the panel is sent to the VM clipboard via the VNC
-    extended clipboard pseudo-encoding, so Ctrl+V inside the guest
-    will paste the content.
+    Two paste modes:
+      - "粘贴" (clipboardPasteFrom + Ctrl+V): fast, requires VNC clipboard
+        extension support on the server (QEMU 8.0+ with -clipboard)
+      - "逐字输入": types text character by character, works with all VNC
+        servers but slower
 
     Based on noVNC vnc_lite.html (MPL 2.0 / 2-Clause BSD).
     -->
@@ -57,9 +59,8 @@
             margin: 0 3px;
             white-space: nowrap;
         }
-        .top-btn:hover {
-            background-color: #5a5a8a;
-        }
+        .top-btn:hover { background-color: #5a5a8a; }
+        .top-btn.active { background-color: #5a5a8a; border-color: #8a8abb; }
 
         #screen {
             flex: 1;
@@ -74,17 +75,15 @@
             top: 0;
             right: 0;
             bottom: 0;
-            width: 320px;
-            background-color: rgba(30, 30, 50, 0.95);
+            width: 340px;
+            background-color: rgba(30, 30, 50, 0.97);
             border-left: 1px solid #3d3d5c;
             z-index: 100;
             flex-direction: column;
-            padding: 10px;
+            padding: 12px;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         }
-        #clipboard_panel.open {
-            display: flex;
-        }
+        #clipboard_panel.open { display: flex; }
         #clipboard_panel h3 {
             color: #e0e0e0;
             font-size: 13px;
@@ -94,6 +93,7 @@
             color: #a0a0b8;
             font-size: 11px;
             margin: 0 0 8px 0;
+            line-height: 1.5;
         }
         #clipboard_text {
             flex: 1;
@@ -112,27 +112,35 @@
             outline: none;
             border-color: #7a7aaa;
         }
-        .clip-btn {
+        .clip-btn-row {
+            display: flex;
+            gap: 6px;
             margin-top: 8px;
-            padding: 6px 14px;
+        }
+        .clip-btn {
+            flex: 1;
+            padding: 6px 8px;
             border: 1px solid #5a5a8a;
             background-color: #3d3d5c;
             color: #e0e0e0;
             border-radius: 3px;
             cursor: pointer;
-            font-size: 12px;
+            font-size: 11px;
+            text-align: center;
         }
-        .clip-btn:hover {
-            background-color: #5a5a8a;
-        }
+        .clip-btn:hover { background-color: #5a5a8a; }
         .clip-btn.primary {
             background-color: #4a6fa5;
             border-color: #5a8ad5;
         }
-        .clip-btn.primary:hover {
-            background-color: #5a8ad5;
+        .clip-btn.primary:hover { background-color: #5a8ad5; }
+        #typing_progress {
+            color: #8a8abb;
+            font-size: 11px;
+            text-align: center;
+            padding: 2px 0;
+            display: none;
         }
-
     </style>
 
     <script type="module" crossorigin="anonymous">
@@ -140,6 +148,8 @@
 
         let rfb;
         let desktopName;
+        let typingActive = false;
+        let typingAbort = false;
 
         function connectedToServer(e) {
             status("已连接" + (desktopName ? " - " + desktopName : ""));
@@ -196,31 +206,108 @@
         function toggleClipboard() {
             const panel = document.getElementById('clipboard_panel');
             panel.classList.toggle('open');
+            const btn = document.getElementById('clipboardButton');
             if (panel.classList.contains('open')) {
+                btn.classList.add('active');
                 document.getElementById('clipboard_text').focus();
+            } else {
+                btn.classList.remove('active');
             }
         }
 
-        // Send the textarea content to the VM clipboard so Ctrl+V in the
-        // guest OS will paste it.  noVNC's clipboardPasteFrom() sends a
-        // VNC clipboard CutText message which the guest receives as its
-        // primary clipboard content.
-        function sendClipboard() {
-            if (!rfb) return;
-            const text = document.getElementById('clipboard_text').value;
-            if (text) {
-                rfb.clipboardPasteFrom(text);
-            }
-        }
-
-        // Close the clipboard panel.
         function closeClipboard() {
             document.getElementById('clipboard_panel').classList.remove('open');
+            document.getElementById('clipboardButton').classList.remove('active');
+        }
+
+        // Paste mode 1: Set VNC clipboard + send Ctrl+V.
+        // This is fast but requires the VNC server to support clipboard.
+        // Works with QEMU 8.0+ VNC when clipboard extension is enabled.
+        function pasteClipboard() {
+            if (!rfb) return;
+            const text = document.getElementById('clipboard_text').value;
+            if (!text) return;
+
+            // Send text to VNC server clipboard
+            rfb.clipboardPasteFrom(text);
+
+            // Wait briefly, then simulate Ctrl+V to trigger paste in guest
+            setTimeout(() => {
+                rfb.sendKey(0xFFE3, 'ControlLeft', true);   // Ctrl down
+                rfb.sendKey(0x0076, 'KeyV', true);          // V down
+                rfb.sendKey(0x0076, 'KeyV', false);          // V up
+                rfb.sendKey(0xFFE3, 'ControlLeft', false);  // Ctrl up
+            }, 100);
+        }
+
+        // Paste mode 2: Type text character by character.
+        // Slower but works with ALL VNC servers, no clipboard support needed.
+        function pasteTyping() {
+            if (!rfb || typingActive) return;
+            const text = document.getElementById('clipboard_text').value;
+            if (!text) return;
+
+            typingActive = true;
+            typingAbort = false;
+            const progressEl = document.getElementById('typing_progress');
+            progressEl.style.display = 'block';
+
+            const chars = [...text];
+            let i = 0;
+
+            function typeNext() {
+                if (typingAbort || i >= chars.length || !rfb) {
+                    typingActive = false;
+                    progressEl.style.display = 'none';
+                    if (i >= chars.length) {
+                        status("逐字输入完成");
+                    }
+                    return;
+                }
+
+                const ch = chars[i++];
+                progressEl.textContent = `输入中… ${i}/${chars.length}`;
+
+                const keysym = charToKeysym(ch);
+                if (keysym !== null) {
+                    rfb.sendKey(keysym);
+                }
+
+                // Delay between characters: 20ms for normal, 50ms after Enter
+                const delay = (ch === '\n') ? 50 : 20;
+                setTimeout(typeNext, delay);
+            }
+
+            typeNext();
+        }
+
+        function stopTyping() {
+            typingAbort = true;
+        }
+
+        // Map a character to an X11 keysym value.
+        // For basic ASCII, keysym = Unicode code point.
+        // For non-ASCII, use the Unicode keysym range (0x01000000 + code point).
+        function charToKeysym(ch) {
+            const code = ch.codePointAt(0);
+
+            // Newline -> Return key
+            if (ch === '\n' || ch === '\r') return 0xFF0D;
+            // Tab
+            if (ch === '\t') return 0xFF09;
+
+            // ASCII printable characters (0x20-0x7E): keysym matches Unicode
+            if (code >= 0x20 && code <= 0x7E) return code;
+
+            // Latin-1 supplement (0xA0-0xFF): keysym matches Unicode
+            if (code >= 0xA0 && code <= 0xFF) return code;
+
+            // Other Unicode: use Unicode keysym range
+            // Many VNC servers support this, but not all
+            return 0x01000000 + code;
         }
 
         // Global keyboard shortcut: Shift+Insert opens clipboard panel.
-        // This is a common terminal convention and avoids conflicting with
-        // the VNC keyboard grab.
         document.addEventListener('keydown', (e) => {
             if (e.shiftKey && e.key === 'Insert') {
                 e.preventDefault();
@@ -233,7 +320,9 @@
         document.getElementById('sendCtrlAltDelButton').onclick = sendCtrlAltDel;
         document.getElementById('disconnectButton').onclick = disconnect;
         document.getElementById('clipboardButton').onclick = toggleClipboard;
-        document.getElementById('clipboardSend').onclick = sendClipboard;
+        document.getElementById('clipboardPaste').onclick = pasteClipboard;
+        document.getElementById('clipboardType').onclick = pasteTyping;
+        document.getElementById('clipboardStop').onclick = stopTyping;
         document.getElementById('clipboardClose').onclick = closeClipboard;
 
         /* ---- Connect ---- */
@@ -278,13 +367,38 @@
         <!-- Clipboard panel -->
         <div id="clipboard_panel">
             <h3>剪贴板</h3>
-            <p>粘贴文本到下方，点击"发送到虚拟机"，然后在虚拟机中按 Ctrl+V 即可粘贴。</p>
+            <p>在下方粘贴文本，选择发送方式：<br>
+               <b>粘贴</b>：通过 VNC 剪贴板 + Ctrl+V，速度快但需要服务端支持<br>
+               <b>逐字输入</b>：模拟键盘逐字输入，兼容所有虚拟机</p>
             <textarea id="clipboard_text" placeholder="在此粘贴文本…" spellcheck="false"></textarea>
-            <div style="display:flex;gap:8px">
-                <button class="clip-btn primary" id="clipboardSend">发送到虚拟机</button>
+            <div id="typing_progress">输入中…</div>
+            <div class="clip-btn-row">
+                <button class="clip-btn primary" id="clipboardPaste">粘贴</button>
+                <button class="clip-btn primary" id="clipboardType">逐字输入</button>
+            </div>
+            <div class="clip-btn-row">
+                <button class="clip-btn" id="clipboardStop" style="display:none">停止输入</button>
                 <button class="clip-btn" id="clipboardClose">关闭</button>
             </div>
         </div>
     </div>
+
+    <script>
+        // Show/hide stop button when typing is active
+        const origPasteType = document.getElementById('clipboardType');
+        const stopBtn = document.getElementById('clipboardStop');
+        const origPastePaste = document.getElementById('clipboardPaste');
+        const typingCheck = setInterval(() => {
+            if (typingActive) {
+                stopBtn.style.display = 'block';
+                origPasteType.style.display = 'none';
+                origPastePaste.style.display = 'none';
+            } else {
+                stopBtn.style.display = 'none';
+                origPasteType.style.display = 'block';
+                origPastePaste.style.display = 'block';
+            }
+        }, 100);
+    </script>
 </body>
 </html>

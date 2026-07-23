@@ -340,9 +340,17 @@ func parseThermal(s string) []float64 {
 		if err != nil {
 			continue
 		}
-		// /sys/class/thermal reports in millidegrees
+		// /sys/class/thermal and hwmon report in millidegrees
 		if v > 1000 {
 			v /= 1000
+		}
+		// A reading of 0°C is nonsensical for a running CPU — it typically
+		// means the core is in a deep C-state and the sensor returned 0.
+		// Treat it as unavailable by skipping the entry entirely so the
+		// frontend shows "—" instead of "0°C".
+		if v <= 0 {
+			out = append(out, -1) // -1 = no reading
+			continue
 		}
 		out = append(out, v)
 	}
@@ -408,16 +416,19 @@ func readCoreTempCmd() string {
     p=$(grep -xl coretemp /sys/class/hwmon/hwmon*/name 2>/dev/null | head -1)
     if [ -n "$p" ]; then
       d=${p%/*}
-      # Read all temp*_input, but prefer "Core N" labels over "Package id N"
-      # Sort files numerically by the number in tempN
+      # Intel coretemp: temp1=Package, temp2=Core0, temp3=Core1, ...
+      # Only read entries labeled "Core N" — skip "Package id N"
       for f in $(ls $d/temp*_input 2>/dev/null | sort -t'p' -k2 -n); do
-        label=""
         lbl=${f%_input}_label
-        if [ -f "$lbl" ]; then label=$(cat "$lbl" 2>/dev/null); fi
-        # Include Core temps and Package temps (Core = per-core, Package = aggregate)
-        case "$label" in
-          Core*|Package*|"") cat "$f" 2>/dev/null ;;
-        esac
+        if [ -f "$lbl" ]; then
+          label=$(cat "$lbl" 2>/dev/null)
+          case "$label" in
+            Core*) cat "$f" 2>/dev/null ;;
+          esac
+        else
+          # No label file: include it (some virtual zones lack labels)
+          cat "$f" 2>/dev/null
+        fi
       done
       exit 0
     fi

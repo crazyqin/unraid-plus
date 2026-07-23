@@ -473,8 +473,10 @@ function CoreStatus({
         const fillColor =
           fillPct >= 90 ? 'bg-destructive' : fillPct >= 70 ? 'bg-warning' : 'bg-success';
         const t = temps[i];
+        // -1 means sensor unavailable; 0°C is nonsensical for a running CPU
+        const hasTemp = typeof t === 'number' && t > 0;
         const tempColor =
-          typeof t === 'number'
+          hasTemp
             ? t >= 80
               ? 'text-destructive'
               : t >= 65
@@ -494,7 +496,7 @@ function CoreStatus({
             </div>
             <div className="text-[10px] text-muted-foreground">C{i}</div>
             <div className={cn('text-[10px] tabular-nums', tempColor)}>
-              {typeof t === 'number' ? `${t}°C` : '—'}
+              {hasTemp ? `${t}°C` : '—'}
             </div>
           </div>
         );

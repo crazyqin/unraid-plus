@@ -13,6 +13,7 @@ type container struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`
 	Image     string   `json:"image"`
+	Icon      string   `json:"icon,omitempty"` // base64-encoded PNG from Unraid
 	Status    string   `json:"status"`
 	State     string   `json:"state"`
 	CreatedAt int64    `json:"createdAt"`
@@ -29,7 +30,8 @@ type mount struct {
 
 // ListContainers returns Docker containers via `docker ps -a --format ...`.
 // We use a JSON-per-line format that's trivial to parse and stable across
-// Docker versions.
+// Docker versions. Container icons are read from Unraid's plugin image
+// directory and returned as base64-encoded PNGs.
 func (h *Handler) ListContainers(c *gin.Context) {
 	cli, ok := h.activeClient(c)
 	if !ok {
@@ -79,7 +81,62 @@ func (h *Handler) ListContainers(c *gin.Context) {
 		})
 	}
 
+	// Fetch container icons from Unraid's image directory.
+	// Icons are stored as <container-name>.png in the Docker plugin's state dir.
+	// We batch-read them in one SSH command for efficiency.
+	if len(containers) > 0 {
+		iconDir := "/usr/local/emhttp/state/plugins/dynamix.docker.manager/images"
+		// Build a command that reads each icon and outputs "name:<base64>"
+		var parts []string
+		for _, ct := range containers {
+			name := strings.TrimPrefix(ct.Name, "/") // docker names have leading /
+			if name == "" {
+				continue
+			}
+			// Try <name>.png, fall back to <name>-icon.png
+			parts = append(parts,
+				`icon=`+shellQuote(name)+`; f=`+shellQuote(iconDir+"/"+name+".png")+`; `+
+					`if [ -f "$f" ]; then echo "ICON:$icon:$(base64 -w0 "$f")"; fi`,
+			)
+		}
+		if len(parts) > 0 {
+			// Run all checks in one shot, delimited by newlines
+			iconCmd := strings.Join(parts, "\n")
+			iconOut, _ := cli.Run(iconCmd)
+			iconMap := parseIconOutput(iconOut)
+			for i := range containers {
+				name := strings.TrimPrefix(containers[i].Name, "/")
+				if b64, ok := iconMap[name]; ok {
+					containers[i].Icon = "data:image/png;base64," + b64
+				}
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, containers)
+}
+
+// parseIconOutput parses "ICON:name:base64data" lines from the batch icon read.
+func parseIconOutput(out string) map[string]string {
+	m := make(map[string]string)
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, "ICON:") {
+			continue
+		}
+		// Format: ICON:container-name:base64data
+		rest := line[5:] // strip "ICON:"
+		idx := strings.Index(rest, ":")
+		if idx < 0 {
+			continue
+		}
+		name := rest[:idx]
+		b64 := rest[idx+1:]
+		if name != "" && b64 != "" {
+			m[name] = b64
+		}
+	}
+	return m
 }
 
 // ContainerAction starts / stops / restarts / pauses a container.

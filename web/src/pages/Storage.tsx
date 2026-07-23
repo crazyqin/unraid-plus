@@ -58,11 +58,12 @@ const ARRAY_STATE_LABEL: Record<string, string> = {
 // SMART self-test status → (badge variant, label, icon, text class).
 const SMART_STATUS: Record<
   SmartInfo['status'],
-  { variant: 'success' | 'warning' | 'destructive'; label: string; icon: typeof CheckCircle2 }
+  { variant: 'success' | 'warning' | 'destructive' | 'secondary'; label: string; icon: typeof CheckCircle2 }
 > = {
   ok: { variant: 'success', label: 'SMART 正常', icon: CheckCircle2 },
   warning: { variant: 'warning', label: 'SMART 警告', icon: AlertTriangle },
   failing: { variant: 'destructive', label: 'SMART 失败', icon: XCircle },
+  standby: { variant: 'secondary', label: '休眠', icon: Moon },
   unknown: { variant: 'success', label: '', icon: CheckCircle2 },
 };
 
@@ -529,14 +530,24 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
           >
             {DISK_STATUS_LABEL[d.status] ?? d.status}
           </Badge>
-          {/* SMART badge */}
-          {d.smart?.available && d.smart.status !== 'unknown' && (
+          {/* SMART badge — show for ok/warning/failing, show '休眠' for standby */}
+          {(d.smart?.available && d.smart.status !== 'unknown') && (
             <Badge
               variant={SMART_STATUS[d.smart.status].variant}
               className="px-1.5 py-0 text-[9px] leading-none"
             >
               <SmartStatusIcon status={d.smart.status} />
               {SMART_STATUS[d.smart.status].label}
+            </Badge>
+          )}
+          {/* Standby badge when smart is unavailable and disk appears spun down */}
+          {d.smart?.status === 'standby' && (
+            <Badge
+              variant="secondary"
+              className="px-1.5 py-0 text-[9px] leading-none"
+            >
+              <Moon className="mr-0.5 h-3 w-3" />
+              休眠
             </Badge>
           )}
         </div>
@@ -620,6 +631,9 @@ function SmartDetail({ smart, expanded = false }: { smart?: SmartInfo; expanded?
   useEffect(() => {
     setOpen(expanded);
   }, [expanded]);
+
+  // Don't render SMART details for standby disks (no data available)
+  if (smart?.status === 'standby') return null;
 
   if (!smart || !smart.available || smart.status === 'unknown') return null;
 

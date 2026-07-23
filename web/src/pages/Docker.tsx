@@ -204,15 +204,29 @@ export default function DockerPage() {
             )}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <CardTitle className="truncate text-sm">
-                      <Highlight text={c.name} query={filter} />
-                    </CardTitle>
-                    <div className="truncate text-xs text-muted-foreground">
-                      <Highlight text={truncate(c.image, 38)} query={filter} />
+                  <div className="flex items-start gap-2.5 min-w-0">
+                    {/* Container icon from Unraid */}
+                    {c.icon ? (
+                      <img
+                        src={c.icon}
+                        alt={c.name}
+                        className="h-8 w-8 shrink-0 rounded bg-white/90 object-contain p-0.5 dark:bg-white/80"
+                      />
+                    ) : (
+                      <div className="grid h-8 w-8 shrink-0 place-items-center rounded bg-primary/10 text-primary">
+                        <Boxes className="h-4 w-4" />
+                      </div>
+                    )}
+                    <div className="min-w-0">
+                      <CardTitle className="truncate text-sm">
+                        <Highlight text={c.name} query={filter} />
+                      </CardTitle>
+                      <div className="truncate text-xs text-muted-foreground">
+                        <Highlight text={truncate(c.image, 38)} query={filter} />
+                      </div>
                     </div>
                   </div>
-                  <Badge variant={STATUS_VARIANT[c.status]} className="text-[9px] px-1.5 py-0 leading-none">{STATUS_LABEL[c.status] ?? c.status}</Badge>
+                  <Badge variant={STATUS_VARIANT[c.status]} className="text-[9px] px-1.5 py-0 leading-none shrink-0">{STATUS_LABEL[c.status] ?? c.status}</Badge>
                 </div>
               </CardHeader>
               <CardContent className="flex flex-1 flex-col gap-3">

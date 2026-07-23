@@ -12,6 +12,7 @@ import {
 import {
   Activity,
   AlertTriangle,
+  ChevronDown,
   Cpu,
   Gauge,
   HardDrive,
@@ -572,6 +573,8 @@ function CoreStatus({
   data?: DashboardSummary;
   isLoading: boolean;
 }) {
+  const [expanded, setExpanded] = useState(false);
+
   if (isLoading) return <Skeleton className="h-32 w-full" />;
   if (!data) return <div className="text-sm text-muted-foreground">暂无数据</div>;
 
@@ -582,45 +585,110 @@ function CoreStatus({
   }
   const cores = Math.max(usage.length, temps.length);
 
+  // When few cores, show all directly; when many (e.g. 48), default collapsed
+  const COLLAPSE_THRESHOLD = 8;
+  const needsCollapse = cores > COLLAPSE_THRESHOLD;
+  const visibleCount = (!needsCollapse || expanded) ? cores : COLLAPSE_THRESHOLD;
+
+  // Summary stats for the collapsed header
+  const avgUsage = usage.length > 0
+    ? usage.reduce((a: number, b: number | undefined) => a + (typeof b === 'number' ? b : 0), 0) / usage.length
+    : null;
+  const maxTemp = temps.length > 0
+    ? Math.max(...temps.filter((t: number | undefined): t is number => typeof t === 'number' && t > 0))
+    : null;
+
   return (
-    <div className="grid grid-cols-4 gap-2 sm:grid-cols-6 md:grid-cols-8">
-      {Array.from({ length: cores }).map((_, i) => {
-        const u = usage[i];
-        // Usage-based fill + color band: 0-70% green, 70-90% amber, 90%+ red.
-        // (Temperature is shown as a number underneath, not color-coded, to
-        // avoid conflating two channels in the same bar.)
-        const fillPct = typeof u === 'number' ? Math.max(0, Math.min(100, u)) : 0;
-        const fillColor =
-          fillPct >= 90 ? 'bg-destructive' : fillPct >= 70 ? 'bg-warning' : 'bg-success';
-        const t = temps[i];
-        // -1 means sensor unavailable; 0°C is nonsensical for a running CPU
-        const hasTemp = typeof t === 'number' && t > 0;
-        const tempColor =
-          hasTemp
-            ? t >= 80
-              ? 'text-destructive'
-              : t >= 65
-                ? 'text-warning'
-                : 'text-muted-foreground'
-            : 'text-muted-foreground';
-        return (
-          <div key={i} className="space-y-1 text-center">
-            <div className="relative h-20 overflow-hidden rounded bg-muted">
-              <div
-                className={cn('absolute bottom-0 w-full transition-[height]', fillColor)}
-                style={{ height: `${fillPct}%` }}
-              />
-              <div className="absolute inset-0 grid place-items-center text-[10px] font-medium tabular-nums">
-                {typeof u === 'number' ? `${u.toFixed(0)}%` : '—'}
+    <div>
+      {/* Summary row — only when many cores and collapsed */}
+      {needsCollapse && !expanded && avgUsage !== null && (
+        <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground">
+          <span className="flex items-center gap-1">
+            <Cpu className="h-3.5 w-3.5" />
+            {cores} 核心
+          </span>
+          <span className="tabular-nums">
+            平均 <span className={cn('font-medium', avgUsage >= 70 ? 'text-warning' : avgUsage >= 90 ? 'text-destructive' : 'text-foreground')}>{avgUsage.toFixed(0)}%</span>
+          </span>
+          {maxTemp !== null && maxTemp > 0 && (
+            <span className="tabular-nums">
+              最高 <span className={cn('font-medium', maxTemp >= 80 ? 'text-destructive' : maxTemp >= 65 ? 'text-warning' : 'text-foreground')}>{maxTemp}°C</span>
+            </span>
+          )}
+        </div>
+      )}
+
+      {/* Core grid */}
+      <div className={cn(
+        'grid gap-2',
+        expanded
+          ? 'grid-cols-6 sm:grid-cols-8 md:grid-cols-10 lg:grid-cols-12'
+          : 'grid-cols-4 sm:grid-cols-6 md:grid-cols-8',
+      )}>
+        {Array.from({ length: visibleCount }).map((_, i) => {
+          const u = usage[i];
+          const fillPct = typeof u === 'number' ? Math.max(0, Math.min(100, u)) : 0;
+          const fillColor =
+            fillPct >= 90 ? 'bg-destructive' : fillPct >= 70 ? 'bg-warning' : 'bg-success';
+          const t = temps[i];
+          const hasTemp = typeof t === 'number' && t > 0;
+          const tempColor =
+            hasTemp
+              ? t >= 80
+                ? 'text-destructive'
+                : t >= 65
+                  ? 'text-warning'
+                  : 'text-muted-foreground'
+              : 'text-muted-foreground';
+
+          // Compact mode when expanded with many cores
+          if (expanded && cores > 16) {
+            return (
+              <div key={i} className="flex items-center gap-1.5 rounded bg-muted/50 px-1.5 py-1">
+                <div className="text-[9px] text-muted-foreground tabular-nums w-5">C{i}</div>
+                <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className={cn('h-full rounded-full transition-[width]', fillColor)}
+                    style={{ width: `${fillPct}%` }}
+                  />
+                </div>
+                <div className={cn('text-[9px] tabular-nums w-8 text-right', tempColor)}>
+                  {hasTemp ? `${t}°` : '—'}
+                </div>
+              </div>
+            );
+          }
+
+          return (
+            <div key={i} className="space-y-1 text-center">
+              <div className="relative h-20 overflow-hidden rounded bg-muted">
+                <div
+                  className={cn('absolute bottom-0 w-full transition-[height]', fillColor)}
+                  style={{ height: `${fillPct}%` }}
+                />
+                <div className="absolute inset-0 grid place-items-center text-[10px] font-medium tabular-nums">
+                  {typeof u === 'number' ? `${u.toFixed(0)}%` : '—'}
+                </div>
+              </div>
+              <div className="text-[10px] text-muted-foreground">C{i}</div>
+              <div className={cn('text-[10px] tabular-nums', tempColor)}>
+                {hasTemp ? `${t}°C` : '—'}
               </div>
             </div>
-            <div className="text-[10px] text-muted-foreground">C{i}</div>
-            <div className={cn('text-[10px] tabular-nums', tempColor)}>
-              {hasTemp ? `${t}°C` : '—'}
-            </div>
-          </div>
-        );
-      })}
+          );
+        })}
+      </div>
+
+      {/* Expand / collapse toggle */}
+      {needsCollapse && (
+        <button
+          onClick={() => setExpanded(!expanded)}
+          className="mt-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')} />
+          {expanded ? '收起' : `查看全部 ${cores} 核心`}
+        </button>
+      )}
     </div>
   );
 }

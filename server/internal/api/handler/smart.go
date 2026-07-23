@@ -71,7 +71,7 @@ var smartCache = struct {
 	m map[string]smartInfo
 }{m: map[string]smartInfo{}}
 
-const smartCacheTTL = 30 * time.Second
+const smartCacheTTL = 5 * time.Minute
 
 // fetchSmart returns the cached entry if fresh, otherwise invokes smartctl
 // on the given base device name (e.g. "sda", "nvme0n1") and parses the JSON.
@@ -94,13 +94,16 @@ func fetchSmart(cli *ssh.Client, base string, serverID string) smartInfo {
 	return info
 }
 
-// probeSmart runs `smartctl -H -A -j /dev/<base>` and parses the JSON.
+// probeSmart runs `smartctl -n standby -H -A -j /dev/<base>` and parses the JSON.
+// -n standby  skip the probe if the disk is in standby (prevents spin-up!)
 // -H  health (populates smart_status.passed)
 // -A  attributes (SATA attribute table / NVMe health log)
 // -j  JSON output (smartctl 7+)
 //
 // smartctl exit code is a bitmask: bit 0 = cmdline error, bit 3 = "pre-failure
-// attribute trip", etc. So non-zero exit doesn't mean the command failed —
+// attribute trip", etc. Exit code 2 means the device is in standby mode and
+// the probe was skipped — we return status "standby" in that case.
+// Non-zero exit from other causes doesn't mean the command failed —
 // we treat whatever stdout we got as parseable JSON. Empty stdout (smartctl
 // missing or device absent) falls back to "unknown".
 //
@@ -110,11 +113,34 @@ func probeSmart(cli *ssh.Client, base string) smartInfo {
 	if base == "" {
 		return smartInfo{Status: "unknown"}
 	}
-	out, _ := cli.Run("smartctl -H -A -j " + shellQuote("/dev/"+base) + " 2>/dev/null || true")
+	// -n standby: do NOT spin up disks that are sleeping
+	cmd := "smartctl -n standby -H -A -j " + shellQuote("/dev/"+base) + " 2>/dev/null; echo \"\\n__EXIT__=$?\""
+	out, _ := cli.Run(cmd)
+
+	// Check exit code marker for standby mode (smartctl exits with code 2 when
+	// -n standby is given and the disk is in standby). The exit code is embedded
+	// at the end of the output because ssh.Run discards it.
+	standby := false
+	if strings.Contains(out, "__EXIT__=2") || strings.Contains(out, "__EXIT__=34") || strings.Contains(out, "__EXIT__=50") {
+		standby = true
+	}
+	// Strip the exit marker from output before JSON parsing
+	out = strings.Split(out, "\n__EXIT__")[0]
+
 	if strings.TrimSpace(out) == "" {
+		if standby {
+			return smartInfo{Status: "standby", Available: false}
+		}
 		return smartInfo{Status: "unknown"}
 	}
-	return parseSmartJSON([]byte(out))
+
+	info := parseSmartJSON([]byte(out))
+
+	// If smartctl reported standby but still gave partial output, override status
+	if standby && !info.Available {
+		info.Status = "standby"
+	}
+	return info
 }
 
 // parseSmartJSON extracts the bits we care about from smartctl -j output.

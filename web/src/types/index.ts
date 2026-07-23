@@ -83,6 +83,8 @@ export interface DockerContainer {
   id: string;
   name: string;
   image: string;
+  /** base64-encoded container icon PNG from Unraid Docker plugin. */
+  icon?: string;
   status: 'running' | 'exited' | 'paused' | 'restarting' | 'created' | 'dead';
   state: string;
   createdAt: number;
@@ -122,8 +124,8 @@ export interface SmartInfo {
   available: boolean;
   /** Mirrors smartctl's smart_status.passed bit. false = drive already failing. */
   passed: boolean;
-  /** Curated status consumed by badges: ok | warning | failing | unknown. */
-  status: 'ok' | 'warning' | 'failing' | 'unknown';
+  /** Curated status consumed by badges: ok | warning | failing | standby | unknown. */
+  status: 'ok' | 'warning' | 'failing' | 'standby' | 'unknown';
   /** On-disk sensor temperature (SATA attr 194 / NVMe composite). Undefined when not reported. */
   temperature?: number;
   /** SATA attr 5 raw value — reallocated sector count. */

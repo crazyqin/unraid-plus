@@ -70,7 +70,8 @@ export default function FilesPage() {
   const goto = (idx: number) => {
     setSelected(new Set());
     const next = '/' + breadcrumbs.slice(0, idx + 1).join('/');
-    setPath(next || '/');
+    // Navigate to /mnt if path resolves to root (not in backend whitelist)
+    setPath(next && next !== '/' ? next : '/mnt');
   };
 
   const toggle = (p: string) =>

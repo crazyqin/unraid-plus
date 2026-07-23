@@ -194,9 +194,19 @@ func diskStatsKey(devPath string) string {
 	if d == devPath {
 		return "" // no /dev/ prefix (e.g. zvol pool/ds) — not a diskstats row
 	}
-	// md* whole-disk: /dev/md126 -> "md126". Partitions like /dev/md0p1
-	// are vanishingly rare in practice; treat the whole name as the key.
+	// md* devices: /dev/md1p1 -> "md1", /dev/md126p2 -> "md126"
+	// Unraid mounts array disks as /dev/mdNp1 — the partition suffix
+	// (p1, p2…) has no diskstats entry; we need the whole-disk mdN key.
 	if strings.HasPrefix(d, "md") {
+		// Strip partition suffix: "md1p1" -> "md1", "md126" -> "md126"
+		if idx := strings.IndexByte(d, 'p'); idx > 2 {
+			// Only strip if the part after 'p' looks like a number
+			// (avoid stripping "p" from a device literally named "mdp...")
+			rest := d[idx+1:]
+			if rest != "" && rest[0] >= '0' && rest[0] <= '9' {
+				return d[:idx]
+			}
+		}
 		return d
 	}
 	return baseDevName(devPath)

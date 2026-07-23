@@ -2,11 +2,15 @@
 package middleware
 
 import (
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -236,8 +240,9 @@ func (s *SessionStore) TTL() time.Duration {
 }
 
 // persistPassword writes the current password to <dataDir>/.ui_password.
-// The file is mode 0600 and contains the password in plaintext (the file
-// system permissions are the security boundary, same as .enc_key).
+// The password is AES-GCM encrypted using the same key derivation as
+// servers.json (the .enc_key file). Falls back to plaintext only if the
+// encryption key file doesn't exist (first-run / legacy).
 func (s *SessionStore) persistPassword() {
 	s.mu.RLock()
 	dir := s.dataDir
@@ -247,6 +252,14 @@ func (s *SessionStore) persistPassword() {
 		return
 	}
 	path := dir + "/.ui_password"
+
+	// Encrypt using the .enc_key file (same key as server passwords)
+	enc, err := encryptUIPassword(dir, pw)
+	if err == nil {
+		_ = os.WriteFile(path, enc, 0o600)
+		return
+	}
+	// Fallback: write plaintext (e.g. .enc_key not yet generated)
 	_ = os.WriteFile(path, []byte(pw), 0o600)
 }
 
@@ -260,5 +273,59 @@ func (s *SessionStore) loadPersistedPassword() {
 	if err != nil {
 		return
 	}
+	// Try decrypt first (AES-GCM encrypted)
+	plain, err := decryptUIPassword(s.dataDir, data)
+	if err == nil {
+		s.password = strings.TrimSpace(string(plain))
+		return
+	}
+	// Fallback: plaintext (legacy)
 	s.password = strings.TrimSpace(string(data))
+}
+
+// encryptUIPassword encrypts the UI password using the .enc_key file.
+// Returns the encrypted bytes or an error if the key file is unavailable.
+func encryptUIPassword(dataDir, password string) ([]byte, error) {
+	gcm, err := initUIPasswordCipher(dataDir)
+	if err != nil {
+		return nil, err
+	}
+	nonce := make([]byte, gcm.NonceSize())
+	if _, err := rand.Read(nonce); err != nil {
+		return nil, err
+	}
+	return gcm.Seal(nonce, nonce, []byte(password), nil), nil
+}
+
+// decryptUIPassword decrypts the UI password using the .enc_key file.
+func decryptUIPassword(dataDir string, enc []byte) (string, error) {
+	gcm, err := initUIPasswordCipher(dataDir)
+	if err != nil {
+		return "", err
+	}
+	nonceSize := gcm.NonceSize()
+	if len(enc) < nonceSize {
+		return "", fmt.Errorf("ciphertext too short")
+	}
+	nonce, ciphertext := enc[:nonceSize], enc[nonceSize:]
+	plain, err := gcm.Open(nil, nonce, ciphertext, nil)
+	if err != nil {
+		return "", err
+	}
+	return string(plain), nil
+}
+
+// initUIPasswordCipher reads the .enc_key file and returns an AEAD cipher.
+// Returns an error if the key file doesn't exist or is invalid.
+func initUIPasswordCipher(dataDir string) (cipher.AEAD, error) {
+	keyPath := filepath.Join(dataDir, ".enc_key")
+	data, err := os.ReadFile(keyPath)
+	if err != nil || len(data) < 32 {
+		return nil, fmt.Errorf("enc_key not available: %w", err)
+	}
+	block, err := aes.NewCipher(data[:32])
+	if err != nil {
+		return nil, err
+	}
+	return cipher.NewGCM(block)
 }

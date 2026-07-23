@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -59,21 +60,35 @@ func (h *Handler) Dashboard(c *gin.Context) {
 
 	readStateFiles(cli) // reads var.ini/disks.ini for metadata (best-effort)
 
-	cpu1, _ := cli.Run("cat /proc/stat")
-	memInfo, _ := cli.Run("cat /proc/meminfo")
-	net1, _ := cli.Run("cat /proc/net/dev")
-	disk1, _ := cli.Run("cat /proc/diskstats")
-	uptimeStr, _ := cli.Run("cat /proc/uptime")
-	loadStr, _ := cli.Run("cat /proc/loadavg")
-	modelName, _ := cli.Run("grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //'")
-	coreCountStr, _ := cli.Run("nproc")
-	temps, _ := cli.Run(readCoreTempCmd())
+	// First snapshot: fire all commands concurrently.
+	var (
+		cpu1, memInfo, net1, disk1                          string
+		uptimeStr, loadStr, modelName, coreCountStr, temps string
+	)
+
+	var wg1 sync.WaitGroup
+	wg1.Add(9)
+	go func() { cpu1, _ = cli.Run("cat /proc/stat"); wg1.Done() }()
+	go func() { memInfo, _ = cli.Run("cat /proc/meminfo"); wg1.Done() }()
+	go func() { net1, _ = cli.Run("cat /proc/net/dev"); wg1.Done() }()
+	go func() { disk1, _ = cli.Run("cat /proc/diskstats"); wg1.Done() }()
+	go func() { uptimeStr, _ = cli.Run("cat /proc/uptime"); wg1.Done() }()
+	go func() { loadStr, _ = cli.Run("cat /proc/loadavg"); wg1.Done() }()
+	go func() { modelName, _ = cli.Run("grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //'"); wg1.Done() }()
+	go func() { coreCountStr, _ = cli.Run("nproc"); wg1.Done() }()
+	go func() { temps, _ = cli.Run(readCoreTempCmd()); wg1.Done() }()
+	wg1.Wait()
 
 	time.Sleep(900 * time.Millisecond)
 
-	cpu2, _ := cli.Run("cat /proc/stat")
-	net2, _ := cli.Run("cat /proc/net/dev")
-	disk2, _ := cli.Run("cat /proc/diskstats")
+	// Second snapshot: only the delta-dependent commands.
+	var cpu2, net2, disk2 string
+	var wg2 sync.WaitGroup
+	wg2.Add(3)
+	go func() { cpu2, _ = cli.Run("cat /proc/stat"); wg2.Done() }()
+	go func() { net2, _ = cli.Run("cat /proc/net/dev"); wg2.Done() }()
+	go func() { disk2, _ = cli.Run("cat /proc/diskstats"); wg2.Done() }()
+	wg2.Wait()
 
 	resp := dashboardResp{
 		CPU: cpuInfo{

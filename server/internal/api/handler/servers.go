@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/crazyqin/unraid-plus/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 // This file implements multi-server persistence. Server connection configs
@@ -59,7 +60,13 @@ func newServerManager(dataDir string) *serverManager {
 	// key file at <dataDir>/.enc_key — if it doesn't exist, create one.
 	// This is NOT military-grade security — it's to avoid storing
 	// passwords in plaintext in servers.json. The key file has mode 0600.
-	sm.gcm, _ = sm.initCipher()
+	gcm, err := sm.initCipher()
+	if err != nil {
+		// Log the error but continue — Upsert will gracefully handle nil gcm
+		// by not encrypting passwords (they simply won't be persisted).
+		logger.Errorf("initCipher failed: %v — password encryption unavailable", err)
+	}
+	sm.gcm = gcm
 	sm.load()
 	return sm
 }

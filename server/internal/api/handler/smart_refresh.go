@@ -60,7 +60,11 @@ func (h *Handler) SmartRefresh(c *gin.Context) {
 	// prevents log confusion / UI weirdness if a caller sends junk.
 	req.Devices = sanitizeDeviceList(req.Devices)
 
-	cleared := invalidateSmartCache(req.Devices)
+	sid := c.Query("serverId")
+	if sid == "" {
+		sid = "_default"
+	}
+	cleared := invalidateSmartCache(sid, req.Devices)
 
 	c.JSON(http.StatusOK, smartRefreshResp{
 		Ok:      true,

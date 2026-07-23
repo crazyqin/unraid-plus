@@ -215,7 +215,7 @@ export const api = {
    * the Content-Disposition header and saves the file. Cookies are sent
    * automatically for same-origin navigation.
    */
-  downloadUrl: (path: string): string => `${BASE}${path}`,
+  downloadUrl: (path: string): string => `${BASE}${withServerId(path)}`,
 
   /**
    * Save text content to a remote file. Used by the file editor to write

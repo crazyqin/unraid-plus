@@ -54,15 +54,45 @@ func (h *Handler) DockerStats(c *gin.Context) {
 		return
 	}
 
+	// Multi-server: prefix cache key with serverId so containers with the
+	// same ID on different hosts don't collide.
+	sid := c.Query("serverId")
+	if sid == "" {
+		sid = "_default"
+	}
+
+	cacheKey := func(containerID string) string {
+		return sid + "/" + containerID
+	}
+
 	// Check cache first.
 	statsCache.RLock()
-	if time.Since(statsCache.ts) < statsCacheTTL && len(statsCache.m) > 0 {
-		out := make([]containerStats, 0, len(statsCache.m))
-		for _, s := range statsCache.m {
-			out = append(out, s)
+	cached := make([]containerStats, 0, len(statsCache.m))
+	allFresh := time.Since(statsCache.ts) < statsCacheTTL && len(statsCache.m) > 0
+	for _, s := range statsCache.m {
+		// Only include entries for this server
+		if len(sid) > 0 {
+			prefix := sid + "/"
+			if len(s.ID) >= len(prefix) && s.ID[:len(prefix)] == prefix {
+				cached = append(cached, containerStats{
+					ID:        s.ID[len(prefix):], // strip server prefix for response
+					Name:      s.Name,
+					CPUPct:    s.CPUPct,
+					MemUsage:  s.MemUsage,
+					MemLimit:  s.MemLimit,
+					MemPct:    s.MemPct,
+					NetRx:     s.NetRx,
+					NetTx:     s.NetTx,
+					BlockRead: s.BlockRead,
+					BlockWr:   s.BlockWr,
+					PIDs:      s.PIDs,
+				})
+			}
 		}
+	}
+	if allFresh && len(cached) > 0 {
 		statsCache.RUnlock()
-		c.JSON(http.StatusOK, out)
+		c.JSON(http.StatusOK, cached)
 		return
 	}
 	statsCache.RUnlock()
@@ -113,12 +143,22 @@ func (h *Handler) DockerStats(c *gin.Context) {
 			PIDs:      atoiSafe(raw.PIDs, 0),
 		}
 		stats = append(stats, s)
-		newCache[raw.Container] = s
+		newCache[cacheKey(raw.Container)] = s
 	}
 
-	// Update cache.
+	// Update cache — replace only entries for this server.
 	statsCache.Lock()
-	statsCache.m = newCache
+	// Remove old entries for this server
+	prefix := sid + "/"
+	for k := range statsCache.m {
+		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+			delete(statsCache.m, k)
+		}
+	}
+	// Add new entries
+	for k, v := range newCache {
+		statsCache.m[k] = v
+	}
 	statsCache.ts = time.Now()
 	statsCache.Unlock()
 

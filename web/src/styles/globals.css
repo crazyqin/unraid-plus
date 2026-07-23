@@ -39,6 +39,13 @@
     --ring: 24.6 95% 53.1%;
 
     --radius: 0.5rem;
+
+    /* Chart palette — referenced by Dashboard.tsx recharts */
+    --chart-cpu: 24.6 95% 53.1%;       /* orange-500 */
+    --chart-rx: 160 84% 39%;           /* emerald-500 */
+    --chart-tx: 217 91% 60%;           /* blue-500 */
+    --chart-rd: 271 91% 65%;           /* violet-500 */
+    --chart-wr: 38 92% 50%;            /* amber-500 */
   }
 
   .dark {
@@ -75,6 +82,13 @@
     --border: 240 3.7% 17%;
     --input: 240 3.7% 17%;
     --ring: 24.6 95% 53.1%;
+
+    /* Chart palette — dark mode adjustments */
+    --chart-cpu: 24.6 95% 53.1%;
+    --chart-rx: 160 84% 39%;
+    --chart-tx: 217 91% 60%;
+    --chart-rd: 271 91% 65%;
+    --chart-wr: 38 92% 50%;
   }
 }
 

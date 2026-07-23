@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/crazyqin/unraid-plus/server/internal/config"
@@ -24,6 +25,7 @@ type Client struct {
 	httpc   *http.Client
 	cookies []*http.Cookie
 	apiBase string
+	mu      sync.RWMutex // protects apiBase and cookies
 }
 
 // NewClient constructs an Unraid API client. The actual base URL is provided
@@ -40,28 +42,43 @@ func NewClient(cfg *config.Config) *Client {
 // SetBase updates the API base used for subsequent requests. Called by the
 // connect handler with the user-supplied URL.
 func (c *Client) SetBase(base string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.apiBase = strings.TrimRight(base, "/")
 }
 
 // Base returns the currently configured API base.
-func (c *Client) Base() string { return c.apiBase }
+func (c *Client) Base() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.apiBase
+}
 
 // SetCookies stores session cookies after a successful login.
-func (c *Client) SetCookies(cks []*http.Cookie) { c.cookies = cks }
+func (c *Client) SetCookies(cks []*http.Cookie) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cookies = cks
+}
 
 // get performs a GET to /webgui/api/<path> and JSON-decodes into v.
 // In v0.x this is mostly a placeholder; the real VM/Docker lists come from
 // SSH commands like `docker ps` and `virsh list`.
 func (c *Client) get(path string, v any) error {
-	if c.apiBase == "" {
+	c.mu.RLock()
+	base := c.apiBase
+	cookies := c.cookies
+	c.mu.RUnlock()
+
+	if base == "" {
 		return fmt.Errorf("unraid api base not set")
 	}
-	url := c.apiBase + "/webgui/api/" + strings.TrimLeft(path, "/")
+	url := base + "/webgui/api/" + strings.TrimLeft(path, "/")
 	req, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
-	for _, ck := range c.cookies {
+	for _, ck := range cookies {
 		req.AddCookie(ck)
 	}
 	resp, err := c.httpc.Do(req)
@@ -82,15 +99,19 @@ func (c *Client) get(path string, v any) error {
 // Probe does a lightweight GET to confirm the API is reachable. Returns no
 // error if the host simply responds (even with 401).
 func (c *Client) Probe() error {
-	if c.apiBase == "" {
+	c.mu.RLock()
+	base := c.apiBase
+	c.mu.RUnlock()
+
+	if base == "" {
 		return fmt.Errorf("unraid api base not set")
 	}
-	req, _ := http.NewRequest(http.MethodGet, c.apiBase+"/", nil)
+	req, _ := http.NewRequest(http.MethodGet, base+"/", nil)
 	resp, err := c.httpc.Do(req)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	logger.Debugf("unraid probe %s -> %d", c.apiBase, resp.StatusCode)
+	logger.Debugf("unraid probe %s -> %d", base, resp.StatusCode)
 	return nil
 }

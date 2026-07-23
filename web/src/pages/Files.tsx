@@ -667,7 +667,8 @@ function PreviewDialog({
     setSaveError('');
     setSaveSuccess(false);
 
-    let revokeUrl: string | null = null;
+    const controller = new AbortController();
+    let blobUrl: string | null = null;
 
     api.preview(targetPath)
       .then(async (res) => {
@@ -677,8 +678,9 @@ function PreviewDialog({
 
         if (ct.startsWith('image/')) {
           const blob = await res.blob();
+          if (controller.signal.aborted) return;
           const url = URL.createObjectURL(blob);
-          revokeUrl = url;
+          blobUrl = url;
           setImgUrl(url);
         } else if (
           ct.startsWith('text/') ||
@@ -691,18 +693,23 @@ function PreviewDialog({
           ct.includes('application/x-sh')
         ) {
           const text = await res.text();
+          if (controller.signal.aborted) return;
           setTextContent(text);
         } else {
           setError('不支持预览此文件类型，请下载后查看。');
         }
       })
       .catch((err) => {
+        if (controller.signal.aborted) return;
         setError(err instanceof ApiError ? err.message : '预览加载失败');
       })
-      .finally(() => setLoading(false));
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
 
     return () => {
-      if (revokeUrl) URL.revokeObjectURL(revokeUrl);
+      controller.abort();
+      if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
   }, [target, targetPath]);
 

@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/crazyqin/unraid-plus/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 type connectReq struct {
@@ -93,12 +94,13 @@ func (h *Handler) Connect(c *gin.Context) {
 	id := serverID(req.Host, req.SSHPort)
 	if h.sm != nil {
 		if err := h.sm.Upsert(connCfg, req.Password); err != nil {
-			// Log but don't fail the connect — persistence is best-effort
-			_ = err
+			logger.Warnf("persist server %s failed: %v", id, err)
 		}
 		// If key auth, save the private key for auto-reconnect
 		if mode == ssh.AuthKey && len(req.PrivateKey) > 0 {
-			_ = h.sm.SaveServerKey(id, req.PrivateKey)
+			if err := h.sm.SaveServerKey(id, req.PrivateKey); err != nil {
+				logger.Warnf("save key for server %s failed: %v", id, err)
+			}
 		}
 	}
 
@@ -280,14 +282,20 @@ func (h *Handler) RotateKey(c *gin.Context) {
 	id := ""
 	if connCfg != nil {
 		id = serverID(connCfg.Host, connCfg.Port)
-		_ = saveKey(h.cfg.DataDir, priv)
+		if err := saveKey(h.cfg.DataDir, priv); err != nil {
+			logger.Warnf("save key file for %s failed: %v", id, err)
+		}
 		// Also save to server-specific key file
 		if h.sm != nil && id != "" {
-			_ = h.sm.SaveServerKey(id, priv)
+			if err := h.sm.SaveServerKey(id, priv); err != nil {
+				logger.Warnf("save server key for %s failed: %v", id, err)
+			}
 		}
 		// Update the saved server entry to use key auth
 		if h.sm != nil {
-			_ = h.sm.Upsert(connCfg, "")
+			if err := h.sm.Upsert(connCfg, ""); err != nil {
+				logger.Warnf("update server entry %s to key auth failed: %v", id, err)
+			}
 		}
 	}
 

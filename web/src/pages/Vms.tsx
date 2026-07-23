@@ -30,6 +30,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { cn, formatBytes } from '@/lib/utils';
 import type { VmInfo } from '@/types';
+import { useSettingsStore } from '@/stores/settings';
 
 const STATUS_VARIANT: Record<VmInfo['status'], 'success' | 'secondary' | 'warning'> = {
   running: 'success',
@@ -63,6 +64,7 @@ const STATUS_BG: Record<string, string> = {
 
 export default function VmsPage() {
   const qc = useQueryClient();
+  const refresh = useSettingsStore((s) => s.refreshInterval);
   const [vncVm, setVncVm] = useState<VmInfo | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -71,7 +73,7 @@ export default function VmsPage() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['vms'],
     queryFn: () => api.get<VmInfo[]>('/vms'),
-    refetchInterval: 10_000,
+    refetchInterval: refresh || false,
   });
 
   const act = async (id: string, action: 'start' | 'stop' | 'shutdown' | 'resume' | 'suspend') => {

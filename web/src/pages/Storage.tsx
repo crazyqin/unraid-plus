@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Activity,
@@ -556,6 +556,11 @@ function SmartStatusIcon({ status }: { status: SmartInfo['status'] }) {
  */
 function SmartDetail({ smart, expanded = false }: { smart?: SmartInfo; expanded?: boolean }) {
   const [open, setOpen] = useState(expanded);
+
+  // Sync expanded prop: when a disk goes from ok→warning, auto-expand.
+  useEffect(() => {
+    setOpen(expanded);
+  }, [expanded]);
 
   if (!smart || !smart.available || smart.status === 'unknown') return null;
 

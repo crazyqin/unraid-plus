@@ -212,7 +212,7 @@ export default function DashboardPage() {
             <CardDescription>最近 {RANGE_LABELS[chartRange]}</CardDescription>
           </CardHeader>
           <CardContent className="h-56">
-            <LineChart data={history} dataKey="cpu" color="#f97316" unit="%" />
+            <LineChart data={history} dataKey="cpu" color="hsl(var(--chart-cpu))" unit="%" />
           </CardContent>
         </Card>
 
@@ -363,17 +363,19 @@ function LineChart({
 }
 
 function DualLineChart({ data }: { data: Sample[] }) {
+  const rxColor = 'hsl(var(--chart-rx))';
+  const txColor = 'hsl(var(--chart-tx))';
   return (
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id="g-rx" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#10b981" stopOpacity={0.4} />
-            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+            <stop offset="5%" stopColor={rxColor} stopOpacity={0.4} />
+            <stop offset="95%" stopColor={rxColor} stopOpacity={0} />
           </linearGradient>
           <linearGradient id="g-tx" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.4} />
-            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+            <stop offset="5%" stopColor={txColor} stopOpacity={0.4} />
+            <stop offset="95%" stopColor={txColor} stopOpacity={0} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
@@ -399,25 +401,27 @@ function DualLineChart({ data }: { data: Sample[] }) {
           labelFormatter={(t) => new Date(Number(t)).toLocaleTimeString()}
           formatter={(v: number, n: string) => [formatRate(v), n === 'rx' ? '↓ 接收' : '↑ 发送']}
         />
-        <Area type="monotone" dataKey="rx" stroke="#10b981" strokeWidth={2} fill="url(#g-rx)" isAnimationActive={false} />
-        <Area type="monotone" dataKey="tx" stroke="#3b82f6" strokeWidth={2} fill="url(#g-tx)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="rx" stroke={rxColor} strokeWidth={2} fill="url(#g-rx)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="tx" stroke={txColor} strokeWidth={2} fill="url(#g-tx)" isAnimationActive={false} />
       </AreaChart>
     </ResponsiveContainer>
   );
 }
 
 function RwChart({ data }: { data: Sample[] }) {
+  const rdColor = 'hsl(var(--chart-rd))';
+  const wrColor = 'hsl(var(--chart-wr))';
   return (
     <ResponsiveContainer width="100%" height="100%">
       <AreaChart data={data} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id="g-rd" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#a855f7" stopOpacity={0.4} />
-            <stop offset="95%" stopColor="#a855f7" stopOpacity={0} />
+            <stop offset="5%" stopColor={rdColor} stopOpacity={0.4} />
+            <stop offset="95%" stopColor={rdColor} stopOpacity={0} />
           </linearGradient>
           <linearGradient id="g-wr" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.4} />
-            <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
+            <stop offset="5%" stopColor={wrColor} stopOpacity={0.4} />
+            <stop offset="95%" stopColor={wrColor} stopOpacity={0} />
           </linearGradient>
         </defs>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
@@ -443,8 +447,8 @@ function RwChart({ data }: { data: Sample[] }) {
           labelFormatter={(t) => new Date(Number(t)).toLocaleTimeString()}
           formatter={(v: number, n: string) => [formatRate(v), n === 'read' ? '读' : '写']}
         />
-        <Area type="monotone" dataKey="read" stroke="#a855f7" strokeWidth={2} fill="url(#g-rd)" isAnimationActive={false} />
-        <Area type="monotone" dataKey="write" stroke="#f59e0b" strokeWidth={2} fill="url(#g-wr)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="read" stroke={rdColor} strokeWidth={2} fill="url(#g-rd)" isAnimationActive={false} />
+        <Area type="monotone" dataKey="write" stroke={wrColor} strokeWidth={2} fill="url(#g-wr)" isAnimationActive={false} />
       </AreaChart>
     </ResponsiveContainer>
   );

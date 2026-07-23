@@ -144,6 +144,19 @@ export default function TerminalPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Cleanup all sessions on unmount to prevent WebSocket and XTerm leaks.
+  useEffect(() => {
+    return () => {
+      setSessions((ss) => {
+        for (const s of ss) {
+          s.ws?.close();
+          s.term.dispose();
+        }
+        return [];
+      });
+    };
+  }, []);
+
   const activeSession = sessions.find((s) => s.id === activeId);
 
   return (

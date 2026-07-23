@@ -76,9 +76,12 @@ func (h *TerminalHub) Serve(c *websocket.Conn) {
 		h.unregister(id)
 	}()
 
-	// stdout -> ws (BinaryMessage, raw bytes — xterm expects raw bytes)
-	go pipe(stdout, c, "stdout")
-	go pipe(stderr, c, "stderr")
+	// stdout + stderr -> ws: both goroutines share a mutex because
+	// WebSocket connections are not safe for concurrent writes (same
+	// fix pattern as docker_logs.go).
+	var wsMu sync.Mutex
+	go pipe(stdout, c, "stdout", &wsMu)
+	go pipe(stderr, c, "stderr", &wsMu)
 
 	// Read loop: handle both control JSON (Text) and raw stdin (Binary).
 	// xterm.js term.onData() sends keystrokes as TextMessage (raw UTF-8
@@ -137,12 +140,18 @@ func (h *TerminalHub) unregister(id string) {
 
 // pipe forwards bytes from an SSH pipe to the WebSocket as TextMessage
 // (which xterm.write accepts directly). On EOF or error it stops.
-func pipe(r io.Reader, c *websocket.Conn, kind string) {
+// A mutex is required because both stdout and stderr goroutines call
+// WriteMessage concurrently — WebSocket connections are not safe for
+// concurrent writes (same fix as docker_logs.go).
+func pipe(r io.Reader, c *websocket.Conn, kind string, mu *sync.Mutex) {
 	buf := make([]byte, 4096)
 	for {
 		n, err := r.Read(buf)
 		if n > 0 {
-			if err := c.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+			mu.Lock()
+			werr := c.WriteMessage(websocket.TextMessage, buf[:n])
+			mu.Unlock()
+			if werr != nil {
 				return
 			}
 		}
@@ -150,7 +159,9 @@ func pipe(r io.Reader, c *websocket.Conn, kind string) {
 			if err != io.EOF {
 				logger.Debugf("terminal %s pipe ended: %v", kind, err)
 			}
+			mu.Lock()
 			_ = writeJSON(c, msgOut{Type: "exit"})
+			mu.Unlock()
 			return
 		}
 	}

@@ -206,7 +206,7 @@ export default function SettingsPage() {
       </Card>
 
       <p className="text-center text-xs text-muted-foreground">
-        unraid-plus · Apache 2.0 · 完全开源
+        unraid-plus · MIT · 完全开源
       </p>
 
       <ConfirmDialog

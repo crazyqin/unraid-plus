@@ -75,9 +75,11 @@ const smartCacheTTL = 30 * time.Second
 
 // fetchSmart returns the cached entry if fresh, otherwise invokes smartctl
 // on the given base device name (e.g. "sda", "nvme0n1") and parses the JSON.
-func fetchSmart(cli *ssh.Client, base string) smartInfo {
+// The serverID prefix prevents cache collisions in multi-server mode.
+func fetchSmart(cli *ssh.Client, base string, serverID string) smartInfo {
+	cacheKey := serverID + "/" + base
 	smartCache.RLock()
-	if e, ok := smartCache.m[base]; ok && time.Since(time.Unix(e.FetchedAt, 0)) < smartCacheTTL {
+	if e, ok := smartCache.m[cacheKey]; ok && time.Since(time.Unix(e.FetchedAt, 0)) < smartCacheTTL {
 		smartCache.RUnlock()
 		return e
 	}
@@ -87,7 +89,7 @@ func fetchSmart(cli *ssh.Client, base string) smartInfo {
 	info.FetchedAt = time.Now().Unix()
 
 	smartCache.Lock()
-	smartCache.m[base] = info
+	smartCache.m[cacheKey] = info
 	smartCache.Unlock()
 	return info
 }
@@ -362,30 +364,52 @@ func parseMdcmdPhysicalMap(out string) map[string]string {
 // cleared. Keys that aren't present are silently skipped (not erroring on
 // "refresh sda when sda was never probed" keeps the UI button idempotent).
 //
+// The `serverID` parameter scopes the invalidation to a specific server's
+// entries in multi-server mode. Pass "" to clear all entries across all servers.
+//
 // This is the backing store for POST /api/smart/refresh (see smart_refresh.go).
 // It only invalidates; the next GET /api/storage call will trigger fresh
 // smartctl probes via fetchSmart's cache-miss path. We don't proactively
 // re-probe here because that would require walking the disk list + an active
 // SSH connection from inside this call, and the frontend already follows up
 // the refresh with a re-fetch of /api/storage anyway.
-func invalidateSmartCache(devices []string) []string {
+func invalidateSmartCache(serverID string, devices []string) []string {
 	smartCache.Lock()
 	defer smartCache.Unlock()
 
-	// Empty filter → drop everything.
+	prefix := serverID + "/"
+
+	// Empty filter → drop everything for this server (or all if serverID == "").
 	if len(devices) == 0 {
 		cleared := make([]string, 0, len(smartCache.m))
 		for k := range smartCache.m {
-			cleared = append(cleared, k)
+			if serverID == "" || (len(k) > len(prefix) && k[:len(prefix)] == prefix) {
+				// Extract the device part after the prefix
+				parts := strings.SplitN(k, "/", 2)
+				dev := k
+				if len(parts) == 2 {
+					dev = parts[1]
+				}
+				cleared = append(cleared, dev)
+			}
 		}
-		smartCache.m = map[string]smartInfo{}
+		if serverID == "" {
+			smartCache.m = map[string]smartInfo{}
+		} else {
+			for k := range smartCache.m {
+				if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+					delete(smartCache.m, k)
+				}
+			}
+		}
 		return cleared
 	}
 
 	cleared := make([]string, 0, len(devices))
 	for _, dev := range devices {
-		if _, ok := smartCache.m[dev]; ok {
-			delete(smartCache.m, dev)
+		key := prefix + dev
+		if _, ok := smartCache.m[key]; ok {
+			delete(smartCache.m, key)
 			cleared = append(cleared, dev)
 		}
 	}

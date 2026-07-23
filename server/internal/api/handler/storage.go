@@ -94,9 +94,13 @@ func (h *Handler) Storage(c *gin.Context) {
 	}
 
 	// Enrich with RW rates and SMART data
+	sid := c.Query("serverId")
+	if sid == "" {
+		sid = "_default"
+	}
 	enrichWithRW(cli, disks, cache)
-	enrichWithSmart(cli, disks)
-	enrichWithSmart(cli, cache)
+	enrichWithSmart(cli, disks, sid)
+	enrichWithSmart(cli, cache, sid)
 
 	c.JSON(http.StatusOK, arrayStatus{
 		State:      arrayState,
@@ -115,9 +119,13 @@ func (h *Handler) storageFallback(c *gin.Context, cli *ssh.Client) {
 	}
 
 	disks, cache := parseDf(dfOut)
+	sid := c.Query("serverId")
+	if sid == "" {
+		sid = "_default"
+	}
 	enrichWithRW(cli, disks, cache)
-	enrichWithSmart(cli, disks)
-	enrichWithSmart(cli, cache)
+	enrichWithSmart(cli, disks, sid)
+	enrichWithSmart(cli, cache, sid)
 
 	c.JSON(http.StatusOK, arrayStatus{
 		State:      arrayState,
@@ -203,7 +211,7 @@ func diskStatsKey(devPath string) string {
 // back to state file data (disks.ini color/status for health indicator,
 // temp for temperature). This gives the frontend something useful to show
 // even without smartctl.
-func enrichWithSmart(cli *ssh.Client, disks []disk) {
+func enrichWithSmart(cli *ssh.Client, disks []disk, serverID string) {
 	for i := range disks {
 		base := baseDevName(disks[i].Device)
 		if base == "" {
@@ -213,7 +221,7 @@ func enrichWithSmart(cli *ssh.Client, disks []disk) {
 				continue
 			}
 		}
-		info := fetchSmart(cli, base)
+		info := fetchSmart(cli, base, serverID)
 		if info.Available {
 			disks[i].Smart = &info
 			if info.Temperature != nil {

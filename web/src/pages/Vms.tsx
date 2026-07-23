@@ -10,7 +10,7 @@ import {
   Power,
   Square,
 } from 'lucide-react';
-import { api, wsUrl } from '@/lib/api';
+import { api, ApiError, wsUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -45,6 +45,7 @@ const STATUS_LABEL: Record<string, string> = {
 export default function VmsPage() {
   const qc = useQueryClient();
   const [vncVm, setVncVm] = useState<VmInfo | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const { data, isLoading, isError } = useQuery({
     queryKey: ['vms'],
     queryFn: () => api.get<VmInfo[]>('/vms'),
@@ -52,14 +53,27 @@ export default function VmsPage() {
   });
 
   const act = async (id: string, action: 'start' | 'stop' | 'shutdown' | 'resume' | 'suspend') => {
-    await api.post(`/vms/${id}/${action}`);
-    qc.invalidateQueries({ queryKey: ['vms'] });
+    setActionError(null);
+    try {
+      await api.post(`/vms/${id}/${action}`);
+      qc.invalidateQueries({ queryKey: ['vms'] });
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : '操作失败');
+    }
   };
 
   const running = (data ?? []).filter((v) => v.status === 'running').length;
 
   return (
     <div className="space-y-4 p-4 md:p-6">
+      {actionError && (
+        <div className="flex items-center justify-between rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <span>{actionError}</span>
+          <button className="text-xs underline" onClick={() => setActionError(null)}>
+            关闭
+          </button>
+        </div>
+      )}
       <div>
         <h1 className="text-xl font-semibold">虚拟机</h1>
         <p className="text-sm text-muted-foreground">

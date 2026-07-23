@@ -13,7 +13,7 @@ import {
   Square,
   Search,
 } from 'lucide-react';
-import { api, wsUrl } from '@/lib/api';
+import { api, ApiError, wsUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -75,9 +75,16 @@ export default function DockerPage() {
   const statsMap = new Map<string, ContainerStats>();
   (statsData ?? []).forEach((s) => statsMap.set(s.id, s));
 
+  const [actionError, setActionError] = useState<string | null>(null);
+
   const act = async (id: string, action: 'start' | 'stop' | 'restart' | 'pause') => {
-    await api.post(`/docker/containers/${id}/${action}`);
-    qc.invalidateQueries({ queryKey: ['docker'] });
+    setActionError(null);
+    try {
+      await api.post(`/docker/containers/${id}/${action}`);
+      qc.invalidateQueries({ queryKey: ['docker'] });
+    } catch (err) {
+      setActionError(err instanceof ApiError ? err.message : '操作失败');
+    }
   };
 
   const containers = (data ?? []).filter((c) =>
@@ -87,6 +94,14 @@ export default function DockerPage() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
+      {actionError && (
+        <div className="flex items-center justify-between rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+          <span>{actionError}</span>
+          <button className="text-xs underline" onClick={() => setActionError(null)}>
+            关闭
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold">Docker 容器</h1>

@@ -101,7 +101,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-xl font-semibold">仪表盘</h1>
           <p className="text-sm text-muted-foreground">
-            服务器实时状态 · 每 {refreshInterval / 1000}s 刷新
+            服务器实时状态{refreshInterval > 0 ? ` · 每 ${refreshInterval / 1000}s 刷新` : ' · 已暂停刷新'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">

@@ -187,8 +187,9 @@ export const api = {
    * X-Preview-Truncated headers.
    */
   preview: async (path: string): Promise<Response> => {
+    const resolvedPath = withServerId(`/files/preview?path=${encodeURIComponent(path)}`);
     const res = await fetch(
-      `${BASE}/files/preview?path=${encodeURIComponent(path)}`,
+      `${BASE}${resolvedPath}`,
       { credentials: 'include' },
     );
     if (!res.ok) {

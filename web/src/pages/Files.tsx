@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
   Download,
   Eye,
   File as FileIcon,
@@ -33,6 +35,9 @@ import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import { formatBytes, timeAgo, cn } from '@/lib/utils';
 import type { FileEntry, ListFilesResponse } from '@/types';
 
+type SortKey = 'name' | 'sizeBytes' | 'modTime';
+type SortDir = 'asc' | 'desc';
+
 export default function FilesPage() {
   const [path, setPath] = useState('/mnt/user');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -43,6 +48,8 @@ export default function FilesPage() {
   const [previewTarget, setPreviewTarget] = useState<FileEntry | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [sortKey, setSortKey] = useState<SortKey>('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const qc = useQueryClient();
 
@@ -120,6 +127,43 @@ export default function FilesPage() {
   const selectedEntries = (data?.entries ?? []).filter((e) =>
     selected.has(e.path),
   );
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+
+  const sortedEntries = useMemo(() => {
+    const entries = data?.entries ?? [];
+    // Always put directories first
+    const dirs = entries.filter((e) => e.isDir);
+    const files = entries.filter((e) => !e.isDir);
+
+    const sorter = (a: FileEntry, b: FileEntry) => {
+      let cmp = 0;
+      if (sortKey === 'name') cmp = a.name.localeCompare(b.name);
+      else if (sortKey === 'sizeBytes') cmp = a.sizeBytes > b.sizeBytes ? 1 : a.sizeBytes < b.sizeBytes ? -1 : 0;
+      else cmp = a.modTime > b.modTime ? 1 : a.modTime < b.modTime ? -1 : 0;
+      return sortDir === 'asc' ? cmp : -cmp;
+    };
+
+    dirs.sort(sorter);
+    files.sort(sorter);
+    return [...dirs, ...files];
+  }, [data?.entries, sortKey, sortDir]);
+
+  const SortIcon = ({ column }: { column: SortKey }) => {
+    if (sortKey !== column) {
+      return <ChevronUp className="h-3 w-3 opacity-0 group-hover:opacity-40" />;
+    }
+    return sortDir === 'asc'
+      ? <ChevronUp className="h-3 w-3" />
+      : <ChevronDown className="h-3 w-3" />;
+  };
 
   return (
     <div className="flex h-full flex-col p-4 md:p-6">
@@ -259,13 +303,25 @@ export default function FilesPage() {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-card text-xs text-muted-foreground">
                   <tr className="border-b">
-                    <th className="px-3 py-2 text-left font-medium">名称</th>
-                    <th className="px-3 py-2 text-right font-medium">大小</th>
-                    <th className="px-3 py-2 text-right font-medium">修改时间</th>
+                    <th className="px-3 py-2 text-left font-medium">
+                      <button className="group inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('name')}>
+                        名称 <SortIcon column="name" />
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      <button className="group inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('sizeBytes')}>
+                        大小 <SortIcon column="sizeBytes" />
+                      </button>
+                    </th>
+                    <th className="px-3 py-2 text-right font-medium">
+                      <button className="group inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('modTime')}>
+                        修改时间 <SortIcon column="modTime" />
+                      </button>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {(data?.entries ?? []).map((e) => (
+                  {sortedEntries.map((e) => (
                     <tr
                       key={e.path}
                       onClick={() => (e.isDir ? enter(e) : toggle(e.path))}
@@ -293,7 +349,7 @@ export default function FilesPage() {
                       </td>
                     </tr>
                   ))}
-                  {(data?.entries ?? []).length === 0 && (
+                  {sortedEntries.length === 0 && (
                     <tr>
                       <td colSpan={3} className="px-3 py-8 text-center text-muted-foreground">
                         空目录
@@ -589,6 +645,7 @@ function PreviewDialog({
   const [editContent, setEditContent] = useState('');
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
+  const [saveSuccess, setSaveSuccess] = useState(false);
 
   const targetPath = target?.path ?? '';
   const targetName = target?.name ?? '';
@@ -604,6 +661,7 @@ function PreviewDialog({
     setEditing(false);
     setEditContent('');
     setSaveError('');
+    setSaveSuccess(false);
 
     let revokeUrl: string | null = null;
 
@@ -653,22 +711,27 @@ function PreviewDialog({
     setEditContent(textContent ?? '');
     setEditing(true);
     setSaveError('');
+    setSaveSuccess(false);
   };
 
   const cancelEditing = () => {
     setEditing(false);
     setEditContent('');
     setSaveError('');
+    setSaveSuccess(false);
   };
 
   const saveEdits = async () => {
     if (!target) return;
     setSaving(true);
     setSaveError('');
+    setSaveSuccess(false);
     try {
       await api.saveFileContent(targetPath, editContent);
       setTextContent(editContent);
       setEditing(false);
+      setSaveSuccess(true);
+      setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
       setSaveError(err instanceof ApiError ? err.message : '保存失败');
     } finally {
@@ -794,6 +857,12 @@ function PreviewDialog({
               {saveError && (
                 <p className="mt-1 text-sm text-destructive">{saveError}</p>
               )}
+            </div>
+          )}
+          {saveSuccess && (
+            <div className="flex items-center gap-2 rounded-md border border-green-500/40 bg-green-500/10 p-2 text-sm text-green-600 dark:text-green-400">
+              <Save className="h-3.5 w-3.5" />
+              文件已保存
             </div>
           )}
         </div>

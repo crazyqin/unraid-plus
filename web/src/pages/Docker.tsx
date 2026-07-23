@@ -52,6 +52,22 @@ const STATUS_LABEL: Record<string, string> = {
   dead: '已停止',
 };
 
+/** Highlight matching text in a string with a yellow background */
+function Highlight({ text, query }: { text: string; query: string }) {
+  if (!query) return <>{text}</>;
+  const idx = text.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, idx)}
+      <mark className="rounded-sm bg-yellow-300/80 px-0.5 text-inherit">
+        {text.slice(idx, idx + query.length)}
+      </mark>
+      {text.slice(idx + query.length)}
+    </>
+  );
+}
+
 export default function DockerPage() {
   const refresh = useSettingsStore((s) => s.refreshInterval);
   const qc = useQueryClient();
@@ -139,10 +155,10 @@ export default function DockerPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <CardTitle className="truncate text-sm">
-                      {c.name}
+                      <Highlight text={c.name} query={filter} />
                     </CardTitle>
                     <div className="truncate text-xs text-muted-foreground">
-                      {truncate(c.image, 38)}
+                      <Highlight text={truncate(c.image, 38)} query={filter} />
                     </div>
                   </div>
                   <Badge variant={STATUS_VARIANT[c.status]}>{STATUS_LABEL[c.status] ?? c.status}</Badge>

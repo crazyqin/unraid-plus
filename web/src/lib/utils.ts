@@ -8,7 +8,8 @@ export function cn(...inputs: ClassValue[]) {
 
 /** Format bytes as human-readable string. */
 export function formatBytes(bytes: number, decimals = 1): string {
-  if (bytes === 0 || bytes == null) return '0 B';
+  if (!bytes || bytes === 0) return '0 B';
+  if (bytes < 0) return '-' + formatBytes(-bytes, decimals);
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
@@ -30,17 +31,18 @@ export function formatTime(ts: number): string {
   return new Date(ts * 1000).toLocaleString();
 }
 
-/** Relative time like "3m ago". */
+/** Relative time like "3分钟前". */
 export function timeAgo(ts: number): string {
   const diff = Date.now() - ts * 1000;
   const sec = Math.floor(diff / 1000);
-  if (sec < 60) return `${sec}s ago`;
+  if (sec < 5) return '刚刚';
+  if (sec < 60) return `${sec}秒前`;
   const min = Math.floor(sec / 60);
-  if (min < 60) return `${min}m ago`;
+  if (min < 60) return `${min}分钟前`;
   const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}h ago`;
+  if (hr < 24) return `${hr}小时前`;
   const day = Math.floor(hr / 24);
-  return `${day}d ago`;
+  return `${day}天前`;
 }
 
 /** Truncate a long container name for display. */

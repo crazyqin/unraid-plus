@@ -13,6 +13,7 @@ import {
 import { api, ApiError, wsUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import {
   Card,
   CardContent,
@@ -46,6 +47,8 @@ export default function VmsPage() {
   const qc = useQueryClient();
   const [vncVm, setVncVm] = useState<VmInfo | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ id: string; action: 'stop'; name: string } | null>(null);
   const { data, isLoading, isError } = useQuery({
     queryKey: ['vms'],
     queryFn: () => api.get<VmInfo[]>('/vms'),
@@ -53,12 +56,23 @@ export default function VmsPage() {
   });
 
   const act = async (id: string, action: 'start' | 'stop' | 'shutdown' | 'resume' | 'suspend') => {
+    // Force stop requires confirmation
+    if (action === 'stop' && !confirmAction) {
+      const vm = (data ?? []).find((v) => v.id === id);
+      setConfirmAction({ id, action, name: vm?.name ?? id });
+      return;
+    }
+    const key = `${id}:${action}`;
+    setPendingAction(key);
     setActionError(null);
+    setConfirmAction(null);
     try {
       await api.post(`/vms/${id}/${action}`);
       qc.invalidateQueries({ queryKey: ['vms'] });
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : '操作失败');
+    } finally {
+      setPendingAction(null);
     }
   };
 
@@ -91,7 +105,7 @@ export default function VmsPage() {
             无法获取虚拟机信息。请确认 Unraid 已启用 libvirt / libvirtd。
           </CardContent>
         </Card>
-      ) : data!.length === 0 ? (
+      ) : (data ?? []).length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
             <Cpu className="h-8 w-8" />
@@ -100,7 +114,7 @@ export default function VmsPage() {
         </Card>
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {data!.map((vm) => (
+          {(data ?? []).map((vm) => (
             <Card key={vm.id}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
@@ -127,30 +141,30 @@ export default function VmsPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {vm.status !== 'running' && vm.status !== 'paused' && (
-                    <Button size="sm" variant="success" onClick={() => act(vm.id, 'start')}>
-                      <Play className="h-3.5 w-3.5" /> 启动
+                    <Button size="sm" variant="success" onClick={() => act(vm.id, 'start')} disabled={pendingAction !== null}>
+                      {pendingAction === `${vm.id}:start` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} 启动
                     </Button>
                   )}
                   {vm.status === 'running' && (
                     <>
-                      <Button size="sm" variant="outline" onClick={() => act(vm.id, 'shutdown')}>
-                        <Power className="h-3.5 w-3.5" /> 安全关机
+                      <Button size="sm" variant="outline" onClick={() => act(vm.id, 'shutdown')} disabled={pendingAction !== null}>
+                        {pendingAction === `${vm.id}:shutdown` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />} 安全关机
                       </Button>
-                      <Button size="sm" variant="destructive" onClick={() => act(vm.id, 'stop')}>
-                        <Square className="h-3.5 w-3.5" /> 强制停止
+                      <Button size="sm" variant="destructive" onClick={() => act(vm.id, 'stop')} disabled={pendingAction !== null}>
+                        {pendingAction === `${vm.id}:stop` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />} 强制停止
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => act(vm.id, 'suspend')}>
+                      <Button size="sm" variant="ghost" onClick={() => act(vm.id, 'suspend')} disabled={pendingAction !== null}>
                         <Pause className="h-3.5 w-3.5" /> 暂停
                       </Button>
                     </>
                   )}
                   {vm.status === 'paused' && (
-                    <Button size="sm" variant="success" onClick={() => act(vm.id, 'resume')}>
+                    <Button size="sm" variant="success" onClick={() => act(vm.id, 'resume')} disabled={pendingAction !== null}>
                       <Play className="h-3.5 w-3.5" /> 恢复
                     </Button>
                   )}
                   {vm.status === 'running' && (
-                    <Button size="sm" variant="outline" onClick={() => setVncVm(vm)}>
+                    <Button size="sm" variant="outline" onClick={() => setVncVm(vm)} disabled={pendingAction !== null}>
                       <Monitor className="h-3.5 w-3.5" /> 控制台
                     </Button>
                   )}
@@ -160,6 +174,16 @@ export default function VmsPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmAction}
+        title="确认强制停止虚拟机"
+        description={`强制停止虚拟机 "${confirmAction?.name}" 可能导致数据丢失，建议优先使用"安全关机"。确定要强制停止吗？`}
+        confirmText="强制停止"
+        variant="destructive"
+        onConfirm={() => confirmAction && act(confirmAction.id, confirmAction.action)}
+        onCancel={() => setConfirmAction(null)}
+      />
 
       <VNCDialog vm={vncVm} onClose={() => setVncVm(null)} />
     </div>

@@ -2,6 +2,7 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import AppLayout from './components/layout/AppLayout';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import OnboardingPage from './pages/Onboarding';
 import DashboardPage from './pages/Dashboard';
 import DockerPage from './pages/Docker';
@@ -78,7 +79,9 @@ export default function App() {
           needsLogin ? (
             <Navigate to="/login" replace />
           ) : showApp ? (
-            <AppLayout />
+            <ErrorBoundary>
+              <AppLayout />
+            </ErrorBoundary>
           ) : (
             <Navigate to="/onboarding" replace />
           )

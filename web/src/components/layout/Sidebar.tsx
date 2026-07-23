@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -18,6 +19,7 @@ import { cn } from '@/lib/utils';
 import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
+import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import { api } from '@/lib/api';
 
 interface NavItem {
@@ -64,6 +66,8 @@ export default function Sidebar() {
     }
   };
 
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+
   const handleDelete = async (id: string) => {
     try {
       await api.delete(`/servers/${encodeURIComponent(id)}`);
@@ -79,6 +83,8 @@ export default function Sidebar() {
       }
     } catch {
       // ignore
+    } finally {
+      setDeleteTarget(null);
     }
   };
 
@@ -162,7 +168,7 @@ export default function Sidebar() {
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDelete(s.id);
+                    setDeleteTarget(s.id);
                   }}
                   className="rounded p-0.5 hover:bg-destructive/10 hover:text-destructive"
                   title="删除"
@@ -250,6 +256,16 @@ export default function Sidebar() {
           {!collapsed && <span>收起侧栏</span>}
         </button>
       </div>
+
+      <ConfirmDialog
+        open={!!deleteTarget}
+        title="确认删除服务器"
+        description="删除后将断开连接并移除保存的配置。确定要删除吗？"
+        confirmText="删除"
+        variant="destructive"
+        onConfirm={() => deleteTarget && handleDelete(deleteTarget)}
+        onCancel={() => setDeleteTarget(null)}
+      />
     </aside>
   );
 }

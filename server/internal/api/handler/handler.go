@@ -50,12 +50,16 @@ func (h *Handler) activeClient(c *gin.Context) (*ssh.Client, bool) {
 	// v0.8+: check for ?serverId= parameter to support multi-server
 	if id := c.Query("serverId"); id != "" && h.sm != nil {
 		entry := h.sm.Get(id)
-		if entry != nil {
-			cli, err := h.pool.Get(entry.Host, entry.Port)
-			if err == nil {
-				return cli, true
-			}
+		if entry == nil {
+			errOut(c, 404, "服务器 "+id+" 不存在")
+			return nil, false
 		}
+		cli, err := h.pool.Get(entry.Host, entry.Port)
+		if err != nil {
+			errOut(c, 503, "服务器 "+entry.Host+" 连接不可用，请重新连接")
+			return nil, false
+		}
+		return cli, true
 	}
 	// Fallback: return the first active connection (legacy single-server)
 	cli, err := h.pool.Active()

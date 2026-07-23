@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import {
   Card,
   CardContent,
@@ -92,14 +93,27 @@ export default function DockerPage() {
   (statsData ?? []).forEach((s) => statsMap.set(s.id, s));
 
   const [actionError, setActionError] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<string | null>(null);
+  const [confirmAction, setConfirmAction] = useState<{ id: string; action: 'stop' | 'restart'; name: string } | null>(null);
 
   const act = async (id: string, action: 'start' | 'stop' | 'restart' | 'pause') => {
+    // Destructive actions require confirmation
+    if ((action === 'stop' || action === 'restart') && !confirmAction) {
+      const c = (data ?? []).find((c) => c.id === id);
+      setConfirmAction({ id, action, name: c?.name ?? id });
+      return;
+    }
+    const key = `${id}:${action}`;
+    setPendingAction(key);
     setActionError(null);
+    setConfirmAction(null);
     try {
       await api.post(`/docker/containers/${id}/${action}`);
       qc.invalidateQueries({ queryKey: ['docker'] });
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : '操作失败');
+    } finally {
+      setPendingAction(null);
     }
   };
 
@@ -188,24 +202,24 @@ export default function DockerPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {c.status !== 'running' && (
-                    <Button size="sm" variant="success" onClick={() => act(c.id, 'start')}>
-                      <Play className="h-3.5 w-3.5" /> 启动
+                    <Button size="sm" variant="success" onClick={() => act(c.id, 'start')} disabled={pendingAction !== null}>
+                      {pendingAction === `${c.id}:start` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} 启动
                     </Button>
                   )}
                   {c.status === 'running' && (
-                    <Button size="sm" variant="destructive" onClick={() => act(c.id, 'stop')}>
-                      <Square className="h-3.5 w-3.5" /> 停止
+                    <Button size="sm" variant="destructive" onClick={() => act(c.id, 'stop')} disabled={pendingAction !== null}>
+                      {pendingAction === `${c.id}:stop` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />} 停止
                     </Button>
                   )}
-                  <Button size="sm" variant="outline" onClick={() => act(c.id, 'restart')}>
-                    <RotateCw className="h-3.5 w-3.5" /> 重启
+                  <Button size="sm" variant="outline" onClick={() => act(c.id, 'restart')} disabled={pendingAction !== null}>
+                    {pendingAction === `${c.id}:restart` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} 重启
                   </Button>
                   {c.status === 'running' && (
-                    <Button size="sm" variant="ghost" onClick={() => act(c.id, 'pause')}>
+                    <Button size="sm" variant="ghost" onClick={() => act(c.id, 'pause')} disabled={pendingAction !== null}>
                       <Pause className="h-3.5 w-3.5" /> 暂停
                     </Button>
                   )}
-                  <Button size="sm" variant="ghost" onClick={() => setLogsFor(c)}>
+                  <Button size="sm" variant="ghost" onClick={() => setLogsFor(c)} disabled={pendingAction !== null}>
                     <ScrollText className="h-3.5 w-3.5" /> 日志
                   </Button>
                 </div>
@@ -214,6 +228,16 @@ export default function DockerPage() {
           ))}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!confirmAction}
+        title={confirmAction?.action === 'stop' ? '确认停止容器' : '确认重启容器'}
+        description={`确定要${confirmAction?.action === 'stop' ? '停止' : '重启'}容器 "${confirmAction?.name}" 吗？${confirmAction?.action === 'stop' ? '运行中的服务将中断。' : ''}`}
+        confirmText={confirmAction?.action === 'stop' ? '停止' : '重启'}
+        variant="destructive"
+        onConfirm={() => confirmAction && act(confirmAction.id, confirmAction.action)}
+        onCancel={() => setConfirmAction(null)}
+      />
 
       <LogDialog container={logsFor} onClose={() => setLogsFor(null)} />
     </div>

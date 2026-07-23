@@ -263,11 +263,13 @@ func (h *Handler) RotateKey(c *gin.Context) {
 	}
 
 	// Append the public key to authorized_keys on the Unraid flash drive.
+	// Use shellQuote to prevent command injection with crafted key material.
+	keyLine := strings.TrimSpace(string(pub))
 	cmd := `mkdir -p /boot/config/ssh && ` +
-		`grep -qvxF '%s' /boot/config/ssh/authorized_keys 2>/dev/null && ` +
-		`echo '%s' >> /boot/config/ssh/authorized_keys; ` +
+		`grep -qvxF ` + shellQuote(keyLine) + ` /boot/config/ssh/authorized_keys 2>/dev/null && ` +
+		`echo ` + shellQuote(keyLine) + ` >> /boot/config/ssh/authorized_keys; ` +
 		`echo OK`
-	out, err := cli.Run(strings.ReplaceAll(cmd, "%s", strings.TrimSpace(string(pub))))
+	out, err := cli.Run(cmd)
 	if err != nil || !strings.Contains(out, "OK") {
 		errOut(c, http.StatusInternalServerError, "部署公钥到 Unraid 闪存失败")
 		return

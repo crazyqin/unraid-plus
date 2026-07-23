@@ -3,6 +3,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -41,7 +42,16 @@ func buildRouter(cfg *config.Config, h *handler.Handler) http.Handler {
 	r.Use(gin.Recovery())
 	r.Use(middleware.RequestLogger())
 	r.Use(cors.New(cors.Config{
-		AllowOriginFunc:  func(string) bool { return true }, // dev only — proxy in prod
+		AllowOriginFunc: func(origin string) bool {
+			// Allow same-origin requests and localhost for development.
+			// In production, the SPA is served by the same origin, so
+			// browser same-origin requests have no Origin header.
+			if origin == "" {
+				return true
+			}
+			return strings.HasPrefix(origin, "http://localhost") ||
+				strings.HasPrefix(origin, "http://127.0.0.1")
+		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"*"},
 		AllowCredentials: true,
@@ -146,7 +156,14 @@ func buildRouter(cfg *config.Config, h *handler.Handler) http.Handler {
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	CheckOrigin:     func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		return strings.HasPrefix(origin, "http://localhost") ||
+			strings.HasPrefix(origin, "http://127.0.0.1")
+	},
 }
 
 func serveTerminal(hub *ssh.TerminalHub, w http.ResponseWriter, r *http.Request) {

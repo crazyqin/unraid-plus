@@ -104,15 +104,28 @@ func (h *Handler) Connect(c *gin.Context) {
 		}
 	}
 
-	// Tell the Unraid client which API base to talk to.
+	// Tell the Unraid client which API base to talk to (backward compat).
 	h.ur.SetBase(req.APIBase)
+
+	// Attempt WebGUI login to establish an HTTP API session.
+	// This enables the Unraid HTTP API channel for Docker/VM actions,
+	// disk spin, UPS status, parity control, etc.
+	// Login failure is not fatal — handlers will fall back to SSH.
+	sid := serverID(req.Host, req.SSHPort)
+	if req.Password != "" {
+		go func() {
+			if err := h.ur.Login(sid, req.APIBase, req.User, req.Password); err != nil {
+				logger.Warnf("WebGUI login for %s failed (non-fatal, SSH fallback): %v", sid, err)
+			}
+		}()
+	}
 
 	c.JSON(http.StatusOK, connectResp{
 		Ok:              true,
 		Message:         "连接成功",
 		HostFingerprint: result.HostFingerprint,
 		ServerVersion:   result.ServerVersion,
-		ServerID:        id,
+		ServerID:        sid,
 	})
 }
 
@@ -188,6 +201,9 @@ func (h *Handler) DeleteServer(c *gin.Context) {
 	// Disconnect first
 	_ = h.pool.Forget(entry.Host, entry.Port)
 
+	// Also drop the HTTP API session
+	h.ur.RemoveSession(id)
+
 	// Remove from persisted config
 	if err := h.sm.Delete(id); err != nil {
 		errOut(c, http.StatusInternalServerError, "删除失败: "+err.Error())
@@ -225,11 +241,21 @@ func (h *Handler) ReconnectServer(c *gin.Context) {
 
 	h.ur.SetBase(cfg.APIBase)
 
+	// Attempt WebGUI login on reconnect too
+	sid := serverID(cfg.Host, cfg.Port)
+	if cfg.Password != "" {
+		go func() {
+			if err := h.ur.Login(sid, cfg.APIBase, cfg.User, cfg.Password); err != nil {
+				logger.Warnf("WebGUI login for %s on reconnect failed (non-fatal): %v", sid, err)
+			}
+		}()
+	}
+
 	c.JSON(http.StatusOK, connectResp{
 		Ok:              true,
 		Message:         "重连成功",
 		HostFingerprint: result.HostFingerprint,
-		ServerID:        id,
+		ServerID:        sid,
 	})
 }
 

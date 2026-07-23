@@ -11,6 +11,7 @@ import (
 	"crypto/rand"
 	"errors"
 	"flag"
+	"fmt"
 	"io/fs"
 	"net/http"
 	"os"
@@ -72,7 +73,7 @@ func main() {
 
 	// Compose services
 	pool := ssh.NewPool(cfg.DataDir)
-	ur := unraid.NewClient(cfg)
+	ur := unraid.NewClient()
 	hub := ssh.NewTerminalHub(pool)
 
 	// Wire the handler so we can access the server manager for auto-reconnect.
@@ -83,16 +84,23 @@ func main() {
 	if cfg.DefaultHost != "" && cfg.DefaultPasswd != "" {
 		go func() {
 			logger.Infof("auto-connecting to %s:%d as %s", cfg.DefaultHost, cfg.DefaultPort, cfg.DefaultUser)
-			_, err := pool.Connect(&ssh.ConnConfig{
+			connCfg := &ssh.ConnConfig{
 				Host:     cfg.DefaultHost,
 				Port:     cfg.DefaultPort,
 				User:     cfg.DefaultUser,
 				AuthMode: ssh.AuthPassword,
 				Password: cfg.DefaultPasswd,
 				APIBase:  cfg.DefaultAPI,
-			})
+			}
+			_, err := pool.Connect(connCfg)
 			if err != nil {
 				logger.Warnf("auto-connect failed: %v", err)
+				return
+			}
+			// WebGUI login for the default server
+			sid := connCfg.Host + ":" + fmt.Sprintf("%d", connCfg.Port)
+			if err := ur.Login(sid, connCfg.APIBase, connCfg.User, connCfg.Password); err != nil {
+				logger.Warnf("auto-connect WebGUI login failed (non-fatal): %v", err)
 			}
 		}()
 	} else {
@@ -101,17 +109,25 @@ func main() {
 		go func() {
 			time.Sleep(500 * time.Millisecond) // small delay for network readiness
 			for _, entry := range h.ServerManager().List() {
-				cfg, err := h.ServerManager().ConnConfigFor(entry.ID)
+				rc, err := h.ServerManager().ConnConfigFor(entry.ID)
 				if err != nil {
 					logger.Warnf("auto-reconnect: skip %s: %v", entry.ID, err)
 					continue
 				}
-				_, err = pool.Connect(cfg)
+				_, err = pool.Connect(rc)
 				if err != nil {
 					logger.Warnf("auto-reconnect %s: failed: %v", entry.ID, err)
-				} else {
-					logger.Infof("auto-reconnect %s: success", entry.ID)
-					ur.SetBase(cfg.APIBase)
+					continue
+				}
+				logger.Infof("auto-reconnect %s: success", entry.ID)
+				ur.SetBase(rc.APIBase)
+				// WebGUI login for this server
+				if rc.Password != "" {
+					go func(sid, apiBase, user, pw string) {
+						if err := ur.Login(sid, apiBase, user, pw); err != nil {
+							logger.Warnf("auto-reconnect WebGUI login %s failed (non-fatal): %v", sid, err)
+						}
+					}(entry.ID, rc.APIBase, rc.User, rc.Password)
 				}
 			}
 		}()

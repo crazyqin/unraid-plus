@@ -115,6 +115,18 @@ func buildRouter(cfg *config.Config, h *handler.Handler) http.Handler {
 	// SMART cache invalidation (manual refresh button on the Storage page).
 	api.POST("/smart/refresh", h.SmartRefresh)
 
+	// Disk spin control (v0.3+): spin up/down individual disks.
+	api.POST("/storage/disk/spin", h.DiskSpin)
+
+	// UPS status (v0.3+)
+	api.GET("/ups", h.UPSStatus)
+
+	// System log (v0.3+)
+	api.GET("/syslog", h.Syslog)
+
+	// Share management (v0.3+)
+	api.GET("/shares", h.ListShares)
+
 	// Files (v0.5: upload/download/rename/mkdir; v0.6: preview)
 	api.GET("/files", h.ListFiles)
 	api.GET("/files/preview", h.PreviewFile)

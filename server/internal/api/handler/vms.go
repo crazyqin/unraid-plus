@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 type vm struct {
@@ -43,15 +44,43 @@ func (h *Handler) ListVMs(c *gin.Context) {
 	c.JSON(http.StatusOK, vms)
 }
 
-// VMAction starts / stops a VM. "stop" maps to `virsh destroy` (force power
-// off) because graceful shutdown requires guest agent cooperation.
+// VMAction starts / stops / restarts / pauses / resumes a VM.
+// v0.3+: Prefer Unraid HTTP API (VMajax.php) with SSH fallback.
 func (h *Handler) VMAction(c *gin.Context) {
-	cli, ok := h.activeClient(c)
+	_, sid, ok := h.activeClientWithID(c)
 	if !ok {
 		return
 	}
 	id := c.Param("id")
 	action := c.Param("action")
+
+	// Map our action names to VMajax.php action names
+	apiActionMap := map[string]string{
+		"start":    "domain-start",
+		"stop":     "domain-destroy",
+		"shutdown": "domain-stop",
+		"resume":   "domain-resume",
+		"suspend":  "domain-pause",
+		"restart":  "domain-restart",
+	}
+
+	// Try Unraid HTTP API first
+	if apiAction, ok := apiActionMap[action]; ok && h.ur.HasSession(sid) {
+		resp, err := h.ur.VMActionOK(sid, apiAction, id)
+		if err == nil && resp != nil && resp.Success {
+			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "api"})
+			return
+		}
+		if err != nil {
+			logger.Debugf("vm api action %s/%s failed, falling back to SSH: %v", action, id, err)
+		}
+	}
+
+	// SSH fallback
+	cli, ok := h.activeClient(c)
+	if !ok {
+		return
+	}
 	var cmd string
 	switch action {
 	case "start":
@@ -72,7 +101,7 @@ func (h *Handler) VMAction(c *gin.Context) {
 		errOut(c, http.StatusInternalServerError, "执行 virsh "+action+" 失败")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "ssh"})
 }
 
 // parseDominfo extracts the bits we expose from `virsh dominfo` text output.

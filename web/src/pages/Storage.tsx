@@ -7,10 +7,12 @@ import {
   ChevronDown,
   HardDrive,
   Loader2,
+  Moon,
   Play,
   RefreshCw,
   ShieldCheck,
   Square,
+  Sun,
   Thermometer,
   XCircle,
   Usb,
@@ -94,6 +96,7 @@ export default function StoragePage() {
   const [refreshMsg, setRefreshMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [confirmStopArray, setConfirmStopArray] = useState(false);
   const [confirmParity, setConfirmParity] = useState(false);
+  const [parityAction, setParityAction] = useState<'start' | 'correcting'>('start');
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['storage'],
@@ -136,7 +139,7 @@ export default function StoragePage() {
   });
 
   const parityMut = useMutation({
-    mutationFn: (action: 'start' | 'stop') =>
+    mutationFn: (action: 'start' | 'stop' | 'correcting' | 'resume') =>
       api.post<{ ok: boolean; message?: string; detail?: string }>(
         `/storage/parity/${action}`,
       ),
@@ -296,14 +299,30 @@ export default function StoragePage() {
             <ShieldCheck className="h-4 w-4 text-muted-foreground" />
             Parity 检查未运行
           </div>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={parityMut.isPending}
-            onClick={() => setConfirmParity(true)}
-          >
-            <Play className="h-3.5 w-3.5" /> 开始 Parity 检查
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={parityMut.isPending}
+              onClick={() => {
+                setParityAction('start');
+                setConfirmParity(true);
+              }}
+            >
+              <Play className="h-3.5 w-3.5" /> 开始检查
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              disabled={parityMut.isPending}
+              onClick={() => {
+                setParityAction('correcting');
+                setConfirmParity(true);
+              }}
+            >
+              <ShieldCheck className="h-3.5 w-3.5" /> 纠错检查
+            </Button>
+          </div>
         </div>
       )}
 
@@ -325,12 +344,14 @@ export default function StoragePage() {
       />
       <ConfirmDialog
         open={confirmParity}
-        title="启动 Parity 检查"
-        description="这将读取所有阵列磁盘，可能需要数小时。确认启动？"
-        confirmText="开始检查"
+        title={parityAction === 'correcting' ? '启动纠错 Parity 检查' : '启动 Parity 检查'}
+        description={parityAction === 'correcting' 
+          ? '纠错检查将自动修复不一致的 Parity 数据，可能需要数小时。确认启动？'
+          : '这将读取所有阵列磁盘，可能需要数小时。确认启动？'}
+        confirmText={parityAction === 'correcting' ? '开始纠错' : '开始检查'}
         loading={parityMut.isPending}
         onConfirm={() => {
-          parityMut.mutate('start');
+          parityMut.mutate(parityAction);
           setConfirmParity(false);
         }}
         onCancel={() => setConfirmParity(false)}
@@ -389,7 +410,16 @@ function DiskGroup({ title, disks }: { title: string; disks: DiskInfo[] }) {
 /* ------------------------------ Disk Row --------------------------------- */
 
 function DiskRow({ disk: d }: { disk: DiskInfo }) {
+  const qc = useQueryClient();
   const pct = d.sizeBytes > 0 ? (d.usedBytes / d.sizeBytes) * 100 : 0;
+
+  const spinMut = useMutation({
+    mutationFn: ({ device, action }: { device: string; action: 'spinup' | 'spindown' }) =>
+      api.post<{ ok: boolean; message?: string }>('/storage/disk/spin', { device, action }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['storage'] });
+    },
+  });
 
   // Unraid LED color mapping
   const unraidColorMap: Record<string, string> = {
@@ -527,14 +557,43 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
         </div>
       </div>
 
-      {/* Row 3: Read/Write rate pills */}
-      <div className="mt-1.5 flex items-center gap-1.5">
-        <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-emerald">
-          ↓ {formatRate(d.readBytesPerSec)}
-        </span>
-        <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-amber">
-          ↑ {formatRate(d.writeBytesPerSec)}
-        </span>
+      {/* Row 3: Read/Write rate pills + spin controls */}
+      <div className="mt-1.5 flex items-center justify-between gap-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-emerald">
+            ↓ {formatRate(d.readBytesPerSec)}
+          </span>
+          <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-amber">
+            ↑ {formatRate(d.writeBytesPerSec)}
+          </span>
+        </div>
+        {/* Disk spin controls (only for HDDs with a physical device name) */}
+        {d.rotational === '1' && d.diskName && d.diskName !== 'flash' && (
+          <div className="flex items-center gap-1">
+            <button
+              className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-500 disabled:opacity-50"
+              disabled={spinMut.isPending}
+              onClick={() => {
+                const dev = d.device.replace(/^\/dev\//, '');
+                spinMut.mutate({ device: dev, action: 'spinup' });
+              }}
+              title="唤醒磁盘"
+            >
+              <Sun className="h-2.5 w-2.5" /> 唤醒
+            </button>
+            <button
+              className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-500 disabled:opacity-50"
+              disabled={spinMut.isPending}
+              onClick={() => {
+                const dev = d.device.replace(/^dev\//, '');
+                spinMut.mutate({ device: dev, action: 'spindown' });
+              }}
+              title="休眠磁盘"
+            >
+              <Moon className="h-2.5 w-2.5" /> 休眠
+            </button>
+          </div>
+        )}
       </div>
 
       {/* SMART detail */}

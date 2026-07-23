@@ -47,19 +47,26 @@ func (h *Handler) Hub() *ssh.TerminalHub {
 // activeClient returns the currently-connected SSH client or aborts the
 // request with a 503. Used as a one-liner at the top of every data handler.
 func (h *Handler) activeClient(c *gin.Context) (*ssh.Client, bool) {
+	cli, _, ok := h.activeClientWithID(c)
+	return cli, ok
+}
+
+// activeClientWithID returns the SSH client and the server ID.
+// The server ID is needed for per-server HTTP API sessions.
+func (h *Handler) activeClientWithID(c *gin.Context) (*ssh.Client, string, bool) {
 	// v0.8+: check for ?serverId= parameter to support multi-server
 	if id := c.Query("serverId"); id != "" && h.sm != nil {
 		entry := h.sm.Get(id)
 		if entry == nil {
 			errOut(c, 404, "服务器 "+id+" 不存在")
-			return nil, false
+			return nil, "", false
 		}
 		cli, err := h.pool.Get(entry.Host, entry.Port)
 		if err != nil {
 			errOut(c, 503, "服务器 "+entry.Host+" 连接不可用，请重新连接")
-			return nil, false
+			return nil, "", false
 		}
-		return cli, true
+		return cli, id, true
 	}
 	// Fallback: return the first active connection (legacy single-server)
 	cli, err := h.pool.Active()
@@ -69,9 +76,15 @@ func (h *Handler) activeClient(c *gin.Context) (*ssh.Client, bool) {
 			"message": "尚未连接到 Unraid 服务器",
 			"hint":    "请先完成初始化向导 /onboarding",
 		})
-		return nil, false
+		return nil, "", false
 	}
-	return cli, true
+	// Derive serverID from the active connection config
+	cfg, _ := h.pool.ActiveConfig()
+	sid := "_default"
+	if cfg != nil {
+		sid = serverID(cfg.Host, cfg.Port)
+	}
+	return cli, sid, true
 }
 
 // errOut writes a uniform {"ok":false,"message":…} error.

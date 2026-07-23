@@ -11,11 +11,13 @@ import {
 } from 'recharts';
 import {
   Activity,
+  AlertTriangle,
   Cpu,
   Gauge,
   HardDrive,
   MemoryStick,
   Network,
+  ShieldCheck,
   Thermometer,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -35,7 +37,7 @@ import {
   formatRate,
   cn,
 } from '@/lib/utils';
-import type { DashboardSummary } from '@/types';
+import type { DashboardSummary, ArrayStatus, ParityStatus } from '@/types';
 import { useSettingsStore, type ChartRange } from '@/stores/settings';
 
 interface Sample {
@@ -202,6 +204,9 @@ export default function DashboardPage() {
         />
       </div>
 
+      {/* Array / Parity summary (polls storage + parity) */}
+      <ArrayStatusSummary />
+
       {/* Charts */}
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
@@ -257,6 +262,71 @@ export default function DashboardPage() {
 }
 
 /* --------------------------------- bits ---------------------------------- */
+
+/* Array / Parity status summary strip */
+function ArrayStatusSummary() {
+  const { data: storage } = useQuery({
+    queryKey: ['storage-summary'],
+    queryFn: () => api.get<ArrayStatus>('/storage'),
+    refetchInterval: 10000,
+  });
+  const { data: parity } = useQuery({
+    queryKey: ['parity-summary'],
+    queryFn: () => api.get<ParityStatus>('/storage/parity-status'),
+    refetchInterval: 5000,
+  });
+
+  if (!storage) return null;
+
+  const totalDisks = storage.disks.length + storage.cacheDisks.length;
+  const problemDisks = [...storage.disks, ...storage.cacheDisks].filter(
+    (d) => d.status === 'warning' || d.status === 'critical',
+  ).length;
+
+  return (
+    <div className="flex flex-wrap items-center gap-3">
+      {/* Array state */}
+      <div className="flex items-center gap-1.5 text-xs">
+        <HardDrive className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-muted-foreground">阵列:</span>
+        <Badge
+          variant={storage.state === 'started' ? 'success' : 'secondary'}
+          className="text-[9px] px-1.5 py-0 leading-none"
+        >
+          {storage.state === 'started' ? '已启动' : storage.state === 'stopped' ? '已停止' : storage.state}
+        </Badge>
+        <span className="text-muted-foreground">
+          {totalDisks} 块磁盘
+        </span>
+        {problemDisks > 0 && (
+          <span className="flex items-center gap-0.5 text-amber-500">
+            <AlertTriangle className="h-3 w-3" />
+            {problemDisks} 问题
+          </span>
+        )}
+      </div>
+
+      {/* Parity status */}
+      <div className="flex items-center gap-1.5 text-xs">
+        <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-muted-foreground">校验:</span>
+        {parity?.state === 'checking' ? (
+          <>
+            <Badge variant="success" className="text-[9px] px-1.5 py-0 leading-none animate-pulse">
+              检查中
+            </Badge>
+            <span className="tabular-nums font-medium">{formatPct(parity.progress)}</span>
+            <span className="text-muted-foreground">· {parity.speed} · 剩余 {parity.remaining}</span>
+          </>
+        ) : (
+          <Badge variant="secondary" className="text-[9px] px-1.5 py-0 leading-none">
+            {parity?.state === 'idle' ? '空闲' : '未知'}
+          </Badge>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function StatCard({
   title,

@@ -31,3 +31,24 @@ func unmarshalLooseJSON(line string, dst any) bool {
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
+
+// stripHTMLTags does a crude strip of HTML tags. Used for parsing
+// Unraid PHP endpoint responses that return HTML instead of JSON.
+func stripHTMLTags(s string) string {
+	var b strings.Builder
+	inTag := false
+	for _, c := range s {
+		if c == '<' {
+			inTag = true
+			continue
+		}
+		if c == '>' {
+			inTag = false
+			continue
+		}
+		if !inTag {
+			b.WriteRune(c)
+		}
+	}
+	return b.String()
+}

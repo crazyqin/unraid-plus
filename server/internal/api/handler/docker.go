@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 type container struct {
@@ -82,8 +83,9 @@ func (h *Handler) ListContainers(c *gin.Context) {
 }
 
 // ContainerAction starts / stops / restarts / pauses a container.
+// v0.3+: Prefer Unraid HTTP API (Events.php) with SSH fallback.
 func (h *Handler) ContainerAction(c *gin.Context) {
-	cli, ok := h.activeClient(c)
+	_, sid, ok := h.activeClientWithID(c)
 	if !ok {
 		return
 	}
@@ -95,11 +97,29 @@ func (h *Handler) ContainerAction(c *gin.Context) {
 		errOut(c, http.StatusBadRequest, "不支持的操作: "+action)
 		return
 	}
+
+	// Try Unraid HTTP API first
+	if h.ur.HasSession(sid) {
+		resp, err := h.ur.DockerActionOK(sid, action, id)
+		if err == nil && resp != nil && resp.Success {
+			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "api"})
+			return
+		}
+		if err != nil {
+			logger.Debugf("docker api action %s/%s failed, falling back to SSH: %v", action, id, err)
+		}
+	}
+
+	// SSH fallback
+	cli, ok := h.activeClient(c)
+	if !ok {
+		return
+	}
 	if _, err := cli.Run("docker " + action + " " + shellQuote(id)); err != nil {
 		errOut(c, http.StatusInternalServerError, "执行 docker "+action+" 失败")
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action})
+	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "ssh"})
 }
 
 // parseStatusFromStatus extracts a normalized status keyword from

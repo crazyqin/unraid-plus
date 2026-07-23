@@ -39,6 +39,7 @@ export default function OnboardingPage() {
   const location = useLocation();
   const configure = useAuthStore((s) => s.configure);
   const uiAuthEnabled = useAuthStore((s) => s.uiAuthEnabled);
+  const hasServers = useAuthStore((s) => s.servers.length > 0);
   const setOnboardingDone = useSettingsStore((s) => s.setOnboardingDone);
   const skill = useOnboardingStore((s) => s.skill);
   const setSkill = useOnboardingStore((s) => s.setSkill);
@@ -115,19 +116,30 @@ export default function OnboardingPage() {
     navigate('/', { replace: true });
   };
 
+  const handleCancel = () => {
+    navigate('/', { replace: true });
+  };
+
   return (
     <div className="grid min-h-screen grid-rows-[auto_1fr_auto] bg-background">
       {/* Header */}
-      <header className="flex items-center gap-3 border-b px-6 py-4">
-        <div className="grid h-9 w-9 place-items-center rounded-md bg-primary text-primary-foreground font-bold">
-          U+
-        </div>
-        <div className="leading-tight">
-          <div className="text-base font-semibold">unraid-plus 初始化</div>
-          <div className="text-xs text-muted-foreground">
-            三分钟把你的 Unraid 接入管理
+      <header className="flex items-center justify-between border-b px-6 py-4">
+        <div className="flex items-center gap-3">
+          <div className="grid h-9 w-9 place-items-center rounded-md bg-primary text-primary-foreground font-bold">
+            U+
+          </div>
+          <div className="leading-tight">
+            <div className="text-base font-semibold">unraid-plus 初始化</div>
+            <div className="text-xs text-muted-foreground">
+              三分钟把你的 Unraid 接入管理
+            </div>
           </div>
         </div>
+        {hasServers && (
+          <Button variant="ghost" size="sm" onClick={handleCancel}>
+            <ArrowLeft className="h-4 w-4" /> 取消
+          </Button>
+        )}
       </header>
 
       {/* Step content */}

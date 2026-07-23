@@ -8,10 +8,6 @@ interface SettingsState {
   onboardingDone: boolean;
   setOnboardingDone: (done: boolean) => void;
 
-  /** Whether to show helper tooltips / glossary on hover. */
-  showHelpers: boolean;
-  toggleHelpers: (v?: boolean) => void;
-
   /** Auto-refresh interval (ms) for live dashboards. */
   refreshInterval: number;
   setRefreshInterval: (ms: number) => void;
@@ -30,10 +26,6 @@ export const useSettingsStore = create<SettingsState>()(
     (set) => ({
       onboardingDone: false,
       setOnboardingDone: (done) => set({ onboardingDone: done }),
-
-      showHelpers: true,
-      toggleHelpers: (v) =>
-        set((s) => ({ showHelpers: v ?? !s.showHelpers })),
 
       refreshInterval: 2000,
       setRefreshInterval: (ms) => set({ refreshInterval: ms }),

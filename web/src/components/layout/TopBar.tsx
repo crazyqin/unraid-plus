@@ -1,16 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, HelpCircle, RefreshCw, Wifi, WifiOff } from 'lucide-react';
+import { Activity, RefreshCw, Wifi, WifiOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
-import { Switch } from '@/components/ui/switch';
 import { useSettingsStore } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { cn } from '@/lib/utils';
 
 export default function TopBar() {
   const server = useAuthStore((s) => s.server);
-  const showHelpers = useSettingsStore((s) => s.showHelpers);
-  const toggleHelpers = useSettingsStore((s) => s.toggleHelpers);
   const refreshInterval = useSettingsStore((s) => s.refreshInterval);
   const setRefreshInterval = useSettingsStore((s) => s.setRefreshInterval);
 
@@ -81,16 +78,6 @@ export default function TopBar() {
           </TooltipTrigger>
           <TooltipContent>立即刷新</TooltipContent>
         </Tooltip>
-
-        <div className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
-          <HelpCircle className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-muted-foreground">帮助</span>
-          <Switch
-            checked={showHelpers}
-            onCheckedChange={(v) => toggleHelpers(v)}
-            aria-label="toggle helpers"
-          />
-        </div>
       </div>
     </header>
   );

@@ -46,7 +46,6 @@ function isPathActive(currentPath: string, itemPath: string): boolean {
 export default function Sidebar() {
   const collapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const toggle = useSettingsStore((s) => s.toggleSidebar);
-  const showHelpers = useSettingsStore((s) => s.showHelpers);
   const server = useAuthStore((s) => s.server);
   const servers = useAuthStore((s) => s.servers);
   const activeServerId = useAuthStore((s) => s.activeServerId);
@@ -222,13 +221,13 @@ export default function Sidebar() {
             );
             return (
               <li key={item.to}>
-                {collapsed || !showHelpers ? (
-                  link
-                ) : (
+                {collapsed ? (
                   <Tooltip>
                     <TooltipTrigger asChild>{link}</TooltipTrigger>
                     <TooltipContent side="right">{item.hint}</TooltipContent>
                   </Tooltip>
+                ) : (
+                  link
                 )}
               </li>
             );

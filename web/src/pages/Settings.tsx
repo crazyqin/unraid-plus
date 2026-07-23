@@ -1,9 +1,9 @@
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import {
-  HelpCircle,
   KeyRound,
   LogOut,
+  Monitor,
   RefreshCw,
   Server,
   Shield,
@@ -39,8 +39,6 @@ export default function SettingsPage() {
   const [rotateLoading, setRotateLoading] = useState(false);
 
   const {
-    showHelpers,
-    toggleHelpers,
     refreshInterval,
     setRefreshInterval,
     onboardingDone,
@@ -174,16 +172,10 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <HelpCircle className="h-4 w-4" /> 界面与引导
+            <Monitor className="h-4 w-4" /> 界面与引导
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
-          <ToggleRow
-            label="显示帮助提示"
-            desc="在导航和重要字段旁显示术语解释气泡。"
-            checked={showHelpers}
-            onChange={(v) => toggleHelpers(v)}
-          />
           <ToggleRow
             label="已完成新手引导"
             desc="关闭后将强制再次显示欢迎向导。"

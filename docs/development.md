@@ -3,6 +3,16 @@
   ContentProducer: '001191110102MAD55U9H0F10002'
   ContentPropagator: '001191110102MAD55U9H0F10002'
   Label: '1'
+  ProduceID: '187f25b7-341a-420b-a6ce-19360c296afd'
+  PropagateID: '187f25b7-341a-420b-a6ce-19360c296afd'
+  ReservedCode1: 'daa27431-88d9-4d46-8d58-c7341c2ecc95'
+  ReservedCode2: 'daa27431-88d9-4d46-8d58-c7341c2ecc95'
+---
+
+---
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
   ProduceID: '2be182a5-b546-4583-9036-d650074be3d6'
   PropagateID: '2be182a5-b546-4583-9036-d650074be3d6'
   ReservedCode1: '1a149900-ecb0-4127-8e49-c408b443e509'

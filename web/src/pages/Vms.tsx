@@ -182,7 +182,7 @@ export default function VmsPage() {
                   <Badge variant={STATUS_VARIANT[vm.status]} className="text-[9px] px-1.5 py-0 leading-none">{STATUS_LABEL[vm.status] ?? vm.status}</Badge>
                 </div>
               </CardHeader>
-              <CardContent className="flex flex-1 flex-col space-y-3">
+              <CardContent className="flex flex-1 flex-col gap-3">
                 <div className="flex items-center gap-1.5">
                   <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-blue-600 dark:text-blue-400">
                     <Cpu className="h-2.5 w-2.5" />

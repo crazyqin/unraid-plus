@@ -28,7 +28,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { formatBytes } from '@/lib/utils';
+import { cn, formatBytes } from '@/lib/utils';
 import type { VmInfo } from '@/types';
 
 const STATUS_VARIANT: Record<VmInfo['status'], 'success' | 'secondary' | 'warning'> = {
@@ -43,6 +43,22 @@ const STATUS_LABEL: Record<string, string> = {
   shutoff: '已关机',
   paused: '已暂停',
   unknown: '未知',
+};
+
+/** Status → left border color class for VM cards */
+const STATUS_BORDER: Record<string, string> = {
+  running: 'border-l-emerald-500/60',
+  shutoff: 'border-l-border',
+  paused: 'border-l-amber-500/60',
+  unknown: 'border-l-border',
+};
+
+/** Status → subtle background tint for VM cards */
+const STATUS_BG: Record<string, string> = {
+  running: '',
+  shutoff: '',
+  paused: 'bg-amber-500/5',
+  unknown: '',
 };
 
 export default function VmsPage() {
@@ -95,11 +111,25 @@ export default function VmsPage() {
         </div>
       )}
       <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-semibold">虚拟机</h1>
-          <p className="text-sm text-muted-foreground">
-            {running} 个运行中 / {data?.length ?? 0} 个总计
-          </p>
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            'flex h-10 w-10 items-center justify-center rounded-lg',
+            running > 0 ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground',
+          )}>
+            <Monitor className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold">虚拟机</h1>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Badge
+                variant={running > 0 ? 'success' : 'secondary'}
+                className="text-[10px]"
+              >
+                {running > 0 ? '运行中' : '空闲'}
+              </Badge>
+              <span>{running} / {data?.length ?? 0} 台虚拟机</span>
+            </div>
+          </div>
         </div>
         {(data ?? []).length > 0 && (
           <div className="relative w-48 shrink-0">
@@ -141,29 +171,27 @@ export default function VmsPage() {
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((vm) => (
-            <Card key={vm.id}>
+            <Card key={vm.id} className={cn(
+              'border-l-2 transition-colors hover:bg-muted/30',
+              STATUS_BORDER[vm.status] ?? 'border-l-border',
+              STATUS_BG[vm.status],
+            )}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
                   <CardTitle className="truncate text-sm">{vm.name}</CardTitle>
-                  <Badge variant={STATUS_VARIANT[vm.status]}>{STATUS_LABEL[vm.status] ?? vm.status}</Badge>
+                  <Badge variant={STATUS_VARIANT[vm.status]} className="text-[9px] px-1.5 py-0 leading-none">{STATUS_LABEL[vm.status] ?? vm.status}</Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
-                <div className="grid grid-cols-2 gap-2 text-xs">
-                  <div className="rounded-md bg-muted/40 p-2">
-                    <div className="flex items-center gap-1 text-muted-foreground">
-                      <Cpu className="h-3 w-3" /> vCPU
-                    </div>
-                    <div className="mt-0.5 font-medium">{vm.vcpus}</div>
-                  </div>
-                  <div className="rounded-md bg-muted/40 p-2">
-                    <div className="flex items-center gap-1 text-muted-foreground">
-                      <MemoryStick className="h-3 w-3" /> 内存
-                    </div>
-                    <div className="mt-0.5 font-medium">
-                      {formatBytes(vm.memoryBytes)}
-                    </div>
-                  </div>
+                <div className="flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-blue-600 dark:text-blue-400">
+                    <Cpu className="h-2.5 w-2.5" />
+                    {vm.vcpus} vCPU
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-violet-600 dark:text-violet-400">
+                    <MemoryStick className="h-2.5 w-2.5" />
+                    {formatBytes(vm.memoryBytes)}
+                  </span>
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {vm.status !== 'running' && vm.status !== 'paused' && (

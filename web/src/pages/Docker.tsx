@@ -5,7 +5,6 @@ import {
   Cpu,
   Loader2,
   MemoryStick,
-  Network,
   Pause,
   Play,
   RotateCw,
@@ -51,6 +50,26 @@ const STATUS_LABEL: Record<string, string> = {
   restarting: '重启中',
   created: '已创建',
   dead: '已停止',
+};
+
+/** Status → left border color class for container cards */
+const STATUS_BORDER: Record<string, string> = {
+  running: 'border-l-emerald-500/60',
+  exited: 'border-l-border',
+  paused: 'border-l-amber-500/60',
+  restarting: 'border-l-amber-500/60',
+  created: 'border-l-border',
+  dead: 'border-l-red-500/70',
+};
+
+/** Status → subtle background tint for container cards */
+const STATUS_BG: Record<string, string> = {
+  running: '',
+  exited: '',
+  paused: 'bg-amber-500/5',
+  restarting: 'bg-amber-500/5',
+  created: '',
+  dead: 'bg-red-500/5',
 };
 
 /** Highlight matching text in a string with a yellow background */
@@ -133,16 +152,30 @@ export default function DockerPage() {
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold">Docker 容器</h1>
-          <p className="text-sm text-muted-foreground">
-            {running} 个运行中 / {data?.length ?? 0} 个总计
-          </p>
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            'flex h-10 w-10 items-center justify-center rounded-lg',
+            running > 0 ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground',
+          )}>
+            <Boxes className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold">Docker 容器</h1>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Badge
+                variant={running > 0 ? 'success' : 'secondary'}
+                className="text-[10px]"
+              >
+                {running > 0 ? '运行中' : '空闲'}
+              </Badge>
+              <span>{running} / {data?.length ?? 0} 个容器</span>
+            </div>
+          </div>
         </div>
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <div className="relative w-48 shrink-0">
+          <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="pl-8"
+            className="h-8 pl-8 text-sm"
             placeholder="搜索容器名…"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
@@ -164,7 +197,11 @@ export default function DockerPage() {
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {containers.map((c) => (
-            <Card key={c.id}>
+            <Card key={c.id} className={cn(
+              'border-l-2 transition-colors hover:bg-muted/30',
+              STATUS_BORDER[c.status] ?? 'border-l-border',
+              STATUS_BG[c.status],
+            )}>
               <CardHeader className="pb-3">
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
@@ -175,18 +212,18 @@ export default function DockerPage() {
                       <Highlight text={truncate(c.image, 38)} query={filter} />
                     </div>
                   </div>
-                  <Badge variant={STATUS_VARIANT[c.status]}>{STATUS_LABEL[c.status] ?? c.status}</Badge>
+                  <Badge variant={STATUS_VARIANT[c.status]} className="text-[9px] px-1.5 py-0 leading-none">{STATUS_LABEL[c.status] ?? c.status}</Badge>
                 </div>
               </CardHeader>
               <CardContent className="space-y-3">
                 <div className="flex flex-wrap gap-1">
                   {c.ports.slice(0, 3).map((p) => (
-                    <Badge key={p} variant="outline" className="font-mono text-[10px]">
+                    <Badge key={p} variant="outline" className="font-mono text-[9px] px-1.5 py-0 leading-none">
                       {p}
                     </Badge>
                   ))}
                   {c.ports.length > 3 && (
-                    <Badge variant="outline" className="text-[10px]">
+                    <Badge variant="outline" className="text-[9px] px-1.5 py-0 leading-none">
                       +{c.ports.length - 3}
                     </Badge>
                   )}
@@ -259,39 +296,42 @@ function ContainerStatsBar({ stats }: { stats: ContainerStats }) {
     : 0;
 
   return (
-    <div className="space-y-1.5 rounded-md border bg-muted/30 p-2">
-      {/* CPU */}
-      <div className="flex items-center gap-2 text-xs">
-        <Cpu className="h-3 w-3 shrink-0 text-muted-foreground" />
-        <Progress
-          className="h-1.5 flex-1"
-          value={Math.min(stats.cpuPct, 100)}
-        />
-        <span className="shrink-0 tabular-nums text-muted-foreground">
+    <div className="space-y-1.5">
+      {/* CPU + Memory pills */}
+      <div className="flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-1 rounded bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-orange-600 dark:text-orange-400">
+          <Cpu className="h-2.5 w-2.5" />
           {stats.cpuPct.toFixed(1)}%
         </span>
-      </div>
-      {/* Memory */}
-      <div className="flex items-center gap-2 text-xs">
-        <MemoryStick className="h-3 w-3 shrink-0 text-muted-foreground" />
-        <Progress
-          className="h-1.5 flex-1"
-          value={memPct}
-          indicatorClassName={
-            memPct > 90 ? 'bg-destructive' : memPct > 75 ? 'bg-warning' : 'bg-primary'
-          }
-        />
-        <span className="shrink-0 tabular-nums text-muted-foreground">
-          {formatBytes(stats.memUsageBytes)} / {formatBytes(stats.memLimitBytes)}
+        <span className={cn(
+          'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono tabular-nums',
+          memPct > 90
+            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+            : memPct > 75
+              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+              : 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
+        )}>
+          <MemoryStick className="h-2.5 w-2.5" />
+          {formatBytes(stats.memUsageBytes)}/{formatBytes(stats.memLimitBytes)}
         </span>
       </div>
-      {/* Network I/O */}
-      <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-        <Network className="h-3 w-3 shrink-0" />
-        <span className="tabular-nums">
-          ↓ {formatBytes(stats.netRxBytes)} · ↑ {formatBytes(stats.netTxBytes)}
+      {/* Memory progress bar */}
+      <Progress
+        className="h-1.5"
+        value={memPct}
+        indicatorClassName={
+          memPct > 90 ? 'bg-destructive' : memPct > 75 ? 'bg-warning' : 'bg-primary'
+        }
+      />
+      {/* Network I/O + PIDs */}
+      <div className="flex items-center gap-1.5">
+        <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
+          ↓ {formatBytes(stats.netRxBytes)}
         </span>
-        <span className="ml-auto tabular-nums">
+        <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-amber-600 dark:text-amber-400">
+          ↑ {formatBytes(stats.netTxBytes)}
+        </span>
+        <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">
           {stats.pids} PIDs
         </span>
       </div>

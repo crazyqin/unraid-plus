@@ -97,22 +97,37 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h1 className="text-xl font-semibold">仪表盘</h1>
-          <p className="text-sm text-muted-foreground">
-            服务器实时状态{refreshInterval > 0 ? ` · 每 ${refreshInterval / 1000}s 刷新` : ' · 已暂停刷新'}
-          </p>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className={cn(
+            'flex h-10 w-10 items-center justify-center rounded-lg',
+            data ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground',
+          )}>
+            <Activity className="h-5 w-5" />
+          </div>
+          <div>
+            <h1 className="text-xl font-semibold">仪表盘</h1>
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              {data && (
+                <Badge variant="success" className="text-[10px]">
+                  在线
+                </Badge>
+              )}
+              <span>
+                服务器实时状态{refreshInterval > 0 ? ` · 每 ${refreshInterval / 1000}s 刷新` : ' · 已暂停刷新'}
+              </span>
+            </div>
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {data && (
-            <Badge variant="secondary" className="tabular-nums">
+            <Badge variant="secondary" className="text-[10px] tabular-nums">
               <Gauge className="mr-1 h-3 w-3" />
               负载 {data.loadAvg[0].toFixed(2)} / {data.loadAvg[1].toFixed(2)} / {data.loadAvg[2].toFixed(2)}
             </Badge>
           )}
           {data && (
-            <Badge variant="secondary">
+            <Badge variant="secondary" className="text-[10px]">
               启动 {Math.floor(data.uptime / 3600)}h {Math.floor((data.uptime % 3600) / 60)}m
             </Badge>
           )}
@@ -278,7 +293,13 @@ function StatCard({
           </div>
         )}
         {progress !== undefined && (
-          <Progress className="mt-2" value={progress} />
+          <Progress
+            className="mt-2"
+            value={progress}
+            indicatorClassName={
+              progress > 90 ? 'bg-destructive' : progress > 75 ? 'bg-warning' : 'bg-primary'
+            }
+          />
         )}
       </CardContent>
     </Card>

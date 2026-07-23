@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 
+	"github.com/crazyqin/unraid-plus/server/internal/ssh"
 	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
@@ -30,12 +31,12 @@ var vncUpgrader = websocket.Upgrader{
 // VNCProxy handles a WebSocket connection that bridges to a VNC server on the
 // Unraid host through an SSH tunnel. The VM ID is passed as a query parameter
 // (e.g. /ws/vnc?vm=myvm). The handler:
-//  1. Looks up the VNC display for the VM via `virsh vncdisplay <vm>`
+//  1. Looks up the VNC display for the VM (API HTML data first, then virsh fallback)
 //  2. Opens a TCP connection through the SSH tunnel to that VNC address
 //  3. Bridges WebSocket frames ↔ raw TCP bytes (VNC is a binary protocol)
 //
-// The frontend uses the noVNC library which speaks the VNC protocol over
-// WebSocket. noVNC expects the server to speak raw VNC — we just proxy bytes.
+// v0.4+: Prefer VNC info from VM HTML data (from listVMsAPI) when available.
+// Falls back to `virsh vncdisplay` via SSH.
 func (h *Handler) VNCProxy(c *gin.Context) {
 	cli, ok := h.activeClient(c)
 	if !ok {
@@ -48,16 +49,10 @@ func (h *Handler) VNCProxy(c *gin.Context) {
 		return
 	}
 
-	// Look up VNC address for this VM via virsh vncdisplay.
-	// Output format: ":0" or "127.0.0.1:0" (port = 5900 + display number)
-	vncOut, err := cli.Run("virsh vncdisplay " + shellQuote(vmName) + " 2>/dev/null")
-	if err != nil || strings.TrimSpace(vncOut) == "" {
-		errOut(c, http.StatusNotFound, "无法获取该虚拟机的 VNC 地址（可能未运行或未配置 VNC）")
-		return
-	}
-	vncAddr := parseVNCDisplay(strings.TrimSpace(vncOut))
+	// Look up VNC address: try API data first, then virsh
+	vncAddr := h.resolveVNCAddress(cli, vmName)
 	if vncAddr == "" {
-		errOut(c, http.StatusInternalServerError, "无法解析 VNC 地址: "+vncOut)
+		errOut(c, http.StatusNotFound, "无法获取该虚拟机的 VNC 地址（可能未运行或未配置 VNC）")
 		return
 	}
 
@@ -79,7 +74,7 @@ func (h *Handler) VNCProxy(c *gin.Context) {
 
 	logger.Infof("vnc proxy: %s -> %s", vmName, vncAddr)
 
-	// Bridge: VNC TCP → WebSocket (read from TCP, write to WS as BinaryMessage)
+	// Bridge: VNC TCP → WebSocket
 	done := make(chan struct{}, 2)
 
 	// TCP → WS
@@ -116,12 +111,39 @@ func (h *Handler) VNCProxy(c *gin.Context) {
 		}
 	}()
 
-	// Wait for either direction to finish, then close both.
 	<-done
 
-	// Give a brief moment for the other direction to flush.
 	vncConn.SetDeadline(time.Now().Add(500 * time.Millisecond))
 	ws.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
+}
+
+// resolveVNCAddress finds the VNC TCP address for a VM.
+// v0.4+: Tries HTTP API VM data first, falls back to virsh vncdisplay via SSH.
+func (h *Handler) resolveVNCAddress(cli *ssh.Client, vmName string) string {
+	// Try HTTP API: fetch VM list and find VNC port from HTML
+	// This avoids the `virsh vncdisplay` SSH call
+	sid := ""
+	cfg, err := h.pool.ActiveConfig()
+	if err == nil && cfg != nil {
+		sid = serverID(cfg.Host, cfg.Port)
+	}
+	if sid != "" && h.ur.HasSession(sid) {
+		vms, apiErr := h.listVMsAPI(sid)
+		if apiErr == nil {
+			for _, vm := range vms {
+				if vm.Name == vmName && vm.VNCPort > 0 {
+					return "127.0.0.1:" + strconv.Itoa(vm.VNCPort)
+				}
+			}
+		}
+	}
+
+	// SSH fallback: virsh vncdisplay
+	vncOut, err := cli.Run("virsh vncdisplay " + shellQuote(vmName) + " 2>/dev/null")
+	if err != nil || strings.TrimSpace(vncOut) == "" {
+		return ""
+	}
+	return parseVNCDisplay(strings.TrimSpace(vncOut))
 }
 
 // parseVNCDisplay converts `virsh vncdisplay` output to a TCP address.
@@ -166,9 +188,27 @@ func isDisplayNumber(s string) (int, bool) {
 	return n, true
 }
 
-// VNCInfo returns the VNC address for a VM (if available). This is called
-// from ListVMs to include VNC info in the VM list.
+// VNCInfo returns the VNC address for a VM (if available).
+// v0.4+: Tries API data first, then virsh fallback.
 func (h *Handler) VNCInfo(vmName string) string {
+	// Try API data
+	sid := ""
+	cfg, err := h.pool.ActiveConfig()
+	if err == nil && cfg != nil {
+		sid = serverID(cfg.Host, cfg.Port)
+	}
+	if sid != "" && h.ur.HasSession(sid) {
+		vms, apiErr := h.listVMsAPI(sid)
+		if apiErr == nil {
+			for _, vm := range vms {
+				if vm.Name == vmName && vm.VNCPort > 0 {
+					return ":" + strconv.Itoa(vm.VNCPort-5900) // return display number
+				}
+			}
+		}
+	}
+
+	// SSH fallback
 	cli, err := h.pool.Active()
 	if err != nil {
 		return ""
@@ -182,27 +222,49 @@ func (h *Handler) VNCInfo(vmName string) string {
 
 // VNCDialInfo is a lightweight endpoint that returns VNC connection details
 // for a specific VM, so the frontend knows whether VNC is available.
+// v0.4+: Tries API data first, then virsh fallback.
 func (h *Handler) VNCDialInfo(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
-		return
-	}
 	vmName := c.Query("vm")
 	if vmName == "" {
 		errOut(c, http.StatusBadRequest, "缺少 vm 参数")
 		return
 	}
 
-	out, err := cli.Run("virsh vncdisplay " + shellQuote(vmName) + " 2>/dev/null")
 	vncAddr := ""
 	available := false
-	if err == nil {
-		raw := strings.TrimSpace(out)
-		if raw != "" {
-			parsed := parseVNCDisplay(raw)
-			if parsed != "" {
-				vncAddr = raw
-				available = true
+	via := ""
+
+	// Try API data first
+	sid, hasSid := h.getServerID(c)
+	if hasSid && h.ur.HasSession(sid) {
+		vms, apiErr := h.listVMsAPI(sid)
+		if apiErr == nil {
+			for _, vm := range vms {
+				if vm.Name == vmName && vm.VNCPort > 0 {
+					vncAddr = "127.0.0.1:" + strconv.Itoa(vm.VNCPort)
+					available = true
+					via = "api"
+					break
+				}
+			}
+		}
+	}
+
+	// SSH fallback
+	if !available {
+		cli, ok := h.activeClient(c)
+		if ok {
+			out, err := cli.Run("virsh vncdisplay " + shellQuote(vmName) + " 2>/dev/null")
+			if err == nil {
+				raw := strings.TrimSpace(out)
+				if raw != "" {
+					parsed := parseVNCDisplay(raw)
+					if parsed != "" {
+						vncAddr = raw
+						available = true
+						via = "ssh"
+					}
+				}
 			}
 		}
 	}
@@ -210,6 +272,7 @@ func (h *Handler) VNCDialInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"available": available,
 		"vncAddr":   vncAddr,
+		"via":       via,
 	})
 }
 

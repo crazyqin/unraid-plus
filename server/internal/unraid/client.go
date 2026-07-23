@@ -232,8 +232,15 @@ func (c *Client) get(serverID, path string) ([]byte, int, error) {
 }
 
 // ---------------------------------------------------------------------------
-// Docker API (Events.php)
+// Docker API (DockerContainers.php + Events.php)
 // ---------------------------------------------------------------------------
+
+// DockerContainers fetches the Docker containers page HTML.
+// The response is HTML (not JSON) containing container data embedded in
+// addDockerContainerContext() JS calls and table rows.
+func (c *Client) DockerContainers(serverID string) ([]byte, int, error) {
+	return c.get(serverID, "/plugins/dynamix.docker.manager/include/DockerContainers.php")
+}
 
 // DockerAction sends a container action via Events.php.
 // action: start, stop, restart, pause, resume
@@ -271,6 +278,13 @@ func (c *Client) DockerActionOK(serverID, action, containerID string) (*DockerRe
 // ---------------------------------------------------------------------------
 // VM API (VMajax.php)
 // ---------------------------------------------------------------------------
+
+// VMMachines fetches the VM list page HTML.
+// The response is HTML (not JSON) containing VM data embedded in
+// addVMContext() JS calls and table rows.
+func (c *Client) VMMachines(serverID string) ([]byte, int, error) {
+	return c.get(serverID, "/plugins/dynamix.vm.manager/include/VMMachines.php")
+}
 
 // VMAction sends a VM action via VMajax.php.
 // action: domain-start, domain-stop, domain-destroy, domain-restart, domain-pause, domain-resume

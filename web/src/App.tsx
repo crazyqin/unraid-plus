@@ -34,6 +34,21 @@ export default function App() {
     document.documentElement.classList.toggle('sidebar-collapsed', collapsed);
   }, [collapsed]);
 
+  // Apply theme via data-theme attribute on <html>.
+  const theme = useSettingsStore((s) => s.theme);
+  useEffect(() => {
+    const html = document.documentElement;
+    html.setAttribute('data-theme', theme);
+    // Remove the old dark class — theming is now data-theme driven
+    html.classList.remove('dark');
+    // Update theme-color meta tag
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) {
+      const color = getComputedStyle(html).getPropertyValue('--theme-color').trim();
+      if (color) meta.setAttribute('content', color);
+    }
+  }, [theme]);
+
   // Wait for the auth probe before rendering any routes.
   if (!authChecked) {
     return (

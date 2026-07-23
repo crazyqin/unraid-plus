@@ -394,12 +394,12 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
   // Unraid LED color mapping
   const unraidColorMap: Record<string, string> = {
     'green-on': 'bg-emerald-500',
-    'green-off': 'bg-emerald-300 dark:bg-emerald-800',
+    'green-off': 'bg-emerald-500/30',
     'yellow-on': 'bg-amber-500',
-    'yellow-off': 'bg-amber-300 dark:bg-amber-800',
+    'yellow-off': 'bg-amber-500/30',
     'red-on': 'bg-red-500',
-    'red-off': 'bg-red-300 dark:bg-red-800',
-    'grey-off': 'bg-gray-400 dark:bg-gray-600',
+    'red-off': 'bg-red-500/30',
+    'grey-off': 'bg-muted-foreground/30',
   };
   const ledDot = d.color ? unraidColorMap[d.color] : '';
   const isSsd = d.rotational === '0';
@@ -529,10 +529,10 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
 
       {/* Row 3: Read/Write rate pills */}
       <div className="mt-1.5 flex items-center gap-1.5">
-        <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
+        <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-emerald">
           ↓ {formatRate(d.readBytesPerSec)}
         </span>
-        <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-amber-600 dark:text-amber-400">
+        <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-amber">
           ↑ {formatRate(d.writeBytesPerSec)}
         </span>
       </div>
@@ -615,7 +615,7 @@ function SmartDetail({ smart, expanded = false }: { smart?: SmartInfo; expanded?
 
       {/* Expanded detail for healthy disks */}
       {!hasProblem && open && (
-        <div className="mt-1 text-emerald-600 dark:text-emerald-500">
+        <div className="mt-1 text-ind-emerald">
           自检通过 · 无可靠性告警
         </div>
       )}

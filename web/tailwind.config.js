@@ -53,6 +53,16 @@ export default {
           DEFAULT: 'hsl(var(--warning))',
           foreground: 'hsl(var(--warning-foreground))',
         },
+        /* Semantic indicator colors — theme-aware, replaces dark: hardcoded colors */
+        ind: {
+          orange: 'hsl(var(--ind-orange))',
+          red: 'hsl(var(--ind-red))',
+          amber: 'hsl(var(--ind-amber))',
+          sky: 'hsl(var(--ind-sky))',
+          emerald: 'hsl(var(--ind-emerald))',
+          blue: 'hsl(var(--ind-blue))',
+          violet: 'hsl(var(--ind-violet))',
+        },
       },
       borderRadius: {
         lg: 'var(--radius)',

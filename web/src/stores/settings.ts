@@ -3,6 +3,23 @@ import { persist } from 'zustand/middleware';
 
 export type ChartRange = '60s' | '5m' | '30m' | '2h';
 
+export type ThemeId = 'midnight' | 'ocean' | 'aurora' | 'sunset' | 'daylight';
+
+export interface ThemeMeta {
+  id: ThemeId;
+  label: string;
+  desc: string;
+  accent: string; // CSS class for the preview swatch
+}
+
+export const THEMES: ThemeMeta[] = [
+  { id: 'midnight', label: '暗夜', desc: '经典深色，橙色点缀', accent: 'bg-orange-500' },
+  { id: 'ocean',    label: '深海', desc: '沉浸蓝调，青色点缀', accent: 'bg-cyan-500' },
+  { id: 'aurora',   label: '极光', desc: '暗紫底色，翠绿点缀', accent: 'bg-emerald-500' },
+  { id: 'sunset',   label: '暖阳', desc: '暖色暗底，琥珀点缀', accent: 'bg-amber-500' },
+  { id: 'daylight', label: '浅灰', desc: '明亮清爽，蓝色点缀', accent: 'bg-blue-500' },
+];
+
 interface SettingsState {
   /** Whether the user already walked through the first-time guide. */
   onboardingDone: boolean;
@@ -19,6 +36,10 @@ interface SettingsState {
   /** Sidebar collapsed state for the layout. */
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
+
+  /** Active theme ID. */
+  theme: ThemeId;
+  setTheme: (t: ThemeId) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -36,6 +57,9 @@ export const useSettingsStore = create<SettingsState>()(
       sidebarCollapsed: false,
       toggleSidebar: () =>
         set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
+
+      theme: 'midnight',
+      setTheme: (t) => set({ theme: t }),
     }),
     { name: 'unraidpp-settings' },
   ),

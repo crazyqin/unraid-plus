@@ -879,7 +879,7 @@ function PreviewDialog({
             </div>
           )}
           {saveSuccess && (
-            <div className="flex items-center gap-2 rounded-md border border-green-500/40 bg-green-500/10 p-2 text-sm text-green-600 dark:text-green-400">
+            <div className="flex items-center gap-2 rounded-md border border-green-500/40 bg-green-500/10 p-2 text-sm text-ind-emerald">
               <Save className="h-3.5 w-3.5" />
               文件已保存
             </div>

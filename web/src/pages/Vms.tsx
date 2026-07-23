@@ -186,11 +186,11 @@ export default function VmsPage() {
               </CardHeader>
               <CardContent className="flex flex-1 flex-col gap-3">
                 <div className="flex items-center gap-1.5">
-                  <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-blue-600 dark:text-blue-400">
+                  <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-blue">
                     <Cpu className="h-2.5 w-2.5" />
                     {vm.vcpus} vCPU
                   </span>
-                  <span className="inline-flex items-center gap-1 rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-violet-600 dark:text-violet-400">
+                  <span className="inline-flex items-center gap-1 rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-violet">
                     <MemoryStick className="h-2.5 w-2.5" />
                     {formatBytes(vm.memoryBytes)}
                   </span>

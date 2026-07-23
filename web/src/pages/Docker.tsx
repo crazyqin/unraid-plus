@@ -299,17 +299,17 @@ function ContainerStatsBar({ stats }: { stats: ContainerStats }) {
     <div className="space-y-1.5">
       {/* CPU + Memory pills */}
       <div className="flex items-center gap-1.5">
-        <span className="inline-flex items-center gap-1 rounded bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-orange-600 dark:text-orange-400">
+        <span className="inline-flex items-center gap-1 rounded bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-orange">
           <Cpu className="h-2.5 w-2.5" />
           {stats.cpuPct.toFixed(1)}%
         </span>
         <span className={cn(
           'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-mono tabular-nums',
           memPct > 90
-            ? 'bg-red-500/10 text-red-600 dark:text-red-400'
+            ? 'bg-red-500/10 text-ind-red'
             : memPct > 75
-              ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
-              : 'bg-sky-500/10 text-sky-600 dark:text-sky-400',
+              ? 'bg-amber-500/10 text-ind-amber'
+              : 'bg-sky-500/10 text-ind-sky',
         )}>
           <MemoryStick className="h-2.5 w-2.5" />
           {formatBytes(stats.memUsageBytes)}/{formatBytes(stats.memLimitBytes)}
@@ -325,10 +325,10 @@ function ContainerStatsBar({ stats }: { stats: ContainerStats }) {
       />
       {/* Network I/O + PIDs */}
       <div className="flex items-center gap-1.5">
-        <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-emerald-600 dark:text-emerald-400">
+        <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-emerald">
           ↓ {formatBytes(stats.netRxBytes)}
         </span>
-        <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-amber-600 dark:text-amber-400">
+        <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-amber">
           ↑ {formatBytes(stats.netTxBytes)}
         </span>
         <span className="ml-auto text-[10px] tabular-nums text-muted-foreground">

@@ -21,7 +21,7 @@ import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { useAuthStore } from '@/stores/auth';
-import { useSettingsStore } from '@/stores/settings';
+import { useSettingsStore, THEMES } from '@/stores/settings';
 import { api, ApiError } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
@@ -43,6 +43,8 @@ export default function SettingsPage() {
     setRefreshInterval,
     onboardingDone,
     setOnboardingDone,
+    theme,
+    setTheme,
   } = useSettingsStore();
 
   const disconnect = async () => {
@@ -176,6 +178,34 @@ export default function SettingsPage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
+          {/* Theme picker */}
+          <div>
+            <div className="mb-2 font-medium">主题风格</div>
+            <div className="grid grid-cols-5 gap-2">
+              {THEMES.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setTheme(t.id)}
+                  className={`group flex flex-col items-center gap-1.5 rounded-lg border p-2 transition-all hover:bg-muted/50 ${
+                    theme === t.id ? 'border-primary ring-1 ring-primary' : 'border-border'
+                  }`}
+                >
+                  <div className="flex h-8 w-full items-center justify-center rounded-md bg-muted">
+                    <div className={`h-4 w-4 rounded-full ${t.accent} shadow-sm`} />
+                  </div>
+                  <span className="text-[11px] font-medium leading-none">
+                    {t.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {THEMES.find((t) => t.id === theme)?.desc}
+            </p>
+          </div>
+
+          <Separator />
+
           <ToggleRow
             label="已完成新手引导"
             desc="关闭后将强制再次显示欢迎向导。"

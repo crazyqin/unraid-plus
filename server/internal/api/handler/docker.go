@@ -174,6 +174,8 @@ func (h *Handler) listContainersAPI(sid string) ([]container, error) {
 			Status:  statusStr,
 			State:   state,
 			IconURL: iconURL,
+			Ports:   []string{},
+			Mounts:  []mount{},
 		}
 		containers = append(containers, ct)
 	}

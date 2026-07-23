@@ -238,7 +238,7 @@ export default function DockerPage() {
               </CardHeader>
               <CardContent className="flex flex-1 flex-col gap-3">
                 <div className="flex flex-wrap gap-1">
-                  {c.ports.slice(0, 3).map((p) => (
+                  {(c.ports ?? []).slice(0, 3).map((p) => (
                     <Badge key={p} variant="outline" className="font-mono text-[9px] px-1.5 py-0 leading-none">
                       {p}
                     </Badge>

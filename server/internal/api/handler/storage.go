@@ -33,6 +33,11 @@ type disk struct {
 	// is not installed on the host. The frontend should render a SMART
 	// detail panel only when Smart != nil && Smart.Available.
 	Smart *smartInfo `json:"smart,omitempty"`
+	// physicalDev is the physical block device name (e.g. "sdb", "nvme0n1")
+	// from disks.ini — used by enrichWithRW to look up /proc/diskstats.
+	// Array disks are mounted as /dev/mdNp1, but Unraid's custom md driver
+	// may not register in diskstats; their physical device always does.
+	physicalDev string
 }
 
 type arrayStatus struct {
@@ -160,7 +165,18 @@ func enrichWithRW(cli *ssh.Client, diskSlices ...[]disk) {
 	const dt = 0.9
 	for _, ds := range diskSlices {
 		for i := range ds {
-			key := diskStatsKey(ds[i].Device)
+			// Resolve the diskstats lookup key:
+			// 1. Prefer physicalDev (from disks.ini "device" field) — always
+			//    a real block device that appears in diskstats.
+			// 2. Fall back to diskStatsKey(Device path) for disks without
+			//    a physical device mapping (e.g. non-Unraid fallback path).
+			var key string
+			if ds[i].physicalDev != "" {
+				key = baseDevName("/dev/" + ds[i].physicalDev)
+			}
+			if key == "" {
+				key = diskStatsKey(ds[i].Device)
+			}
 			if key == "" {
 				continue
 			}

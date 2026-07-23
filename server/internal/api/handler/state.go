@@ -306,6 +306,13 @@ func stateToDisk(ds diskState) disk {
 		Transport:  ds.Transport,
 	}
 
+	// Physical device from disks.ini — used for /proc/diskstats RW rate
+	// lookup. Array disks (md devices) often don't appear in diskstats,
+	// but their underlying physical device (sd*, nvme*) always does.
+	if ds.Device != "" {
+		d.physicalDev = ds.Device // e.g. "sdb", "nvme0n1"
+	}
+
 	// Temperature: disks.ini temp field is in Celsius, "*" means N/A
 	if ds.Temp != "" && ds.Temp != "*" {
 		if t := atoiSafe(ds.Temp, 0); t > 0 {

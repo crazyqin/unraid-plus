@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronRight,
@@ -15,6 +15,8 @@ import {
   Upload,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
+import hljs from '@/lib/highlight';
+import '@/lib/highlight.css';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -510,6 +512,57 @@ const EDITABLE_EXTENSIONS = new Set([
   '.tsv', '.r', '.m', '.gradle', '.cmake', '.makefile',
 ]);
 
+/** Map file extension to highlight.js language identifier */
+const EXT_TO_LANG: Record<string, string> = {
+  '.js': 'javascript', '.jsx': 'javascript', '.mjs': 'javascript',
+  '.ts': 'typescript', '.tsx': 'typescript',
+  '.py': 'python', '.pyw': 'python',
+  '.go': 'go',
+  '.rs': 'rust',
+  '.c': 'c', '.h': 'c',
+  '.cpp': 'cpp', '.hpp': 'cpp', '.cc': 'cpp',
+  '.java': 'java',
+  '.rb': 'ruby',
+  '.pl': 'perl',
+  '.lua': 'lua',
+  '.vim': 'vim',
+  '.sh': 'bash', '.bash': 'bash', '.zsh': 'bash',
+  '.fish': 'shell',
+  '.css': 'css', '.scss': 'scss', '.less': 'less',
+  '.html': 'xml', '.htm': 'xml', '.svg': 'xml',
+  '.json': 'json',
+  '.xml': 'xml',
+  '.yaml': 'yaml', '.yml': 'yaml',
+  '.toml': 'ini',
+  '.ini': 'ini', '.cfg': 'ini', '.conf': 'ini',
+  '.md': 'markdown',
+  '.sql': 'sql',
+  '.csv': 'plaintext',
+  '.properties': 'properties',
+  '.dockerfile': 'dockerfile',
+  '.gradle': 'groovy',
+  '.cmake': 'cmake',
+  '.r': 'r',
+  '.m': 'objectivec',
+};
+
+/** Derive highlight.js language from filename */
+function langFromFilename(name: string): string | undefined {
+  const lower = name.toLowerCase();
+  // Special filenames
+  if (lower === 'dockerfile' || lower === 'makefile') return lower;
+  if (lower === 'cmakelists.txt') return 'cmake';
+  // Extension-based
+  const dotIdx = lower.lastIndexOf('.');
+  if (dotIdx >= 0) {
+    const ext = lower.substring(dotIdx);
+    if (EXT_TO_LANG[ext]) return EXT_TO_LANG[ext];
+  }
+  // Dotfiles like .bashrc, .profile
+  if (/^\.[a-z]/i.test(lower)) return 'bash';
+  return undefined;
+}
+
 function isEditableFile(name: string): boolean {
   const lower = name.toLowerCase();
   for (const ext of EDITABLE_EXTENSIONS) {
@@ -623,6 +676,47 @@ function PreviewDialog({
     }
   };
 
+  // Syntax-highlighted HTML for preview mode
+  const highlightedHtml = useMemo(() => {
+    if (textContent === null) return '';
+    const lang = langFromFilename(targetName);
+    try {
+      if (lang && hljs.getLanguage(lang)) {
+        return hljs.highlight(textContent, { language: lang }).value;
+      }
+      return hljs.highlightAuto(textContent).value;
+    } catch {
+      // Fallback: escape manually
+      return textContent.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+  }, [textContent, targetName]);
+
+  // Syntax-highlighted HTML for edit mode (overlay backdrop)
+  const editHighlightedHtml = useMemo(() => {
+    if (!editContent) return '';
+    const lang = langFromFilename(targetName);
+    try {
+      if (lang && hljs.getLanguage(lang)) {
+        return hljs.highlight(editContent, { language: lang }).value;
+      }
+      return hljs.highlightAuto(editContent).value;
+    } catch {
+      return editContent.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+  }, [editContent, targetName]);
+
+  // Shared style constants for overlay alignment (pre + textarea must match exactly)
+  const codeStyle: React.CSSProperties = {
+    fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace',
+    fontSize: '0.75rem',   // text-xs
+    lineHeight: '1.625',  // leading-relaxed
+    padding: '0.75rem',   // p-3
+    whiteSpace: 'pre-wrap',
+    wordBreak: 'break-all',
+    tabSize: 4,
+    letterSpacing: 'normal',
+  };
+
   return (
     <Dialog
       open={!!target}
@@ -660,15 +754,37 @@ function PreviewDialog({
                   文件较大，仅显示前 64KB 内容。
                 </p>
               )}
-              <pre className="max-h-[55vh] overflow-auto overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-muted/40 p-3 text-xs leading-relaxed">
-                <code>{textContent}</code>
+              <pre className="max-h-[55vh] overflow-auto overflow-x-auto rounded-md bg-muted/40 p-3" style={codeStyle}>
+                <code
+                  className="hljs"
+                  dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+                />
               </pre>
             </div>
           )}
           {editing && (
-            <div>
+            <div className="relative" style={{ height: '55vh' }}>
+              {/* Highlighted backdrop layer */}
+              <pre
+                className="absolute inset-0 overflow-auto rounded-md bg-muted/40 pointer-events-none"
+                style={codeStyle}
+                aria-hidden="true"
+              >
+                <code
+                  className="hljs"
+                  dangerouslySetInnerHTML={{ __html: editHighlightedHtml }}
+                />
+              </pre>
+              {/* Transparent textarea on top */}
               <textarea
-                className="h-[55vh] w-full resize-none rounded-md border bg-muted/40 p-3 font-mono text-xs leading-relaxed break-all focus:outline-none focus:ring-2 focus:ring-primary"
+                className="absolute inset-0 w-full h-full resize-none rounded-md bg-transparent p-3 font-mono text-xs leading-relaxed break-all focus:outline-none focus:ring-2 focus:ring-primary"
+                style={{
+                  ...codeStyle,
+                  color: 'transparent',
+                  caretColor: 'currentColor',
+                  backgroundColor: 'transparent',
+                  borderColor: 'transparent',
+                }}
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
                 spellCheck={false}

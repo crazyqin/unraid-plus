@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build frontend
+        working-directory: web
+        run: pnpm install --frozen-lockfile && pnpm build
+
+      - name: Sync frontend dist into server
+        run: |
+          rm -rf server/internal/web/dist/*
+          cp -r web/dist/* server/internal/web/dist/
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+          cache-dependency-path: server/go.sum
+
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        working-directory: server
+        run: |
+          BINARY=unraid-plus-${GOOS}-${GOARCH}
+          if [ "$GOOS" = "windows" ]; then BINARY="${BINARY}.exe"; fi
+          go build \
+            -trimpath \
+            -ldflags "-s -w \
+              -X main.Version=${{ github.ref_name }} \
+              -X main.Commit=${{ github.sha }} \
+              -X main.BuildTime=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o ../release/${BINARY} ./cmd/server
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: unraid-plus-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: release/unraid-plus-${{ matrix.goos }}-${{ matrix.goarch }}*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release/
+          merge-multiple: true
+
+      - name: Generate checksums
+        run: |
+          cd release
+          sha256sum * > checksums-sha256.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true

@@ -1,6 +1,4 @@
-// highlight.js v11.9.0 - re-export for convenience
-// The UMD bundle exports via `module.exports = hljs`, so we use
-// `import * as` to let Vite/Rollup handle CJS interop, then extract default.
-import * as hljsModule from './highlight.min.js';
-const hljs = (hljsModule as any).default ?? hljsModule;
+// highlight.js v11.9.0 - loaded via <script> in index.html (UMD bundle sets window.hljs)
+// We re-export here so consumers can `import hljs from '@/lib/highlight'`.
+const hljs = (window as any).hljs;
 export default hljs;

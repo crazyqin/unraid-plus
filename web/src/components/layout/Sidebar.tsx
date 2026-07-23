@@ -27,13 +27,15 @@ interface NavItem {
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   hint: string;
+  /** If true, this nav item is only shown when SSH is available. */
+  requiresSSH?: boolean;
 }
 
 const NAV: NavItem[] = [
   { to: '/', label: '仪表盘', icon: LayoutDashboard, hint: '服务器 CPU、内存、网络、磁盘的整体状态' },
   { to: '/storage', label: '存储', icon: HardDrive, hint: '磁盘阵列与缓存盘的容量、温度、健康' },
-  { to: '/files', label: '文件', icon: FolderTree, hint: '基于 SFTP 的文件管理，可上传/下载/在线预览' },
-  { to: '/terminal', label: '终端', icon: TerminalSquare, hint: '浏览器内的 SSH 命令行' },
+  { to: '/files', label: '文件', icon: FolderTree, hint: '基于 SFTP 的文件管理，可上传/下载/在线预览', requiresSSH: true },
+  { to: '/terminal', label: '终端', icon: TerminalSquare, hint: '浏览器内的 SSH 命令行', requiresSSH: true },
   { to: '/vms', label: '虚拟机', icon: Cpu, hint: 'Unraid 上的 KVM 虚拟机启停' },
   { to: '/docker', label: 'Docker', icon: Container, hint: 'Docker 容器列表、启停与日志' },
   { to: '/settings', label: '设置', icon: Settings, hint: '连接配置、安全选项、界面偏好' },
@@ -51,6 +53,7 @@ export default function Sidebar() {
   const server = useAuthStore((s) => s.server);
   const servers = useAuthStore((s) => s.servers);
   const activeServerId = useAuthStore((s) => s.activeServerId);
+  const sshAvailable = useAuthStore((s) => s.sshAvailable);
   const selectServer = useAuthStore((s) => s.selectServer);
   const refreshServers = useAuthStore((s) => s.refreshServers);
   const navigate = useNavigate();
@@ -206,7 +209,7 @@ export default function Sidebar() {
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto p-2">
         <ul className="space-y-1">
-          {NAV.map((item) => {
+          {NAV.filter((item) => !item.requiresSSH || sshAvailable).map((item) => {
             const Icon = item.icon;
             const active = isPathActive(location.pathname, item.to);
             const link = (

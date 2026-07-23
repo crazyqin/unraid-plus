@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   CheckCircle2,
+  ChevronDown,
   Key,
   Loader2,
   Lock,
@@ -48,9 +49,9 @@ export default function OnboardingPage() {
   const isAddMode = new URLSearchParams(location.search).get('mode') === 'add';
   const [step, setStep] = useState<number>(isAddMode ? CONNECT_STEP : 0);
 
-  // form
-  const [host, setHost] = useState('192.168.1.99');
-  const [apiBase, setApiBase] = useState('');
+  // form — simplified: apiBase (Unraid address) + password are primary
+  const [host, setHost] = useState(''); // derived from apiBase for SSH
+  const [apiBase, setApiBase] = useState('tower.local');
   const [sshPort, setSshPort] = useState(22);
   const [user, setUser] = useState('root');
   const [password, setPassword] = useState('');
@@ -58,6 +59,7 @@ export default function OnboardingPage() {
   const [privateKey, setPrivateKey] = useState<string>('');
   const [keyFileName, setKeyFileName] = useState('');
   const [label, setLabel] = useState('');
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   // connect state
   const [connecting, setConnecting] = useState(false);
@@ -73,8 +75,8 @@ export default function OnboardingPage() {
     setConnecting(true);
     try {
       const body: Record<string, unknown> = {
-        host,
         apiBase: apiBase || undefined,
+        host: host || undefined,
         sshPort,
         user,
       };
@@ -100,13 +102,13 @@ export default function OnboardingPage() {
 
   const handleFinish = () => {
     const cfg: ServerConfig = {
-      host,
+      host: host || apiBase,
       apiBase: apiBase || undefined,
       sshPort,
       user,
       authMode,
       status: 'connected',
-      label: label || host,
+      label: label || host || apiBase,
       id: result?.serverId,
     };
     configure(cfg);
@@ -167,6 +169,7 @@ export default function OnboardingPage() {
             keyFileName={keyFileName}
             label={label}
             skill={skill}
+            showAdvanced={showAdvanced}
             connecting={connecting}
             error={error}
             onHost={setHost}
@@ -178,6 +181,7 @@ export default function OnboardingPage() {
             onPrivateKey={setPrivateKey}
             onKeyFileName={setKeyFileName}
             onLabel={setLabel}
+            onShowAdvanced={setShowAdvanced}
             onConnect={handleConnect}
             onPrev={prev}
           />
@@ -370,6 +374,7 @@ function ConnectStep(props: {
   keyFileName: string;
   label: string;
   skill: Skill;
+  showAdvanced: boolean;
   connecting: boolean;
   error: string | null;
   onHost: (v: string) => void;
@@ -381,11 +386,11 @@ function ConnectStep(props: {
   onPrivateKey: (v: string) => void;
   onKeyFileName: (v: string) => void;
   onLabel: (v: string) => void;
+  onShowAdvanced: (v: boolean) => void;
   onConnect: () => void;
   onPrev: () => void;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
-  const isExpert = props.skill === 'expert';
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -401,59 +406,42 @@ function ConnectStep(props: {
   return (
     <div className="animate-fade-in space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold">把 unraid-plus 连到你的 NAS</h1>
+        <h1 className="text-2xl font-semibold">连接你的 Unraid</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          支持密码和密钥两种认证方式。密码仅在后端内存中用于本次配对，
-          密钥模式下后端会保存私钥用于自动重连。
+          填入 Unraid 网页管理界面的地址和密码即可。SSH 连接会自动配置。
         </p>
       </div>
 
       <Card>
         <CardContent className="space-y-4 p-6">
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field
-              label="Unraid IP / 域名"
-              hint="在路由器后台或 Unraid 主页右上角能看到。形如 192.168.x.x 或 tower.local"
-              required
-            >
-              <Input
-                value={props.host}
-                onChange={(e) => props.onHost(e.target.value)}
-                placeholder="192.168.1.99"
-              />
-            </Field>
-            <Field
-              label="SSH 端口"
-              hint="Unraid 默认 22，没改过就不用动。"
-            >
-              <Input
-                type="number"
-                value={props.sshPort}
-                onChange={(e) => props.onSshPort(Number(e.target.value))}
-              />
-            </Field>
-          </div>
+          {/* Primary fields: Unraid address + password */}
+          <Field
+            label="Unraid 服务器地址"
+            hint="你在浏览器访问 Unraid 管理页时输入的地址，如 tower.local 或 192.168.1.99"
+            required
+          >
+            <Input
+              value={props.apiBase}
+              onChange={(e) => props.onApiBase(e.target.value)}
+              placeholder="tower.local 或 192.168.1.99"
+            />
+          </Field>
 
-          {isExpert && (
-            <Field
-              label="Unraid API 地址"
-              hint="可选。默认根据 IP 推断为 https://<host>。如果你的 Unraid 走反向代理，可在这里填。"
-            >
-              <Input
-                value={props.apiBase}
-                onChange={(e) => props.onApiBase(e.target.value)}
-                placeholder="https://tower.local"
-              />
-            </Field>
-          )}
+          <Field
+            label="密码"
+            hint="就是你在 Unraid 网页界面登录时用的密码（默认也是 SSH 密码）。"
+            required
+          >
+            <Input
+              type="password"
+              value={props.password}
+              onChange={(e) => props.onPassword(e.target.value)}
+              autoComplete="current-password"
+              placeholder="root 密码"
+            />
+          </Field>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="用户名" hint="Unraid 默认 root，绝大多数情况不要改。">
-              <Input
-                value={props.user}
-                onChange={(e) => props.onUser(e.target.value)}
-              />
-            </Field>
             <Field label="服务器昵称（可选）" hint="好记的名字，比如「客厅NAS」「Tower」。">
               <Input
                 value={props.label}
@@ -463,103 +451,132 @@ function ConnectStep(props: {
             </Field>
           </div>
 
-          {/* Auth mode selector */}
-          <div>
-            <Label className="mb-2 block">认证方式</Label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => props.onAuthMode('password')}
-                className={cn(
-                  'flex flex-1 items-center gap-2 rounded-lg border p-3 text-left transition-colors',
-                  props.authMode === 'password'
-                    ? 'border-primary bg-primary/5'
-                    : 'hover:bg-accent',
-                )}
-              >
-                <Lock className="h-4 w-4 shrink-0" />
-                <div>
-                  <div className="text-sm font-medium">密码认证</div>
-                  <div className="text-[10px] text-muted-foreground">输入 root 密码连接</div>
-                </div>
-              </button>
-              <button
-                type="button"
-                onClick={() => props.onAuthMode('key')}
-                className={cn(
-                  'flex flex-1 items-center gap-2 rounded-lg border p-3 text-left transition-colors',
-                  props.authMode === 'key'
-                    ? 'border-primary bg-primary/5'
-                    : 'hover:bg-accent',
-                )}
-              >
-                <Key className="h-4 w-4 shrink-0" />
-                <div>
-                  <div className="text-sm font-medium">密钥认证</div>
-                  <div className="text-[10px] text-muted-foreground">使用 SSH 私钥连接</div>
-                </div>
-              </button>
-            </div>
-          </div>
+          {/* Advanced settings toggle */}
+          <button
+            type="button"
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            onClick={() => props.onShowAdvanced(!props.showAdvanced)}
+          >
+            <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', props.showAdvanced && 'rotate-180')} />
+            高级设置（SSH 端口、用户名、密钥认证）
+          </button>
 
-          {/* Password or Key input based on auth mode */}
-          {props.authMode === 'password' ? (
-            <Field
-              label="root 密码"
-              hint="就是你在 Unraid WebUI 登录用的密码。"
-              required
-            >
-              <Input
-                type="password"
-                value={props.password}
-                onChange={(e) => props.onPassword(e.target.value)}
-                autoComplete="current-password"
-              />
-            </Field>
-          ) : (
-            <div className="space-y-2">
-              <Field label="SSH 私钥" hint="选择你的私钥文件（如 id_ed25519），或直接粘贴 PEM 内容。" required>
+          {props.showAdvanced && (
+            <div className="space-y-4 rounded-lg border border-dashed p-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field
+                  label="SSH 端口"
+                  hint="默认 22，改过才需要填。"
+                >
+                  <Input
+                    type="number"
+                    value={props.sshPort}
+                    onChange={(e) => props.onSshPort(Number(e.target.value))}
+                  />
+                </Field>
+                <Field label="用户名" hint="默认 root，通常无需修改。">
+                  <Input
+                    value={props.user}
+                    onChange={(e) => props.onUser(e.target.value)}
+                  />
+                </Field>
+              </div>
+
+              <Field
+                label="SSH 主机名（覆盖）"
+                hint="仅在 Unraid 地址与 SSH 地址不同时需要填写，如走反向代理。"
+              >
+                <Input
+                  value={props.host}
+                  onChange={(e) => props.onHost(e.target.value)}
+                  placeholder="留空则自动从服务器地址推导"
+                />
+              </Field>
+
+              {/* Auth mode selector */}
+              <div>
+                <Label className="mb-2 block">认证方式</Label>
                 <div className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => fileRef.current?.click()}
+                  <button
+                    type="button"
+                    onClick={() => props.onAuthMode('password')}
+                    className={cn(
+                      'flex flex-1 items-center gap-2 rounded-lg border p-3 text-left transition-colors',
+                      props.authMode === 'password'
+                        ? 'border-primary bg-primary/5'
+                        : 'hover:bg-accent',
+                    )}
                   >
-                    <Upload className="mr-1 h-3 w-3" /> 选择文件
-                  </Button>
-                  {props.keyFileName && (
-                    <span className="flex items-center text-xs text-muted-foreground">
-                      {props.keyFileName}
-                    </span>
-                  )}
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    className="hidden"
-                    accept=".pem,.key,id_ed25519,id_rsa,id_ecdsa"
-                    onChange={handleFileSelect}
+                    <Lock className="h-4 w-4 shrink-0" />
+                    <div>
+                      <div className="text-sm font-medium">密码认证</div>
+                      <div className="text-[10px] text-muted-foreground">使用 root 密码</div>
+                    </div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => props.onAuthMode('key')}
+                    className={cn(
+                      'flex flex-1 items-center gap-2 rounded-lg border p-3 text-left transition-colors',
+                      props.authMode === 'key'
+                        ? 'border-primary bg-primary/5'
+                        : 'hover:bg-accent',
+                    )}
+                  >
+                    <Key className="h-4 w-4 shrink-0" />
+                    <div>
+                      <div className="text-sm font-medium">密钥认证</div>
+                      <div className="text-[10px] text-muted-foreground">使用 SSH 私钥</div>
+                    </div>
+                  </button>
+                </div>
+              </div>
+
+              {/* Key input for key auth */}
+              {props.authMode === 'key' && (
+                <div className="space-y-2">
+                  <Field label="SSH 私钥" hint="选择你的私钥文件，或直接粘贴 PEM 内容。" required>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => fileRef.current?.click()}
+                      >
+                        <Upload className="mr-1 h-3 w-3" /> 选择文件
+                      </Button>
+                      {props.keyFileName && (
+                        <span className="flex items-center text-xs text-muted-foreground">
+                          {props.keyFileName}
+                        </span>
+                      )}
+                      <input
+                        ref={fileRef}
+                        type="file"
+                        className="hidden"
+                        accept=".pem,.key,id_ed25519,id_rsa,id_ecdsa"
+                        onChange={handleFileSelect}
+                      />
+                    </div>
+                  </Field>
+                  <textarea
+                    className="w-full rounded-md border bg-muted/30 p-2 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                    rows={4}
+                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
+                    value={props.privateKey}
+                    onChange={(e) => {
+                      props.onPrivateKey(e.target.value);
+                      if (!props.keyFileName) props.onKeyFileName('(手动粘贴)');
+                    }}
                   />
                 </div>
-              </Field>
-              <textarea
-                className="w-full rounded-md border bg-muted/30 p-2 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
-                rows={4}
-                placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
-                value={props.privateKey}
-                onChange={(e) => {
-                  props.onPrivateKey(e.target.value);
-                  if (!props.keyFileName) props.onKeyFileName('(手动粘贴)');
-                }}
-              />
+              )}
             </div>
           )}
 
-          <div className="flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning-foreground">
-            <Lock className="h-4 w-4 shrink-0 text-warning" />
-            <span className="text-foreground/80">
-              {props.authMode === 'password'
-                ? '密码从浏览器到后端走 HTTPS（或局域网明文），仅在后端内存中短暂使用，不会写入磁盘。'
-                : '私钥将保存在后端数据目录中用于自动重连，建议配对后用 RotateKey 生成专用密钥。'}
+          <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+            <ShieldCheck className="h-4 w-4 shrink-0 text-primary" />
+            <span>
+              密码仅在后端内存中短暂使用，不会写入磁盘。连接成功后同时建立 WebGUI API 和 SSH 双通道。
             </span>
           </div>
         </CardContent>
@@ -582,7 +599,7 @@ function ConnectStep(props: {
             </>
           ) : (
             <>
-              <Wifi className="h-4 w-4" /> 测试并连接
+              <Wifi className="h-4 w-4" /> 连接
             </>
           )}
         </Button>
@@ -602,12 +619,29 @@ function VerifyStep({
   onNext: () => void;
   onPrev: () => void;
 }) {
+  const sshAvailable = result?.sshAvailable ?? false;
+  const apiAvailable = result?.apiAvailable ?? false;
+
+  // Derive connection mode label
+  let modeLabel = '未知';
+  let modeDesc = '';
+  if (sshAvailable && apiAvailable) {
+    modeLabel = '双通道';
+    modeDesc = 'WebGUI API + SSH 均已连接，所有功能可用';
+  } else if (apiAvailable && !sshAvailable) {
+    modeLabel = 'API 模式';
+    modeDesc = 'WebGUI API 已连接，SSH 不可用（终端和文件功能不可用）';
+  } else if (sshAvailable && !apiAvailable) {
+    modeLabel = 'SSH 模式';
+    modeDesc = 'SSH 已连接，WebGUI API 不可用（部分功能受限）';
+  }
+
   return (
     <div className="animate-fade-in space-y-6">
       <div>
         <h1 className="text-2xl font-semibold">连接验证</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          确认下方的服务器指纹是你的 Unraid，避免中间人攻击。
+          确认下方的连接信息是你的 Unraid 服务器，避免中间人攻击。
         </p>
       </div>
 
@@ -618,26 +652,59 @@ function VerifyStep({
             <div>
               <div className="text-base font-medium">连接成功</div>
               <div className="text-xs text-muted-foreground">
-                已与 {host} 建立 SSH 会话
+                {result?.message ?? `已与 ${host} 建立连接`}
               </div>
             </div>
           </div>
-          <div className="rounded-md bg-muted/40 p-3 text-sm">
+
+          {/* Connection mode badge */}
+          <div className="rounded-md bg-muted/40 p-3 text-sm space-y-2">
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">服务器指纹</span>
-              <Badge variant="secondary" className="font-mono text-[10px]">
-                {result?.hostFingerprint ?? 'N/A'}
+              <span className="text-muted-foreground">连接模式</span>
+              <Badge
+                variant="secondary"
+                className={
+                  sshAvailable && apiAvailable
+                    ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30'
+                    : apiAvailable
+                      ? 'bg-amber-500/15 text-amber-600 border-amber-500/30'
+                      : 'bg-muted text-muted-foreground'
+                }
+              >
+                {modeLabel}
               </Badge>
             </div>
-            <div className="mt-2 flex items-center justify-between">
-              <span className="text-muted-foreground">Unraid 版本</span>
-              <span className="font-mono text-xs">
-                {result?.serverVersion ?? 'unknown'}
+            <p className="text-xs text-muted-foreground">{modeDesc}</p>
+
+            {sshAvailable && (
+              <>
+                <div className="flex items-center justify-between pt-1">
+                  <span className="text-muted-foreground">服务器指纹</span>
+                  <Badge variant="secondary" className="font-mono text-[10px]">
+                    {result?.hostFingerprint ?? 'N/A'}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Unraid 版本</span>
+                  <span className="font-mono text-xs">
+                    {result?.serverVersion ?? 'unknown'}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+
+          {!sshAvailable && apiAvailable && (
+            <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+              <Terminal className="h-4 w-4 shrink-0" />
+              <span>
+                SSH 未连接 — 终端和文件管理功能不可用。你可以在设置中检查 SSH 连接配置。
               </span>
             </div>
-          </div>
+          )}
+
           <p className="text-xs text-muted-foreground">
-            首次连接时浏览器/服务端会记住这个指纹。如果之后指纹变了，
+            首次连接时浏览器/服务端会记住服务器指纹。如果之后指纹变了，
             unraid-plus 会拒绝连接并提示你确认是否安全。
           </p>
         </CardContent>

@@ -32,6 +32,10 @@ export interface ServerInfo {
   authMode: string;
   label: string;
   connected: boolean;
+  /** v0.3.1+: Whether SSH connection is available (terminal + SFTP). */
+  sshAvailable: boolean;
+  /** v0.3.1+: Whether Unraid WebGUI API session is active. */
+  apiAvailable: boolean;
   lastSeen: string;
 }
 
@@ -230,4 +234,8 @@ export interface ConnectResult {
   serverVersion?: string;
   /** v0.8+: unique server ID (host:port) for multi-server support. */
   serverId?: string;
+  /** v0.3.1+: Whether SSH connection is available (terminal + SFTP). */
+  sshAvailable: boolean;
+  /** v0.3.1+: Whether Unraid WebGUI API session is active. */
+  apiAvailable: boolean;
 }

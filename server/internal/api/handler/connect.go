@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -11,14 +12,18 @@ import (
 )
 
 type connectReq struct {
-	Host       string `json:"host"`
+	// Primary: WebGUI address (required). e.g. "https://tower.local" or "192.168.1.99"
+	// If just an IP/hostname without scheme, https:// is prepended.
 	APIBase    string `json:"apiBase"`
-	SSHPort    int    `json:"sshPort"`
-	User       string `json:"user"`
 	Password   string `json:"password"`
+	User       string `json:"user"`       // default "root"
+	Label      string `json:"label"`      // optional friendly name
+
+	// SSH settings (optional — auto-derived from apiBase by default)
+	Host       string `json:"host"`        // derived from apiBase if empty
+	SSHPort    int    `json:"sshPort"`     // default 22
 	PrivateKey []byte `json:"privateKey"`
 	Passphrase string `json:"passphrase"`
-	Label      string `json:"label"`
 }
 
 type connectResp struct {
@@ -27,46 +32,72 @@ type connectResp struct {
 	HostFingerprint string `json:"hostFingerprint,omitempty"`
 	ServerVersion   string `json:"serverVersion,omitempty"`
 	ServerID        string `json:"serverId,omitempty"`
+	SSHAvailable    bool   `json:"sshAvailable"`
+	APIAvailable    bool   `json:"apiAvailable"`
 }
 
-// Connect handles the onboarding wizard's "test and connect" step. We
-// deliberately accept either password or pre-supplied private key — the
-// "zero-config" UX is just password mode with a friendly wizard.
-//
-// v0.8+: After a successful connect, the server config is persisted to
-// servers.json so it survives restarts and page refreshes. The frontend
-// can query GET /api/servers to restore connection state.
+// Connect handles the onboarding wizard's "test and connect" step.
+// v0.3+: WebGUI-first connection. The user provides the Unraid server URL
+// and password; we login to the WebGUI first, then try SSH in the background.
+// If WebGUI login succeeds but SSH fails, the server is still usable (API-only
+// mode: Docker/VM actions, disk spin, UPS, parity control all work; terminal
+// and SFTP are unavailable).
 func (h *Handler) Connect(c *gin.Context) {
 	var req connectReq
 	if err := c.ShouldBindJSON(&req); err != nil {
 		errOut(c, http.StatusBadRequest, "请求格式错误: "+err.Error())
 		return
 	}
-	if req.Host == "" {
-		errOut(c, http.StatusBadRequest, "host 不能为空")
+
+	// --- Normalize inputs ---
+	if req.APIBase == "" && req.Host != "" {
+		// Legacy: host provided but no apiBase → derive
+		req.APIBase = "https://" + req.Host
+	}
+	if req.APIBase == "" {
+		errOut(c, http.StatusBadRequest, "请提供 Unraid 服务器地址（如 https://tower.local 或 192.168.1.99）")
 		return
 	}
-	if req.SSHPort == 0 {
-		req.SSHPort = 22
+	// Ensure scheme
+	if !strings.HasPrefix(req.APIBase, "http://") && !strings.HasPrefix(req.APIBase, "https://") {
+		req.APIBase = "https://" + req.APIBase
 	}
 	if req.User == "" {
 		req.User = "root"
 	}
-	if req.APIBase == "" {
-		req.APIBase = "https://" + req.Host
-	}
 	if req.Password == "" && len(req.PrivateKey) == 0 {
-		errOut(c, http.StatusBadRequest, "需要提供密码或私钥")
+		errOut(c, http.StatusBadRequest, "请提供密码")
 		return
 	}
 
+	// Derive host from apiBase for SSH
+	if req.Host == "" {
+		req.Host = hostFromAPIBase(req.APIBase)
+	}
+	if req.SSHPort == 0 {
+		req.SSHPort = 22
+	}
+
+	sid := serverID(req.Host, req.SSHPort)
+	resp := connectResp{Ok: true, ServerID: sid}
+
+	// --- Step 1: WebGUI login (primary) ---
+	apiAvailable := false
+	if req.Password != "" {
+		if err := h.ur.Login(sid, req.APIBase, req.User, req.Password); err != nil {
+			logger.Warnf("WebGUI login for %s failed: %v", sid, err)
+		} else {
+			apiAvailable = true
+		}
+	}
+	resp.APIAvailable = apiAvailable
+
+	// --- Step 2: SSH connect (best-effort, non-blocking) ---
+	sshAvailable := false
 	mode := ssh.AuthPassword
 	if len(req.PrivateKey) > 0 {
 		mode = ssh.AuthKey
 	}
-
-	// Forget any prior connection to the same host — TOFU will revalidate.
-	_ = h.pool.Forget(req.Host, req.SSHPort)
 
 	connCfg := &ssh.ConnConfig{
 		Host:       req.Host,
@@ -80,53 +111,66 @@ func (h *Handler) Connect(c *gin.Context) {
 		Label:      req.Label,
 	}
 
+	// Forget any prior connection to the same host — TOFU will revalidate.
+	_ = h.pool.Forget(req.Host, req.SSHPort)
+
 	result, err := h.pool.Connect(connCfg)
 	if err != nil {
-		status := http.StatusUnauthorized
-		if isNetworkErr(err) {
-			status = http.StatusBadGateway
+		// SSH failed — not fatal if API is available
+		if apiAvailable {
+			logger.Infof("SSH connect for %s failed (API-only mode): %v", sid, err)
+			resp.Message = "WebGUI 连接成功，SSH 连接失败（终端和文件功能不可用）"
+		} else {
+			// Both failed
+			status := http.StatusBadGateway
+			if isNetworkErr(err) {
+				errOut(c, status, "无法连接到 Unraid 服务器：" + friendlySSHError(err))
+			} else {
+				errOut(c, http.StatusUnauthorized, "WebGUI 和 SSH 均连接失败，请检查地址和密码")
+			}
+			return
 		}
-		errOut(c, status, friendlySSHError(err))
-		return
+	} else {
+		sshAvailable = true
+		resp.HostFingerprint = result.HostFingerprint
+		resp.ServerVersion = result.ServerVersion
+		if !apiAvailable {
+			resp.Message = "SSH 连接成功，WebGUI 登录失败（部分功能受限）"
+		} else {
+			resp.Message = "连接成功"
+		}
 	}
+	resp.SSHAvailable = sshAvailable
 
-	// Persist server config to servers.json (v0.8+)
-	id := serverID(req.Host, req.SSHPort)
+	// Persist server config to servers.json
 	if h.sm != nil {
 		if err := h.sm.Upsert(connCfg, req.Password); err != nil {
-			logger.Warnf("persist server %s failed: %v", id, err)
+			logger.Warnf("persist server %s failed: %v", sid, err)
 		}
-		// If key auth, save the private key for auto-reconnect
 		if mode == ssh.AuthKey && len(req.PrivateKey) > 0 {
-			if err := h.sm.SaveServerKey(id, req.PrivateKey); err != nil {
-				logger.Warnf("save key for server %s failed: %v", id, err)
+			if err := h.sm.SaveServerKey(sid, req.PrivateKey); err != nil {
+				logger.Warnf("save key for server %s failed: %v", sid, err)
 			}
 		}
 	}
 
-	// Tell the Unraid client which API base to talk to (backward compat).
+	// Backward compat
 	h.ur.SetBase(req.APIBase)
 
-	// Attempt WebGUI login to establish an HTTP API session.
-	// This enables the Unraid HTTP API channel for Docker/VM actions,
-	// disk spin, UPS status, parity control, etc.
-	// Login failure is not fatal — handlers will fall back to SSH.
-	sid := serverID(req.Host, req.SSHPort)
-	if req.Password != "" {
-		go func() {
-			if err := h.ur.Login(sid, req.APIBase, req.User, req.Password); err != nil {
-				logger.Warnf("WebGUI login for %s failed (non-fatal, SSH fallback): %v", sid, err)
-			}
-		}()
-	}
+	c.JSON(http.StatusOK, resp)
+}
 
-	c.JSON(http.StatusOK, connectResp{
-		Ok:              true,
-		Message:         "连接成功",
-		HostFingerprint: result.HostFingerprint,
-		ServerVersion:   result.ServerVersion,
-		ServerID:        sid,
-	})
+// hostFromAPIBase extracts the hostname from a URL like "https://tower.local:443"
+// or "https://192.168.1.99". Returns the raw host portion (no port).
+func hostFromAPIBase(apiBase string) string {
+	u, err := url.Parse(apiBase)
+	if err != nil || u.Hostname() == "" {
+		// Fallback: strip scheme
+		s := strings.TrimPrefix(apiBase, "https://")
+		s = strings.TrimPrefix(s, "http://")
+		return strings.SplitN(s, ":", 2)[0]
+	}
+	return u.Hostname()
 }
 
 // ListServers returns all saved servers and their connection status.
@@ -139,33 +183,38 @@ func (h *Handler) ListServers(c *gin.Context) {
 
 	entries := h.sm.List()
 	type serverInfo struct {
-		ID        string `json:"id"`
-		Host      string `json:"host"`
-		Port      int    `json:"port"`
-		User      string `json:"user"`
-		AuthMode  string `json:"authMode"`
-		Label     string `json:"label"`
-		Connected bool   `json:"connected"`
-		LastSeen  string `json:"lastSeen"`
+		ID           string `json:"id"`
+		Host         string `json:"host"`
+		Port         int    `json:"port"`
+		User         string `json:"user"`
+		AuthMode     string `json:"authMode"`
+		Label        string `json:"label"`
+		Connected    bool   `json:"connected"`
+		SSHAvailable bool   `json:"sshAvailable"`
+		APIAvailable bool   `json:"apiAvailable"`
+		LastSeen     string `json:"lastSeen"`
 	}
 
 	out := make([]serverInfo, 0, len(entries))
 	for _, e := range entries {
+		sid := e.ID
 		out = append(out, serverInfo{
-			ID:       e.ID,
-			Host:     e.Host,
-			Port:     e.Port,
-			User:     e.User,
-			AuthMode: e.AuthMode,
-			Label:    e.Label,
-			Connected: h.pool.Connected(e.Host, e.Port),
-			LastSeen: e.LastSeen,
+			ID:           sid,
+			Host:         e.Host,
+			Port:         e.Port,
+			User:         e.User,
+			AuthMode:     e.AuthMode,
+			Label:        e.Label,
+			Connected:    h.pool.Connected(e.Host, e.Port),
+			SSHAvailable: h.pool.Connected(e.Host, e.Port),
+			APIAvailable: h.ur.HasSession(sid),
+			LastSeen:     e.LastSeen,
 		})
 	}
 	c.JSON(http.StatusOK, gin.H{"servers": out})
 }
 
-// DisconnectServer tears down the SSH connection for a specific server.
+// DisconnectServer tears down the connection for a specific server.
 func (h *Handler) DisconnectServer(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -181,6 +230,7 @@ func (h *Handler) DisconnectServer(c *gin.Context) {
 		return
 	}
 	_ = h.pool.Forget(entry.Host, entry.Port)
+	h.ur.RemoveSession(id)
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已断开"})
 }
 
@@ -213,6 +263,8 @@ func (h *Handler) DeleteServer(c *gin.Context) {
 }
 
 // ReconnectServer attempts to reconnect to a previously saved server.
+// v0.3+: Tries WebGUI login first, then SSH. If SSH fails but API works,
+// server is still usable in API-only mode.
 func (h *Handler) ReconnectServer(c *gin.Context) {
 	id := c.Param("id")
 	if id == "" {
@@ -226,37 +278,47 @@ func (h *Handler) ReconnectServer(c *gin.Context) {
 		return
 	}
 
-	// Forget existing connection if any
-	_ = h.pool.Forget(cfg.Host, cfg.Port)
+	// WebGUI login
+	apiAvailable := false
+	if cfg.Password != "" {
+		if err := h.ur.Login(id, cfg.APIBase, cfg.User, cfg.Password); err != nil {
+			logger.Warnf("WebGUI login for %s on reconnect failed: %v", id, err)
+		} else {
+			apiAvailable = true
+		}
+	}
 
-	result, err := h.pool.Connect(cfg)
-	if err != nil {
-		status := http.StatusUnauthorized
-		if isNetworkErr(err) {
+	// SSH connect
+	_ = h.pool.Forget(cfg.Host, cfg.Port)
+	result, sshErr := h.pool.Connect(cfg)
+	sshAvailable := sshErr == nil
+
+	if !apiAvailable && !sshAvailable {
+		status := http.StatusBadGateway
+		if isNetworkErr(sshErr) {
 			status = http.StatusBadGateway
 		}
-		errOut(c, status, friendlySSHError(err))
+		errOut(c, status, friendlySSHError(sshErr))
 		return
 	}
 
 	h.ur.SetBase(cfg.APIBase)
 
-	// Attempt WebGUI login on reconnect too
-	sid := serverID(cfg.Host, cfg.Port)
-	if cfg.Password != "" {
-		go func() {
-			if err := h.ur.Login(sid, cfg.APIBase, cfg.User, cfg.Password); err != nil {
-				logger.Warnf("WebGUI login for %s on reconnect failed (non-fatal): %v", sid, err)
-			}
-		}()
+	resp := connectResp{
+		Ok:           true,
+		ServerID:     id,
+		APIAvailable: apiAvailable,
+		SSHAvailable: sshAvailable,
 	}
 
-	c.JSON(http.StatusOK, connectResp{
-		Ok:              true,
-		Message:         "重连成功",
-		HostFingerprint: result.HostFingerprint,
-		ServerID:        sid,
-	})
+	if sshAvailable {
+		resp.HostFingerprint = result.HostFingerprint
+		resp.Message = "重连成功"
+	} else {
+		resp.Message = "WebGUI 重连成功，SSH 失败（终端和文件功能不可用）"
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 // Disconnect is the legacy single-server disconnect handler.

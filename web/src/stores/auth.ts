@@ -14,6 +14,12 @@ interface AuthState {
   /** Currently active server ID (for multi-server). */
   activeServerId: string | null;
 
+  // v0.3.1+: Connection mode tracking
+  /** Whether the active server has SSH available (terminal + SFTP). */
+  sshAvailable: boolean;
+  /** Whether the active server has WebGUI API session active. */
+  apiAvailable: boolean;
+
   // --- UI Authentication (v0.5) ---
   uiAuthEnabled: boolean;
   isUiAuthenticated: boolean;
@@ -41,6 +47,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   isConfigured: false,
   servers: [],
   activeServerId: null,
+  sshAvailable: true, // default true for backward compat
+  apiAvailable: true,
 
   uiAuthEnabled: false,
   isUiAuthenticated: true,
@@ -66,6 +74,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       uiAuthEnabled: false,
       isUiAuthenticated: true,
       authChecked: false,
+      sshAvailable: true,
+      apiAvailable: true,
     }),
 
   checkAuth: async () => {
@@ -114,6 +124,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               label: current.label || current.host,
               id: current.id,
             },
+            sshAvailable: current.sshAvailable,
+            apiAvailable: current.apiAvailable,
           });
           setActiveServerId(currentActiveId);
         }
@@ -145,6 +157,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         id: info.id,
       },
       isConfigured: true,
+      sshAvailable: info.sshAvailable,
+      apiAvailable: info.apiAvailable,
     });
     // Sync server ID to API client for data requests
     setActiveServerId(id);

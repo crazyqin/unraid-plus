@@ -45,7 +45,8 @@ func (h *Handler) Hub() *ssh.TerminalHub {
 }
 
 // activeClient returns the currently-connected SSH client or aborts the
-// request with a 503. Used as a one-liner at the top of every data handler.
+// request with a 503. Used as a one-liner at the top of every data handler
+// that requires SSH (terminal, SFTP, /proc/* reads, state files).
 func (h *Handler) activeClient(c *gin.Context) (*ssh.Client, bool) {
 	cli, _, ok := h.activeClientWithID(c)
 	return cli, ok
@@ -63,8 +64,8 @@ func (h *Handler) activeClientWithID(c *gin.Context) (*ssh.Client, string, bool)
 		}
 		cli, err := h.pool.Get(entry.Host, entry.Port)
 		if err != nil {
-			errOut(c, 503, "服务器 "+entry.Host+" 连接不可用，请重新连接")
-			return nil, "", false
+			errOut(c, 503, "服务器 "+entry.Host+" SSH 连接不可用（可能处于 API-only 模式）")
+			return nil, id, false
 		}
 		return cli, id, true
 	}
@@ -85,6 +86,40 @@ func (h *Handler) activeClientWithID(c *gin.Context) (*ssh.Client, string, bool)
 		sid = serverID(cfg.Host, cfg.Port)
 	}
 	return cli, sid, true
+}
+
+// getServerID returns the server ID for the current request.
+// Unlike activeClient, this does NOT require SSH — it works in API-only mode.
+// Returns ("", false) if no server context is available at all.
+func (h *Handler) getServerID(c *gin.Context) (string, bool) {
+	if id := c.Query("serverId"); id != "" {
+		if h.sm != nil && h.sm.Get(id) != nil {
+			return id, true
+		}
+		return "", false
+	}
+	// Try active SSH connection
+	cfg, err := h.pool.ActiveConfig()
+	if err == nil && cfg != nil {
+		return serverID(cfg.Host, cfg.Port), true
+	}
+	// Try any persisted server
+	if h.sm != nil {
+		entries := h.sm.List()
+		if len(entries) > 0 {
+			return entries[0].ID, true
+		}
+	}
+	return "", false
+}
+
+// hasAPISession returns whether the server has an active WebGUI session.
+func (h *Handler) hasAPISession(c *gin.Context) bool {
+	sid, ok := h.getServerID(c)
+	if !ok {
+		return false
+	}
+	return h.ur.HasSession(sid)
 }
 
 // errOut writes a uniform {"ok":false,"message":…} error.

@@ -206,11 +206,18 @@ export default function DockerPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex items-start gap-2.5 min-w-0">
                     {/* Container icon from Unraid */}
-                    {c.icon ? (
+                    {c.icon || c.iconUrl ? (
                       <img
-                        src={c.icon}
+                        src={c.icon || c.iconUrl}
                         alt={c.name}
                         className="h-8 w-8 shrink-0 rounded bg-white/90 object-contain p-0.5 dark:bg-white/80"
+                        onError={(e) => {
+                          // If URL-based icon fails to load, replace with fallback
+                          const img = e.currentTarget;
+                          if (img.src === c.iconUrl) {
+                            img.style.display = 'none';
+                          }
+                        }}
                       />
                     ) : (
                       <div className="grid h-8 w-8 shrink-0 place-items-center rounded bg-primary/10 text-primary">

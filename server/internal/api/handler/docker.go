@@ -13,7 +13,8 @@ type container struct {
 	ID        string   `json:"id"`
 	Name      string   `json:"name"`
 	Image     string   `json:"image"`
-	Icon      string   `json:"icon,omitempty"` // base64-encoded PNG from Unraid
+	Icon      string   `json:"icon,omitempty"` // base64-encoded PNG from Unraid state dir
+	IconURL   string   `json:"iconUrl,omitempty"` // icon URL from Docker label (fallback for client-side)
 	Status    string   `json:"status"`
 	State     string   `json:"state"`
 	CreatedAt int64    `json:"createdAt"`
@@ -47,6 +48,13 @@ func (h *Handler) ListContainers(c *gin.Context) {
 	}
 
 	containers := []container{}
+	// We also need icon URLs from Docker labels
+	type iconInfo struct {
+		name    string
+		iconURL string
+	}
+	var iconInfos []iconInfo
+
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -69,6 +77,7 @@ func (h *Handler) ListContainers(c *gin.Context) {
 		if st == "" {
 			st = parseStatusFromStatus(ps.Status)
 		}
+		cName := strings.TrimPrefix(ps.Names, "/")
 		containers = append(containers, container{
 			ID:        ps.ID,
 			Name:      ps.Names,
@@ -79,40 +88,74 @@ func (h *Handler) ListContainers(c *gin.Context) {
 			StartedAt: parseDockerTime(ps.CreatedAt),
 			Ports:     splitPorts(ps.Ports),
 		})
+		iconInfos = append(iconInfos, iconInfo{name: cName})
 	}
 
-	// Fetch container icons from Unraid's image directory.
-	// Icons are stored as <container-name>.png in the Docker plugin's state dir.
-	// We batch-read them in one SSH command for efficiency.
-	// Multiple possible locations across Unraid versions.
+	// --- Icon resolution strategy ---
+	// 1. Try reading <name>-icon.png from Unraid's state images dir (primary)
+	//    and <name>.png from plugins images dir (fallback for built-in icons)
+	// 2. If no local icon file exists, extract the icon URL from Docker label
+	//    net.unraid.docker.icon so the frontend can load it directly
 	if len(containers) > 0 && cli != nil {
-		// Build a command that:
-		// 1. Detects which icon directory exists
-		// 2. Reads each icon and outputs "ICON:name:base64"
-		// Uses semicolons instead of newlines to avoid shell parsing issues.
+		// Build a batch SSH command to read icon files
+		// Unraid stores icons as <name>-icon.png in the state directory
+		stateDir := "/usr/local/emhttp/state/plugins/dynamix.docker.manager/images"
+		pluginDir := "/usr/local/emhttp/plugins/dynamix.docker.manager/images"
+
 		var nameList []string
-		for _, ct := range containers {
-			name := strings.TrimPrefix(ct.Name, "/")
-			if name != "" {
-				nameList = append(nameList, shellQuote(name))
+		for _, info := range iconInfos {
+			if info.name != "" {
+				nameList = append(nameList, shellQuote(info.name))
 			}
 		}
 		if len(nameList) > 0 {
-			// Probe icon directories in priority order, then read all found icons
-			iconCmd := `ICONDIR="";` +
-				`for d in /usr/local/emhttp/state/plugins/dynamix.docker.manager/images /boot/config/plugins/dynamix.docker.manager/images /usr/local/emhttp/plugins/dynamix.docker.manager/images; do ` +
-				`if [ -d "$d" ]; then ICONDIR="$d"; break; fi; done; ` +
-				`if [ -n "$ICONDIR" ]; then ` +
-				`for n in ` + strings.Join(nameList, " ") + `; do ` +
-				`f="${ICONDIR}/${n}.png"; ` +
-				`if [ -f "$f" ]; then echo "ICON:${n}:$(base64 -w0 "$f")"; fi; ` +
-				`done; fi`
+			// Try state dir (<name>-icon.png) first, fall back to plugins dir (<name>.png)
+			iconCmd := `for n in ` + strings.Join(nameList, " ") + `; do ` +
+				`f="` + stateDir + `/${n}-icon.png"; ` +
+				`if [ -f "$f" ]; then echo "ICON:${n}:$(base64 -w0 "$f")"; continue; fi; ` +
+				`f="` + pluginDir + `/${n}.png"; ` +
+				`if [ -f "$f" ]; then echo "ICON:${n}:$(base64 -w0 "$f")"; continue; fi; ` +
+				`done`
 			iconOut, _ := cli.Run(iconCmd)
 			iconMap := parseIconOutput(iconOut)
 			for i := range containers {
 				name := strings.TrimPrefix(containers[i].Name, "/")
 				if b64, ok := iconMap[name]; ok {
 					containers[i].Icon = "data:image/png;base64," + b64
+				}
+			}
+		}
+
+		// For containers without local icon files, get the icon URL from Docker labels
+		// This allows the frontend to load icons directly from the URL
+		labelOut, _ := cli.Run(
+			`docker inspect --format '{{.Name}}|{{index .Config.Labels "net.unraid.docker.icon"}}' ` +
+				strings.Join(func() []string {
+					ids := make([]string, 0, len(containers))
+					for _, ct := range containers {
+						ids = append(ids, ct.ID)
+					}
+					return ids
+				}(), " ") + " 2>/dev/null",
+		)
+		if labelOut != "" {
+			for _, line := range strings.Split(strings.TrimSpace(labelOut), "\n") {
+				line = strings.TrimSpace(line)
+				parts := strings.SplitN(line, "|", 2)
+				if len(parts) != 2 {
+					continue
+				}
+				cName := strings.TrimPrefix(parts[0], "/")
+				iconURL := strings.TrimSpace(parts[1])
+				if iconURL == "" {
+					continue
+				}
+				// Find the matching container and set iconUrl if it doesn't already have a local icon
+				for i := range containers {
+					name := strings.TrimPrefix(containers[i].Name, "/")
+					if name == cName && containers[i].Icon == "" {
+						containers[i].IconURL = iconURL
+					}
 				}
 			}
 		}

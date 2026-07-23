@@ -85,6 +85,8 @@ export interface DockerContainer {
   image: string;
   /** base64-encoded container icon PNG from Unraid Docker plugin. */
   icon?: string;
+  /** Icon URL from Docker label net.unraid.docker.icon (fallback when no local icon). */
+  iconUrl?: string;
   status: 'running' | 'exited' | 'paused' | 'restarting' | 'created' | 'dead';
   state: string;
   createdAt: number;

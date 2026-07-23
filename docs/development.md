@@ -1,4 +1,14 @@
 
+---
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: '2be182a5-b546-4583-9036-d650074be3d6'
+  PropagateID: '2be182a5-b546-4583-9036-d650074be3d6'
+  ReservedCode1: '1a149900-ecb0-4127-8e49-c408b443e509'
+  ReservedCode2: '1a149900-ecb0-4127-8e49-c408b443e509'
+---
+
 # 开发指南（Development）
 
 本文档说明如何在本地把 unraid-plus 跑起来、修改代码、调试，以及提交贡献时需要遵守的

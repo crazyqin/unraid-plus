@@ -1,4 +1,14 @@
 
+---
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: '7e1b1d7a-e570-422d-851a-55dbfabbd9fc'
+  PropagateID: '7e1b1d7a-e570-422d-851a-55dbfabbd9fc'
+  ReservedCode1: '2a71f702-55cd-4df7-9e9a-b5b3a5f25ed5'
+  ReservedCode2: '2a71f702-55cd-4df7-9e9a-b5b3a5f25ed5'
+---
+
 # unraid-plus
 
 一个基于 Web 的 Unraid 服务器管理器，通过 SSH 直连你的 NAS，无需安装任何客户端。

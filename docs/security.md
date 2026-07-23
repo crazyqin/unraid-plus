@@ -1,4 +1,14 @@
 
+---
+  ContentProducer: '001191110102MAD55U9H0F10002'
+  ContentPropagator: '001191110102MAD55U9H0F10002'
+  Label: '1'
+  ProduceID: '2aa45dd6-df9c-469e-9fb0-8510636e1862'
+  PropagateID: '2aa45dd6-df9c-469e-9fb0-8510636e1862'
+  ReservedCode1: 'b92ff0ee-18f6-4dcd-bcd7-5f16f731fd1b'
+  ReservedCode2: 'b92ff0ee-18f6-4dcd-bcd7-5f16f731fd1b'
+---
+
 # 安全模型（Security）
 
 unraid-plus 是一个以 root 权限操作 NAS 的代理，安全是头等大事。本文档说明威胁模型、

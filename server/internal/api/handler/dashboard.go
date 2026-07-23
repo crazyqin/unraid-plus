@@ -79,7 +79,7 @@ func (h *Handler) Dashboard(c *gin.Context) {
 		CPU: cpuInfo{
 			ModelName:    strings.TrimSpace(modelName),
 			Cores:        atoiSafe(coreCountStr, 1),
-			PerCoreTempC: parseThermal(temps),
+			PerCoreTempC: expandCoreTemps(parseThermal(temps), atoiSafe(coreCountStr, 1)),
 		},
 	}
 	resp.CPU.UsagePct, resp.CPU.PerCoreUsagePct = computeCPUUsage(cpu1, cpu2, resp.CPU.Cores)
@@ -440,4 +440,43 @@ func readCoreTempCmd() string {
     fi
     for z in /sys/class/thermal/thermal_zone*; do cat $z/temp 2>/dev/null || true; done
   )`
+}
+
+// expandCoreTemps maps physical core temperatures to logical cores.
+//
+// Intel CPUs with Hyper-Threading have N physical cores but 2N logical cores.
+// The coretemp driver exposes one temperature per physical core, so the parsed
+// array may be shorter than nproc. For example, an i5-8279U (4C/8T) reports
+// 4 temps for 8 logical cores.
+//
+// This function expands the shorter physical-core array to match nCores by
+// duplicating each physical core's temperature for its sibling threads:
+//
+//	phyTemps=[t0,t1,t2,t3] + nCores=8 → [t0,t0,t1,t1,t2,t2,t3,t3]
+//
+// If the temperature count already matches nCores (AMD or non-HT Intel),
+// the array is returned unchanged. If there are more temps than cores, the
+// excess is trimmed. If there are zero temps, an empty array is returned.
+func expandCoreTemps(phyTemps []float64, nCores int) []float64 {
+	nPhys := len(phyTemps)
+	if nPhys == 0 || nCores == 0 {
+		return phyTemps
+	}
+	// Already matches or more temps than cores — return as-is
+	if nPhys >= nCores {
+		return phyTemps[:nCores]
+	}
+	// Expand: each physical core's temp maps to (nCores/nPhys) logical cores
+	ratio := nCores / nPhys
+	out := make([]float64, 0, nCores)
+	for _, t := range phyTemps {
+		for j := 0; j < ratio; j++ {
+			out = append(out, t)
+		}
+	}
+	// Pad remaining if nCores is not evenly divisible
+	for len(out) < nCores {
+		out = append(out, phyTemps[len(phyTemps)-1])
+	}
+	return out
 }

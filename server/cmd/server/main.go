@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -101,6 +102,16 @@ func main() {
 			sid := connCfg.Host + ":" + fmt.Sprintf("%d", connCfg.Port)
 			if err := ur.Login(sid, connCfg.APIBase, connCfg.User, connCfg.Password); err != nil {
 				logger.Warnf("auto-connect WebGUI login failed (non-fatal): %v", err)
+				// Retry with HTTP if HTTPS failed due to protocol mismatch
+				if strings.HasPrefix(connCfg.APIBase, "https://") && strings.Contains(err.Error(), "HTTP response to HTTPS") {
+					httpBase := "http://" + strings.TrimPrefix(connCfg.APIBase, "https://")
+					logger.Infof("auto-connect: retrying WebGUI login with %s", httpBase)
+					if err2 := ur.Login(sid, httpBase, connCfg.User, connCfg.Password); err2 != nil {
+						logger.Warnf("auto-connect WebGUI login (http) also failed: %v", err2)
+					} else {
+						connCfg.APIBase = httpBase
+					}
+				}
 			}
 		}()
 	} else {
@@ -126,6 +137,16 @@ func main() {
 					go func(sid, apiBase, user, pw string) {
 						if err := ur.Login(sid, apiBase, user, pw); err != nil {
 							logger.Warnf("auto-reconnect WebGUI login %s failed (non-fatal): %v", sid, err)
+							// Retry with HTTP if HTTPS protocol mismatch
+							if strings.HasPrefix(apiBase, "https://") && strings.Contains(err.Error(), "HTTP response to HTTPS") {
+								httpBase := "http://" + strings.TrimPrefix(apiBase, "https://")
+								logger.Infof("auto-reconnect: retrying WebGUI login with %s", httpBase)
+								if err2 := ur.Login(sid, httpBase, user, pw); err2 != nil {
+									logger.Warnf("auto-reconnect WebGUI login (http) %s also failed: %v", sid, err2)
+								} else {
+									ur.SetBase(httpBase)
+								}
+							}
 						}
 					}(entry.ID, rc.APIBase, rc.User, rc.Password)
 				}

@@ -83,13 +83,25 @@ func (c *Client) Login(serverID, apiBase, username, password string) error {
 
 	base := strings.TrimRight(apiBase, "/")
 
-	// POST to the login form. Unraid's login endpoint is /login.
+	// Step 1: GET /login to obtain a PHPSESSID cookie.
+	// Unraid uses PHP sessions — the login form validation requires an active
+	// session. Without this step, POST /login always returns 200 (re-renders
+	// the login page with an error) because there's no session to authenticate against.
+	loginPageURL := base + "/login"
+	resp, err := httpc.Get(loginPageURL)
+	if err != nil {
+		return fmt.Errorf("fetch login page failed: %w", err)
+	}
+	io.ReadAll(resp.Body)
+	resp.Body.Close()
+
+	// Step 2: POST to the login form with the session cookie now in the jar.
 	loginURL := base + "/login"
 	form := url.Values{}
 	form.Set("username", username)
 	form.Set("password", password)
 
-	resp, err := httpc.PostForm(loginURL, form)
+	resp, err = httpc.PostForm(loginURL, form)
 	if err != nil {
 		return fmt.Errorf("login request failed: %w", err)
 	}
@@ -98,11 +110,13 @@ func (c *Client) Login(serverID, apiBase, username, password string) error {
 	// Read body (required for connection reuse)
 	io.ReadAll(resp.Body)
 
-	// Unraid redirects to /Main on successful login (302 -> /Main).
+	// Unraid redirects on successful login (302 -> /Dashboard or /Main).
 	// If we get 200, the login page was re-rendered (bad credentials).
 	// If we get 302, login succeeded.
-	if resp.StatusCode == http.StatusOK && !strings.Contains(resp.Request.URL.Path, "Main") {
-		return fmt.Errorf("login failed: invalid credentials (status 200, not redirected to /Main)")
+	// Note: Unraid 7.x redirects to /Dashboard; older versions use /Main.
+	finalPath := resp.Request.URL.Path
+	if resp.StatusCode == http.StatusOK && !strings.Contains(finalPath, "Dashboard") && !strings.Contains(finalPath, "Main") {
+		return fmt.Errorf("login failed: invalid credentials (status 200, not redirected)")
 	}
 
 	// Extract cookies from the jar for our base URL

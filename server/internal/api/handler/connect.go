@@ -52,16 +52,18 @@ func (h *Handler) Connect(c *gin.Context) {
 	// --- Normalize inputs ---
 	if req.APIBase == "" && req.Host != "" {
 		// Legacy: host provided but no apiBase → derive
-		req.APIBase = "https://" + req.Host
+		req.APIBase = req.Host
 	}
 	if req.APIBase == "" {
-		errOut(c, http.StatusBadRequest, "请提供 Unraid 服务器地址（如 https://tower.local 或 192.168.1.99）")
+		errOut(c, http.StatusBadRequest, "请提供 Unraid 服务器地址（如 tower.local 或 192.168.1.99）")
 		return
 	}
-	// Ensure scheme
-	if !strings.HasPrefix(req.APIBase, "http://") && !strings.HasPrefix(req.APIBase, "https://") {
-		req.APIBase = "https://" + req.APIBase
-	}
+	// Save original before normalizing (to detect explicit scheme)
+	origAPIBase := req.APIBase
+	// Normalize: strip scheme if user typed one, we'll try both
+	apiBaseNoScheme := req.APIBase
+	apiBaseNoScheme = strings.TrimPrefix(apiBaseNoScheme, "https://")
+	apiBaseNoScheme = strings.TrimPrefix(apiBaseNoScheme, "http://")
 	if req.User == "" {
 		req.User = "root"
 	}
@@ -82,12 +84,35 @@ func (h *Handler) Connect(c *gin.Context) {
 	resp := connectResp{Ok: true, ServerID: sid}
 
 	// --- Step 1: WebGUI login (primary) ---
+	// Try HTTPS first; if it fails with a protocol error (HTTP server on HTTPS
+	// port), fall back to plain HTTP. Many home Unraid setups run HTTP only.
 	apiAvailable := false
 	if req.Password != "" {
-		if err := h.ur.Login(sid, req.APIBase, req.User, req.Password); err != nil {
-			logger.Warnf("WebGUI login for %s failed: %v", sid, err)
+		// Determine which scheme(s) to try based on user input
+		var schemes []string
+		if strings.HasPrefix(origAPIBase, "http://") {
+			schemes = []string{"http"}
+		} else if strings.HasPrefix(origAPIBase, "https://") {
+			schemes = []string{"https"}
 		} else {
-			apiAvailable = true
+			// No explicit scheme: try HTTPS first, fall back to HTTP
+			schemes = []string{"https", "http"}
+		}
+
+		for _, scheme := range schemes {
+			apiURL := scheme + "://" + apiBaseNoScheme
+			if err := h.ur.Login(sid, apiURL, req.User, req.Password); err != nil {
+				logger.Warnf("WebGUI login %s://%s failed: %v", scheme, apiBaseNoScheme, err)
+				// If HTTPS got "HTTP response to HTTPS client", try HTTP next
+				if scheme == "https" && strings.Contains(err.Error(), "HTTP response to HTTPS") {
+					logger.Infof("Unraid appears to be HTTP-only, retrying with http://")
+					continue
+				}
+			} else {
+				apiAvailable = true
+				req.APIBase = apiURL // remember the working URL
+				break
+			}
 		}
 	}
 	resp.APIAvailable = apiAvailable
@@ -278,11 +303,23 @@ func (h *Handler) ReconnectServer(c *gin.Context) {
 		return
 	}
 
-	// WebGUI login
+	// WebGUI login — try with stored apiBase first, fall back HTTP if HTTPS fails
 	apiAvailable := false
 	if cfg.Password != "" {
-		if err := h.ur.Login(id, cfg.APIBase, cfg.User, cfg.Password); err != nil {
+		apiBase := cfg.APIBase
+		if err := h.ur.Login(id, apiBase, cfg.User, cfg.Password); err != nil {
 			logger.Warnf("WebGUI login for %s on reconnect failed: %v", id, err)
+			// If HTTPS failed due to HTTP server, try HTTP
+			if strings.HasPrefix(apiBase, "https://") && strings.Contains(err.Error(), "HTTP response to HTTPS") {
+				httpBase := "http://" + strings.TrimPrefix(apiBase, "https://")
+				logger.Infof("Reconnect: retrying with %s", httpBase)
+				if err2 := h.ur.Login(id, httpBase, cfg.User, cfg.Password); err2 != nil {
+					logger.Warnf("WebGUI login (http) for %s on reconnect also failed: %v", id, err2)
+				} else {
+					apiAvailable = true
+					cfg.APIBase = httpBase
+				}
+			}
 		} else {
 			apiAvailable = true
 		}

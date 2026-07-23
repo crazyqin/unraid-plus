@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Loader2, ShieldCheck } from 'lucide-react';
 import { useAuthStore } from '@/stores/auth';
@@ -15,6 +16,7 @@ import {
 import { ApiError } from '@/lib/api';
 
 export default function LoginPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const login = useAuthStore((s) => s.login);
   const [password, setPassword] = useState('');
@@ -31,10 +33,10 @@ export default function LoginPage() {
       if (ok) {
         navigate('/', { replace: true });
       } else {
-        setError('密码错误');
+        setError(t('login.wrongPassword'));
       }
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : '登录失败，请重试');
+      setError(err instanceof ApiError ? err.message : t('login.loginFailed'));
     } finally {
       setLoading(false);
     }
@@ -47,20 +49,20 @@ export default function LoginPage() {
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
             <ShieldCheck className="h-6 w-6 text-primary" />
           </div>
-          <CardTitle className="text-xl">unraid-plus 登录</CardTitle>
-          <CardDescription>请输入访问密码以继续</CardDescription>
+          <CardTitle className="text-xl">{t('login.title')}</CardTitle>
+          <CardDescription>{t('login.desc')}</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={submit} className="space-y-4">
             <div className="space-y-2">
-              <Label htmlFor="password">密码</Label>
+              <Label htmlFor="password">{t('login.password')}</Label>
               <div className="relative">
                 <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   id="password"
                   type="password"
                   className="pl-9"
-                  placeholder="输入访问密码…"
+                  placeholder={t('login.placeholder')}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   autoFocus
@@ -74,10 +76,10 @@ export default function LoginPage() {
             <Button type="submit" className="w-full" disabled={loading || !password}>
               {loading ? (
                 <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> 登录中…
+                  <Loader2 className="h-4 w-4 animate-spin" /> {t('login.loggingIn')}
                 </>
               ) : (
-                '登录'
+                t('login.login')
               )}
             </Button>
           </form>

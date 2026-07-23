@@ -2,6 +2,7 @@
  * Lightweight API client. Throws an `ApiError` (with status + body) on non-2xx
  * so React Query can surface it via `error`.
  */
+import i18n from '@/i18n';
 export class ApiError extends Error {
   status: number;
   body: unknown;
@@ -176,7 +177,7 @@ export const api = {
         }
       };
 
-      xhr.onerror = () => reject(new ApiError('网络错误，上传失败', 0, null));
+      xhr.onerror = () => reject(new ApiError(i18n.t('api.networkError'), 0, null));
       xhr.send(formData);
     });
   },

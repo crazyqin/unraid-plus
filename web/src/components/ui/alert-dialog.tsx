@@ -2,6 +2,7 @@ import * as React from 'react';
 import * as AlertDialogPrimitive from '@radix-ui/react-alert-dialog';
 import { cn } from '@/lib/utils';
 import { buttonVariants } from '@/components/ui/button';
+import i18n from '@/i18n';
 
 const AlertDialog = AlertDialogPrimitive.Root;
 const AlertDialogTrigger = AlertDialogPrimitive.Trigger;
@@ -143,8 +144,8 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmText = '确认',
-  cancelText = '取消',
+  confirmText,
+  cancelText,
   variant = 'default',
   loading = false,
   onConfirm,
@@ -160,6 +161,8 @@ export function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const _confirmText = confirmText ?? i18n.t('common.confirm');
+  const _cancelText = cancelText ?? i18n.t('common.cancel');
   return (
     <AlertDialog open={open} onOpenChange={(o) => !o && onCancel()}>
       <AlertDialogContent className="max-w-sm">
@@ -171,7 +174,7 @@ export function ConfirmDialog({
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={loading} onClick={onCancel}>
-            {cancelText}
+            {_cancelText}
           </AlertDialogCancel>
           <AlertDialogAction
             disabled={loading}
@@ -185,7 +188,7 @@ export function ConfirmDialog({
                 : undefined
             }
           >
-            {loading ? '处理中…' : confirmText}
+            {loading ? i18n.t('common.processing') : _confirmText}
           </AlertDialogAction>
         </AlertDialogFooter>
       </AlertDialogContent>

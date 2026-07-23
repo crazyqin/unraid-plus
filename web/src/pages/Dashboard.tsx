@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import {
   Area,
@@ -61,14 +62,16 @@ const RANGE_SECONDS: Record<ChartRange, number> = {
   '2h': 7200,
 };
 
-const RANGE_LABELS: Record<ChartRange, string> = {
-  '60s': '1 分钟',
-  '5m': '5 分钟',
-  '30m': '30 分钟',
-  '2h': '2 小时',
-};
+
 
 export default function DashboardPage() {
+  const { t } = useTranslation();
+  const RANGE_LABELS: Record<ChartRange, string> = {
+    '60s': t('time.1min'),
+    '5m': t('time.5min'),
+    '30m': t('time.30min'),
+    '2h': t('time.2hr'),
+  };
   const refreshInterval = useSettingsStore((s) => s.refreshInterval);
   const chartRange = useSettingsStore((s) => s.chartRange);
   const setChartRange = useSettingsStore((s) => s.setChartRange);
@@ -76,9 +79,9 @@ export default function DashboardPage() {
   const apiAvailable = useAuthStore((s) => s.apiAvailable);
 
   const modeLabel =
-    sshAvailable && apiAvailable ? '双通道' :
-    apiAvailable ? 'API 模式' :
-    sshAvailable ? 'SSH 模式' : '';
+    sshAvailable && apiAvailable ? t('connection.dual') :
+    apiAvailable ? t('connection.api') :
+    sshAvailable ? t('connection.ssh') : '';
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api.get<DashboardSummary>('/dashboard'),
@@ -119,11 +122,11 @@ export default function DashboardPage() {
             <Activity className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">仪表盘</h1>
+            <h1 className="text-xl font-semibold">{t('dashboard.title')}</h1>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               {data && (
                 <Badge variant="success" className="text-[10px]">
-                  在线
+                  {t('common.online')}
                 </Badge>
               )}
               {data && modeLabel && (
@@ -145,14 +148,14 @@ export default function DashboardPage() {
                     </Badge>
                   </TooltipTrigger>
                   <TooltipContent>
-                    {modeLabel === '双通道' ? 'WebGUI API + SSH 均已连接，所有功能可用' :
-                     modeLabel === 'API 模式' ? '仅 WebGUI API 已连接，终端和文件管理不可用' :
-                     '仅 SSH 已连接，部分功能受限'}
+                    {modeLabel === t('connection.dual') ? t('connection.dualTip') :
+                     modeLabel === t('connection.api') ? t('connection.apiTip') :
+                     t('connection.sshTip')}
                   </TooltipContent>
                 </Tooltip>
               )}
               <span>
-                服务器实时状态{refreshInterval > 0 ? ` · 每 ${refreshInterval / 1000}s 刷新` : ' · 已暂停刷新'}
+                {t('dashboard.serverStatus')}{refreshInterval > 0 ? ` · ${refreshInterval / 1000}s` : ` · ${t('dashboard.refreshPaused')}`}
               </span>
             </div>
           </div>
@@ -161,12 +164,12 @@ export default function DashboardPage() {
           {data && (
             <Badge variant="secondary" className="text-[10px] tabular-nums">
               <Gauge className="mr-1 h-3 w-3" />
-              负载 {data.loadAvg[0].toFixed(2)} / {data.loadAvg[1].toFixed(2)} / {data.loadAvg[2].toFixed(2)}
+              {t('dashboard.load')} {data.loadAvg[0].toFixed(2)} / {data.loadAvg[1].toFixed(2)} / {data.loadAvg[2].toFixed(2)}
             </Badge>
           )}
           {data && (
             <Badge variant="secondary" className="text-[10px]">
-              启动 {Math.floor(data.uptime / 3600)}h {Math.floor((data.uptime % 3600) / 60)}m
+              {t('dashboard.started')} {Math.floor(data.uptime / 3600)}h {Math.floor((data.uptime % 3600) / 60)}m
             </Badge>
           )}
           <select
@@ -183,7 +186,7 @@ export default function DashboardPage() {
 
       {isError && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-          无法获取数据。请确认后端已连接到 Unraid。
+          {t('dashboard.cannotFetch')}
         </div>
       )}
 
@@ -198,7 +201,7 @@ export default function DashboardPage() {
           subtitle={data?.cpu.modelName ?? ''}
         />
         <StatCard
-          title="内存"
+          title={t('dashboard.memory')}
           icon={MemoryStick}
           isLoading={isLoading}
           accent="text-sky-500"
@@ -211,7 +214,7 @@ export default function DashboardPage() {
           progress={data?.memory.usagePct}
         />
         <StatCard
-          title="网络"
+          title={t('dashboard.network')}
           icon={Network}
           isLoading={isLoading}
           accent="text-emerald-500"
@@ -225,7 +228,7 @@ export default function DashboardPage() {
           subtitle={data?.network[0]?.iface ?? ''}
         />
         <StatCard
-          title="阵列读写"
+          title={t('dashboard.arrayRW')}
           icon={HardDrive}
           isLoading={isLoading}
           accent="text-violet-500"
@@ -236,7 +239,7 @@ export default function DashboardPage() {
                 )}`
               : '—'
           }
-          subtitle="读 / 写"
+          subtitle={t('dashboard.rw')}
         />
       </div>
 
@@ -248,9 +251,9 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Cpu className="h-4 w-4 text-orange-500" /> CPU 使用率
+              <Cpu className="h-4 w-4 text-orange-500" /> {t('dashboard.cpuUsage')}
             </CardTitle>
-            <CardDescription>最近 {RANGE_LABELS[chartRange]}</CardDescription>
+            <CardDescription>{t('dashboard.recent')} {RANGE_LABELS[chartRange]}</CardDescription>
           </CardHeader>
           <CardContent className="h-56">
             <LineChart data={history} dataKey="cpu" color="hsl(var(--chart-cpu))" unit="%" />
@@ -260,9 +263,9 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Network className="h-4 w-4 text-emerald-500" /> 网络流量
+              <Network className="h-4 w-4 text-emerald-500" /> {t('dashboard.networkTraffic')}
             </CardTitle>
-            <CardDescription>接收 / 发送</CardDescription>
+            <CardDescription>{t('dashboard.rxTx')}</CardDescription>
           </CardHeader>
           <CardContent className="h-56">
             <DualLineChart data={history} />
@@ -272,9 +275,9 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Activity className="h-4 w-4 text-violet-500" /> 阵列读写速率
+              <Activity className="h-4 w-4 text-violet-500" /> {t('dashboard.arrayRWSpeed')}
             </CardTitle>
-            <CardDescription>读 / 写</CardDescription>
+            <CardDescription>{t('dashboard.rw')}</CardDescription>
           </CardHeader>
           <CardContent className="h-56">
             <RwChart data={history} />
@@ -284,9 +287,9 @@ export default function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
-              <Thermometer className="h-4 w-4 text-rose-500" /> 各核状态
+              <Thermometer className="h-4 w-4 text-rose-500" /> {t('dashboard.perCoreStatus')}
             </CardTitle>
-            <CardDescription>每核使用率 / 温度</CardDescription>
+            <CardDescription>{t('dashboard.perCoreDetail')}</CardDescription>
           </CardHeader>
           <CardContent>
             <CoreStatus data={data} isLoading={isLoading} />
@@ -301,6 +304,7 @@ export default function DashboardPage() {
 
 /* Array / Parity status summary strip */
 function ArrayStatusSummary() {
+  const { t } = useTranslation();
   const { data: storage } = useQuery({
     queryKey: ['storage-summary'],
     queryFn: () => api.get<ArrayStatus>('/storage'),
@@ -324,20 +328,20 @@ function ArrayStatusSummary() {
       {/* Array state */}
       <div className="flex items-center gap-1.5 text-xs">
         <HardDrive className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-muted-foreground">阵列:</span>
+        <span className="text-muted-foreground">{t('dashboard.array')}</span>
         <Badge
           variant={storage.state === 'started' ? 'success' : 'secondary'}
           className="text-[9px] px-1.5 py-0 leading-none"
         >
-          {storage.state === 'started' ? '已启动' : storage.state === 'stopped' ? '已停止' : storage.state}
+          {storage.state === 'started' ? t('dashboard.started') : storage.state === 'stopped' ? t('dashboard.stopped') : storage.state}
         </Badge>
         <span className="text-muted-foreground">
-          {totalDisks} 块磁盘
+          {totalDisks} {t('dashboard.diskCount')}
         </span>
         {problemDisks > 0 && (
           <span className="flex items-center gap-0.5 text-amber-500">
             <AlertTriangle className="h-3 w-3" />
-            {problemDisks} 问题
+            {problemDisks} {t('dashboard.issue')}
           </span>
         )}
       </div>
@@ -345,18 +349,18 @@ function ArrayStatusSummary() {
       {/* Parity status */}
       <div className="flex items-center gap-1.5 text-xs">
         <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-muted-foreground">校验:</span>
+        <span className="text-muted-foreground">{t('dashboard.parity')}</span>
         {parity?.state === 'checking' ? (
           <>
             <Badge variant="success" className="text-[9px] px-1.5 py-0 leading-none animate-pulse">
-              检查中
+              {t('dashboard.checking')}
             </Badge>
             <span className="tabular-nums font-medium">{formatPct(parity.progress)}</span>
-            <span className="text-muted-foreground">· {parity.speed} · 剩余 {parity.remaining}</span>
+            <span className="text-muted-foreground">· {parity.speed} · {t('dashboard.remaining')} {parity.remaining}</span>
           </>
         ) : (
           <Badge variant="secondary" className="text-[9px] px-1.5 py-0 leading-none">
-            {parity?.state === 'idle' ? '空闲' : '未知'}
+            {parity?.state === 'idle' ? t('dashboard.idle') : t('dashboard.unknown')}
           </Badge>
         )}
       </div>
@@ -469,6 +473,7 @@ function LineChart({
 }
 
 function DualLineChart({ data }: { data: Sample[] }) {
+  const { t } = useTranslation();
   const rxColor = 'hsl(var(--chart-rx))';
   const txColor = 'hsl(var(--chart-tx))';
   return (
@@ -505,7 +510,7 @@ function DualLineChart({ data }: { data: Sample[] }) {
             fontSize: 12,
           }}
           labelFormatter={(t) => new Date(Number(t)).toLocaleTimeString()}
-          formatter={(v: number, n: string) => [formatRate(v), n === 'rx' ? '↓ 接收' : '↑ 发送']}
+          formatter={(v: number, n: string) => [formatRate(v), n === 'rx' ? t('dashboard.rx') : t('dashboard.tx')]}
         />
         <Area type="monotone" dataKey="rx" stroke={rxColor} strokeWidth={2} fill="url(#g-rx)" isAnimationActive={false} />
         <Area type="monotone" dataKey="tx" stroke={txColor} strokeWidth={2} fill="url(#g-tx)" isAnimationActive={false} />
@@ -515,6 +520,7 @@ function DualLineChart({ data }: { data: Sample[] }) {
 }
 
 function RwChart({ data }: { data: Sample[] }) {
+  const { t } = useTranslation();
   const rdColor = 'hsl(var(--chart-rd))';
   const wrColor = 'hsl(var(--chart-wr))';
   return (
@@ -551,7 +557,7 @@ function RwChart({ data }: { data: Sample[] }) {
             fontSize: 12,
           }}
           labelFormatter={(t) => new Date(Number(t)).toLocaleTimeString()}
-          formatter={(v: number, n: string) => [formatRate(v), n === 'read' ? '读' : '写']}
+          formatter={(v: number, n: string) => [formatRate(v), n === 'read' ? t('dashboard.read') : t('dashboard.write')]}
         />
         <Area type="monotone" dataKey="read" stroke={rdColor} strokeWidth={2} fill="url(#g-rd)" isAnimationActive={false} />
         <Area type="monotone" dataKey="write" stroke={wrColor} strokeWidth={2} fill="url(#g-wr)" isAnimationActive={false} />
@@ -583,15 +589,16 @@ function CoreStatus({
   data?: DashboardSummary;
   isLoading: boolean;
 }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
   if (isLoading) return <Skeleton className="h-32 w-full" />;
-  if (!data) return <div className="text-sm text-muted-foreground">暂无数据</div>;
+  if (!data) return <div className="text-sm text-muted-foreground">{t('dashboard.noData')}</div>;
 
   const usage = data.cpu.perCoreUsagePct ?? [];
   const temps = data.cpu.perCoreTempC ?? [];
   if (usage.length === 0 && temps.length === 0) {
-    return <div className="text-sm text-muted-foreground">该 CPU 未提供使用率/温度读数</div>;
+    return <div className="text-sm text-muted-foreground">{t('dashboard.cpuNoData')}</div>;
   }
   const cores = Math.max(usage.length, temps.length);
 
@@ -615,14 +622,14 @@ function CoreStatus({
         <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground">
           <span className="flex items-center gap-1">
             <Cpu className="h-3.5 w-3.5" />
-            {cores} 核心
+            {cores} {t('dashboard.core')}
           </span>
           <span className="tabular-nums">
-            平均 <span className={cn('font-medium', avgUsage >= 70 ? 'text-warning' : avgUsage >= 90 ? 'text-destructive' : 'text-foreground')}>{avgUsage.toFixed(0)}%</span>
+            {t('dashboard.avg')} <span className={cn('font-medium', avgUsage >= 70 ? 'text-warning' : avgUsage >= 90 ? 'text-destructive' : 'text-foreground')}>{avgUsage.toFixed(0)}%</span>
           </span>
           {maxTemp !== null && maxTemp > 0 && (
             <span className="tabular-nums">
-              最高 <span className={cn('font-medium', maxTemp >= 80 ? 'text-destructive' : maxTemp >= 65 ? 'text-warning' : 'text-foreground')}>{maxTemp}°C</span>
+              {t('dashboard.max')} <span className={cn('font-medium', maxTemp >= 80 ? 'text-destructive' : maxTemp >= 65 ? 'text-warning' : 'text-foreground')}>{maxTemp}°C</span>
             </span>
           )}
         </div>
@@ -696,7 +703,7 @@ function CoreStatus({
           className="mt-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
         >
           <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')} />
-          {expanded ? '收起' : `查看全部 ${cores} 核心`}
+          {expanded ? t('dashboard.collapse') : `${t('dashboard.viewAll')} ${cores} ${t('dashboard.core')}`}
         </button>
       )}
     </div>

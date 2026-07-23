@@ -1,13 +1,26 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Moon, RefreshCw, Sun, Wifi, WifiOff, Zap } from 'lucide-react';
+import { Activity, Globe, Moon, RefreshCw, Sun, Wifi, WifiOff, Zap } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSettingsStore, THEMES } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
 import { cn } from '@/lib/utils';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
+
+const LANGUAGES = [
+  { code: 'zh', label: '中文' },
+  { code: 'en', label: 'English' },
+  { code: 'ja', label: '日本語' },
+  { code: 'ko', label: '한국어' },
+  { code: 'fr', label: 'Français' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'es', label: 'Español' },
+];
 
 export default function TopBar() {
+  const { t } = useTranslation();
   const server = useAuthStore((s) => s.server);
   const sshAvailable = useAuthStore((s) => s.sshAvailable);
   const apiAvailable = useAuthStore((s) => s.apiAvailable);
@@ -18,9 +31,9 @@ export default function TopBar() {
 
   // Derive connection mode label and style
   const modeLabel =
-    sshAvailable && apiAvailable ? '双通道' :
+    sshAvailable && apiAvailable ? t('connection.dual') :
     apiAvailable ? 'API' :
-    sshAvailable ? 'SSH' : '未连接';
+    sshAvailable ? 'SSH' : t('connection.disconnected');
   const modeStyle =
     sshAvailable && apiAvailable ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
     apiAvailable ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400' :
@@ -28,6 +41,7 @@ export default function TopBar() {
     'border-muted-foreground/40 bg-muted text-muted-foreground';
 
   const [themeOpen, setThemeOpen] = useState(false);
+  const [langOpen, setLangOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
 
   const health = useQuery({
@@ -63,11 +77,11 @@ export default function TopBar() {
           ) : (
             <WifiOff className="h-3.5 w-3.5" />
           )}
-          {online ? '在线' : '离线'}
+          {online ? t('common.online') : t('common.offline')}
         </div>
         <div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
           <Activity className="h-3.5 w-3.5" />
-          <span>刷新间隔</span>
+          <span>{t('topbar.refreshInterval')}</span>
           <select
             className="rounded border bg-background px-1.5 py-0.5 text-xs"
             value={refreshInterval}
@@ -77,7 +91,7 @@ export default function TopBar() {
             <option value={2000}>2s</option>
             <option value={5000}>5s</option>
             <option value={15000}>15s</option>
-            <option value={0}>暂停</option>
+            <option value={0}>{t('common.pause')}</option>
           </select>
         </div>
         <span className="max-w-[200px] truncate text-xs text-muted-foreground" title={server?.label || server?.host}>
@@ -94,15 +108,59 @@ export default function TopBar() {
             </div>
           </TooltipTrigger>
           <TooltipContent>
-            {modeLabel === '双通道' ? 'WebGUI API + SSH 均已连接，所有功能可用' :
-             modeLabel === 'API' ? '仅 WebGUI API 已连接，终端和文件管理不可用' :
-             modeLabel === 'SSH' ? '仅 SSH 已连接，部分功能受限' :
-             '未连接到服务器'}
+            {modeLabel === t('connection.dual') ? t('connection.dualTip') :
+             modeLabel === 'API' ? t('connection.apiTip') :
+             modeLabel === 'SSH' ? t('connection.sshTip') :
+             t('connection.notConnected')}
           </TooltipContent>
         </Tooltip>
       </div>
 
       <div className="flex items-center gap-2">
+        {/* Language quick switch */}
+        <div className="relative">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => setLangOpen((v) => !v)}
+                title={t('settings.language')}
+              >
+                <Globe className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{i18n.language?.split('-')[0]?.toUpperCase() ?? 'ZH'}</TooltipContent>
+          </Tooltip>
+
+          {langOpen && (
+            <>
+              <div className="fixed inset-0 z-40" onClick={() => setLangOpen(false)} />
+              <div
+                className="absolute right-0 top-full z-50 mt-2 w-36 animate-fade-in rounded-lg border bg-card p-1.5 shadow-xl"
+                onBlur={(e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget)) setLangOpen(false);
+                }}
+              >
+                {LANGUAGES.map((lang) => (
+                  <button
+                    key={lang.code}
+                    onClick={() => { i18n.changeLanguage(lang.code); setLangOpen(false); }}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
+                      (i18n.language?.split('-')[0] ?? 'zh') === lang.code
+                        ? 'bg-primary/10 text-primary font-medium'
+                        : 'text-foreground hover:bg-accent',
+                    )}
+                  >
+                    {lang.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+
         {/* Theme quick switch */}
         <div className="relative" ref={panelRef}>
           <Tooltip>
@@ -111,7 +169,7 @@ export default function TopBar() {
                 variant="ghost"
                 size="icon"
                 onClick={() => setThemeOpen((v) => !v)}
-                title="切换主题"
+                title={t('topbar.switchTheme')}
               >
                 {theme === 'daylight' ? (
                   <Sun className="h-4 w-4" />
@@ -120,7 +178,7 @@ export default function TopBar() {
                 )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent>主题：{currentTheme?.label}</TooltipContent>
+            <TooltipContent>{t('topbar.theme')}{currentTheme ? t('themes.' + currentTheme.id) : ''}</TooltipContent>
           </Tooltip>
 
           {themeOpen && (
@@ -134,26 +192,26 @@ export default function TopBar() {
                 }}
               >
                 <div className="mb-1.5 px-2 text-[11px] font-medium text-muted-foreground">
-                  主题风格
+                  {t('topbar.themeStyle')}
                 </div>
                 <div className="space-y-0.5">
-                  {THEMES.map((t) => (
+                  {THEMES.map((themeMeta) => (
                     <button
-                      key={t.id}
-                      onClick={() => { setTheme(t.id); setThemeOpen(false); }}
+                      key={themeMeta.id}
+                      onClick={() => { setTheme(themeMeta.id); setThemeOpen(false); }}
                       className={cn(
                         'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                        theme === t.id
+                        theme === themeMeta.id
                           ? 'bg-primary/10 text-primary'
                           : 'text-foreground hover:bg-accent',
                       )}
                     >
-                      <div className={`h-4 w-4 rounded-full ${t.accent} shrink-0 shadow-sm`} />
+                      <div className={`h-4 w-4 rounded-full ${themeMeta.accent} shrink-0 shadow-sm`} />
                       <div className="min-w-0 flex-1">
-                        <div className="text-xs font-medium leading-tight">{t.label}</div>
-                        <div className="text-[10px] text-muted-foreground leading-tight">{t.desc}</div>
+                        <div className="text-xs font-medium leading-tight">{t('themes.' + themeMeta.id)}</div>
+                        <div className="text-[10px] text-muted-foreground leading-tight">{t('themes.' + themeMeta.id + 'Desc')}</div>
                       </div>
-                      {theme === t.id && (
+                      {theme === themeMeta.id && (
                         <div className="h-1.5 w-1.5 rounded-full bg-primary" />
                       )}
                     </button>
@@ -170,14 +228,14 @@ export default function TopBar() {
               variant="ghost"
               size="icon"
               onClick={() => health.refetch()}
-              title="刷新"
+              title={t('common.refresh')}
             >
               <RefreshCw
                 className={cn('h-4 w-4', health.isFetching && 'animate-spin')}
               />
             </Button>
           </TooltipTrigger>
-          <TooltipContent>立即刷新</TooltipContent>
+          <TooltipContent>{t('common.refreshNow')}</TooltipContent>
         </Tooltip>
       </div>
     </header>

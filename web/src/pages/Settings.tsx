@@ -1,6 +1,8 @@
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
+  Globe,
   KeyRound,
   LogOut,
   Monitor,
@@ -26,8 +28,20 @@ import { api, ApiError } from '@/lib/api';
 import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import i18n from '@/i18n';
+
+const LANGUAGES = [
+  { code: 'zh', label: '中文' },
+  { code: 'en', label: 'English' },
+  { code: 'ja', label: '日本語' },
+  { code: 'ko', label: '한국어' },
+  { code: 'fr', label: 'Français' },
+  { code: 'de', label: 'Deutsch' },
+  { code: 'es', label: 'Español' },
+];
 
 export default function SettingsPage() {
+  const { t } = useTranslation();
   const server = useAuthStore((s) => s.server);
   const reset = useAuthStore((s) => s.reset);
   const uiAuthEnabled = useAuthStore((s) => s.uiAuthEnabled);
@@ -70,28 +84,28 @@ export default function SettingsPage() {
   return (
     <div className="space-y-4 p-4 md:p-6">
       <div>
-        <h1 className="text-xl font-semibold">设置</h1>
-        <p className="text-sm text-muted-foreground">连接、安全、界面偏好</p>
+        <h1 className="text-xl font-semibold">{t('settings.title')}</h1>
+        <p className="text-sm text-muted-foreground">{t('settings.subtitle')}</p>
       </div>
 
       {/* Connection */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Server className="h-4 w-4" /> 当前连接
+            <Server className="h-4 w-4" /> {t('settings.currentConnection')}
           </CardTitle>
-          <CardDescription>这台 unraid-plus 正在管理的服务器</CardDescription>
+          <CardDescription>{t('settings.currentConnectionDesc')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
-          <Row label="昵称 / 主机" value={server ? `${server.label} · ${server.host}` : '—'} />
-          <Row label="SSH 端口" value={server ? String(server.sshPort) : '—'} />
-          <Row label="用户" value={server?.user ?? '—'} />
+          <Row label={t('settings.nicknameHost')} value={server ? `${server.label} · ${server.host}` : '—'} />
+          <Row label={t('settings.sshPort')} value={server ? String(server.sshPort) : '—'} />
+          <Row label={t('settings.user')} value={server?.user ?? '—'} />
           <Row
-            label="认证模式"
+            label={t('settings.authMode')}
             value={
               server ? (
                 <Badge variant={server.authMode === 'key' ? 'success' : 'warning'}>
-                  {server.authMode === 'key' ? '密钥对免密' : '密码（建议切到密钥）'}
+                  {server.authMode === 'key' ? t('settings.keyFree') : t('settings.passwordMode')}
                 </Badge>
               ) : (
                 '—'
@@ -101,10 +115,10 @@ export default function SettingsPage() {
           <Separator />
           <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="sm" onClick={() => location.reload()}>
-              <RefreshCw className="h-3.5 w-3.5" /> 刷新页面
+              <RefreshCw className="h-3.5 w-3.5" /> {t('settings.refreshPage')}
             </Button>
             <Button variant="destructive" size="sm" onClick={() => setConfirmDisconnect(true)}>
-              <LogOut className="h-3.5 w-3.5" /> 断开连接
+              <LogOut className="h-3.5 w-3.5" /> {t('settings.disconnect')}
             </Button>
           </div>
         </CardContent>
@@ -114,42 +128,42 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Shield className="h-4 w-4" /> 安全
+            <Shield className="h-4 w-4" /> {t('settings.security')}
           </CardTitle>
           <CardDescription>
-            切到「密钥对免密」模式后，root 密码完全不再被使用。
+            {t('settings.keyFreeNote')}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3 text-sm">
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="font-medium">密钥对免密模式</div>
+              <div className="font-medium">{t('settings.keyFreeTitle')}</div>
               <div className="text-xs text-muted-foreground">
-                后端自动生成并托管 SSH 密钥对，root 密码不出现在内存之外的任何位置。
+                {t('settings.keyFreeDesc')}
               </div>
             </div>
             <Button variant="outline" size="sm" onClick={() => setConfirmRotate(true)}>
-              <KeyRound className="h-3.5 w-3.5" /> 生成 / 轮换密钥
+              <KeyRound className="h-3.5 w-3.5" /> {t('settings.generateRotateKey')}
             </Button>
           </div>
           <Separator />
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="font-medium">界面登录保护</div>
+              <div className="font-medium">{t('settings.uiLoginProtection')}</div>
               <div className="text-xs text-muted-foreground">
                 {uiAuthEnabled
-                  ? '已设置访问密码，未登录用户无法操作。'
-                  : '未启用。任何人都能访问此界面，建议设置一个密码。'}
+                  ? t('settings.passwordEnabledDesc')
+                  : t('settings.passwordDisabledDesc')}
               </div>
             </div>
             <div className="flex items-center gap-2">
               <Badge variant={uiAuthEnabled ? 'success' : 'secondary'}>
                 {uiAuthEnabled ? (
                   <>
-                    <ShieldCheck className="mr-1 h-3 w-3" /> 已启用
+                    <ShieldCheck className="mr-1 h-3 w-3" /> {t('settings.enabled')}
                   </>
                 ) : (
-                  '未启用'
+                  t('settings.disabled')
                 )}
               </Badge>
               <UIPasswordButton uiAuthEnabled={uiAuthEnabled} />
@@ -164,7 +178,7 @@ export default function SettingsPage() {
                 navigate('/login', { replace: true });
               }}
             >
-              <LogOut className="h-3.5 w-3.5" /> 退出登录
+              <LogOut className="h-3.5 w-3.5" /> {t('settings.logout')}
             </Button>
           )}
         </CardContent>
@@ -174,16 +188,35 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
-            <Monitor className="h-4 w-4" /> 界面与引导
+            <Monitor className="h-4 w-4" /> {t('settings.uiAndOnboarding')}
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-4 text-sm">
-          {/* Theme picker (compact — full picker is in TopBar) */}
+          {/* Language picker */}
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="font-medium">主题风格</div>
+              <div className="font-medium flex items-center gap-1.5">
+                <Globe className="h-3.5 w-3.5" /> {t('settings.language')}
+              </div>
+            </div>
+            <select
+              className="rounded border bg-background px-2 py-1 text-sm"
+              value={i18n.language?.split('-')[0] ?? 'zh'}
+              onChange={(e) => i18n.changeLanguage(e.target.value)}
+            >
+              {LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>{lang.label}</option>
+              ))}
+            </select>
+          </div>
+
+          <Separator />
+
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="font-medium">{t('settings.themeStyle')}</div>
               <div className="text-xs text-muted-foreground">
-                当前：{THEMES.find((t) => t.id === theme)?.label} · 点击顶栏 <span className="font-mono">☽/☀</span> 图标快速切换
+                {t('settings.currentTheme')}{t('themes.' + theme)} · {t('settings.clickTopbar')} <span className="font-mono">☽/☀</span> {t('settings.iconSwitch')}
               </div>
             </div>
             <select
@@ -191,8 +224,8 @@ export default function SettingsPage() {
               value={theme}
               onChange={(e) => setTheme(e.target.value as typeof theme)}
             >
-              {THEMES.map((t) => (
-                <option key={t.id} value={t.id}>{t.label}</option>
+              {THEMES.map((th) => (
+                <option key={th.id} value={th.id}>{t('themes.' + th.id)}</option>
               ))}
             </select>
           </div>
@@ -200,17 +233,17 @@ export default function SettingsPage() {
           <Separator />
 
           <ToggleRow
-            label="已完成新手引导"
-            desc="关闭后将强制再次显示欢迎向导。"
+            label={t('settings.onboardingDone')}
+            desc={t('settings.onboardingDoneDesc')}
             checked={onboardingDone}
             onChange={(v) => setOnboardingDone(v)}
           />
           <Separator />
           <div className="flex items-center justify-between gap-2">
             <div>
-              <div className="font-medium">自动刷新间隔</div>
+              <div className="font-medium">{t('settings.autoRefreshInterval')}</div>
               <div className="text-xs text-muted-foreground">
-                影响仪表盘、Docker、存储等实时数据。
+                {t('settings.autoRefreshDesc')}
               </div>
             </div>
             <select
@@ -218,34 +251,34 @@ export default function SettingsPage() {
               value={refreshInterval}
               onChange={(e) => setRefreshInterval(Number(e.target.value))}
             >
-              <option value={1000}>1 秒</option>
-              <option value={2000}>2 秒</option>
-              <option value={5000}>5 秒</option>
-              <option value={15000}>15 秒</option>
-              <option value={0}>暂停</option>
+              <option value={1000}>{t('settings.1sec')}</option>
+              <option value={2000}>{t('settings.2sec')}</option>
+              <option value={5000}>{t('settings.5sec')}</option>
+              <option value={15000}>{t('settings.15sec')}</option>
+              <option value={0}>{t('common.pause')}</option>
             </select>
           </div>
         </CardContent>
       </Card>
 
       <p className="text-center text-xs text-muted-foreground">
-        unraid-plus · MIT · 完全开源
+        {t('settings.footer')}
       </p>
 
       <ConfirmDialog
         open={confirmDisconnect}
-        title="断开连接"
-        description="断开当前服务器连接？需要重新走一遍连接向导。"
-        confirmText="断开"
+        title={t('settings.confirmDisconnectTitle')}
+        description={t('settings.confirmDisconnectDesc')}
+        confirmText={t('settings.disconnectBtn')}
         variant="destructive"
         onConfirm={disconnect}
         onCancel={() => setConfirmDisconnect(false)}
       />
       <ConfirmDialog
         open={confirmRotate}
-        title="轮换密钥"
-        description="生成新的密钥对并部署到 Unraid？此操作会替换服务器上现有的 authorized_keys。"
-        confirmText="生成密钥"
+        title={t('settings.rotateKeyTitle')}
+        description={t('settings.rotateKeyDesc')}
+        confirmText={t('settings.generateKey')}
         loading={rotateLoading}
         onConfirm={rotateKey}
         onCancel={() => setConfirmRotate(false)}
@@ -291,8 +324,8 @@ function ToggleRow({
   );
 }
 
-/** Button + inline form to set or change the UI access password. */
 function UIPasswordButton({ uiAuthEnabled }: { uiAuthEnabled: boolean }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const [pw, setPw] = useState('');
   const [currentPw, setCurrentPw] = useState('');
@@ -302,7 +335,7 @@ function UIPasswordButton({ uiAuthEnabled }: { uiAuthEnabled: boolean }) {
 
   const handleSave = async () => {
     if (pw.length < 4) {
-      setError('密码至少 4 位');
+      setError(t('settings.passwordMinLen'));
       return;
     }
     setLoading(true);
@@ -318,7 +351,7 @@ function UIPasswordButton({ uiAuthEnabled }: { uiAuthEnabled: boolean }) {
       setPw('');
       setCurrentPw('');
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : '操作失败');
+      setError(e instanceof ApiError ? e.message : t('common.failed'));
     } finally {
       setLoading(false);
     }
@@ -327,7 +360,7 @@ function UIPasswordButton({ uiAuthEnabled }: { uiAuthEnabled: boolean }) {
   if (!open) {
     return (
       <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        {uiAuthEnabled ? '修改密码' : '设置密码'}
+        {uiAuthEnabled ? t('settings.changePassword') : t('settings.setPassword')}
       </Button>
     );
   }
@@ -336,7 +369,7 @@ function UIPasswordButton({ uiAuthEnabled }: { uiAuthEnabled: boolean }) {
     <div className="mt-2 space-y-2 rounded-md border p-3">
       {uiAuthEnabled && (
         <div className="space-y-1">
-          <Label className="text-xs">当前密码</Label>
+          <Label className="text-xs">{t('settings.currentPassword')}</Label>
           <Input
             type="password"
             value={currentPw}
@@ -346,7 +379,7 @@ function UIPasswordButton({ uiAuthEnabled }: { uiAuthEnabled: boolean }) {
         </div>
       )}
       <div className="space-y-1">
-        <Label className="text-xs">{uiAuthEnabled ? '新密码' : '设置密码'}</Label>
+        <Label className="text-xs">{uiAuthEnabled ? t('settings.newPassword') : t('settings.setPassword')}</Label>
         <Input
           type="password"
           value={pw}
@@ -360,10 +393,10 @@ function UIPasswordButton({ uiAuthEnabled }: { uiAuthEnabled: boolean }) {
       {error && <div className="text-xs text-destructive">{error}</div>}
       <div className="flex gap-2">
         <Button size="sm" onClick={handleSave} disabled={loading}>
-          {loading ? '保存中…' : '保存'}
+          {loading ? t('common.saving') : t('common.save')}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => { setOpen(false); setPw(''); setCurrentPw(''); setError(null); }}>
-          取消
+          {t('common.cancel')}
         </Button>
       </div>
     </div>

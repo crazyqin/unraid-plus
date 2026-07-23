@@ -13,11 +13,11 @@ export interface ThemeMeta {
 }
 
 export const THEMES: ThemeMeta[] = [
-  { id: 'midnight', label: '暗夜', desc: '经典深色，橙色点缀', accent: 'bg-orange-500' },
-  { id: 'ocean',    label: '深海', desc: '沉浸蓝调，青色点缀', accent: 'bg-cyan-500' },
-  { id: 'aurora',   label: '极光', desc: '暗紫底色，翠绿点缀', accent: 'bg-emerald-500' },
-  { id: 'sunset',   label: '暖阳', desc: '暖色暗底，琥珀点缀', accent: 'bg-amber-500' },
-  { id: 'daylight', label: '浅灰', desc: '明亮清爽，蓝色点缀', accent: 'bg-blue-500' },
+  { id: 'midnight', label: 'themes.midnight', desc: 'themes.midnightDesc', accent: 'bg-orange-500' },
+  { id: 'ocean',    label: 'themes.ocean',    desc: 'themes.oceanDesc',    accent: 'bg-cyan-500' },
+  { id: 'aurora',   label: 'themes.aurora',   desc: 'themes.auroraDesc',   accent: 'bg-emerald-500' },
+  { id: 'sunset',   label: 'themes.sunset',   desc: 'themes.sunsetDesc',   accent: 'bg-amber-500' },
+  { id: 'daylight', label: 'themes.daylight', desc: 'themes.daylightDesc', accent: 'bg-blue-500' },
 ];
 
 interface SettingsState {

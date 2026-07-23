@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import i18n from '@/i18n';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
@@ -15,8 +17,6 @@ interface Session {
   alive: boolean;
 }
 
-// createSession builds a new terminal + WebSocket session. Shared by
-// openSession and reconnectSession to avoid duplication.
 function createSession(onClose: (id: string) => void): Session {
   const id = `s${Date.now()}`;
   const term = new XTerm({
@@ -47,11 +47,11 @@ function createSession(onClose: (id: string) => void): Session {
     term.write(data);
   };
   ws.onclose = () => {
-    term.write('\r\n\x1b[31m[连接已断开]\x1b[0m\r\n');
+    term.write(`\r\n\x1b[31m${i18n.t('terminal.wsDisconnected')}\x1b[0m\r\n`);
     onClose(id);
   };
   ws.onerror = () => {
-    term.write('\r\n\x1b[31m[WebSocket 错误 — 后端终端服务尚未就绪]\x1b[0m\r\n');
+    term.write(`\r\n\x1b[31m${i18n.t('terminal.wsError')}\x1b[0m\r\n`);
   };
 
   term.onData((d) => {
@@ -62,6 +62,7 @@ function createSession(onClose: (id: string) => void): Session {
 }
 
 export default function TerminalPage() {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -80,11 +81,9 @@ export default function TerminalPage() {
     const old = sessions.find((s) => s.id === oldId);
     if (!old) return;
 
-    // Clean up old terminal and WS
     old.ws?.close();
     old.term.dispose();
 
-    // Create fresh session in the same slot
     const session = createSession(markDead);
     setSessions((ss) => ss.map((s) => (s.id === oldId ? session : s)));
     if (activeId === oldId) {
@@ -105,7 +104,6 @@ export default function TerminalPage() {
     });
   };
 
-  // When the active session changes, attach the active term to the container.
   useEffect(() => {
     if (!containerRef.current || !activeId) return;
     const active = sessions.find((s) => s.id === activeId);
@@ -120,7 +118,6 @@ export default function TerminalPage() {
     active.term.focus();
   }, [activeId, sessions]);
 
-  // Resize listener
   useEffect(() => {
     const onResize = () => {
       const active = sessions.find((s) => s.id === activeId);
@@ -138,13 +135,11 @@ export default function TerminalPage() {
     return () => window.removeEventListener('resize', onResize);
   }, [sessions, activeId]);
 
-  // Open an initial session on mount.
   useEffect(() => {
     if (sessions.length === 0) openSession();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cleanup all sessions on unmount to prevent WebSocket and XTerm leaks.
   useEffect(() => {
     return () => {
       setSessions((ss) => {
@@ -163,13 +158,13 @@ export default function TerminalPage() {
     <div className="flex h-full flex-col p-4 md:p-6">
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold">SSH 终端</h1>
+          <h1 className="text-xl font-semibold">{t('terminal.title')}</h1>
           <p className="text-sm text-muted-foreground">
-            浏览器内直接进入 Unraid 命令行 · 支持多会话
+            {t('terminal.desc')}
           </p>
         </div>
         <Button size="sm" onClick={openSession}>
-          <Plus className="h-3.5 w-3.5" /> 新会话
+          <Plus className="h-3.5 w-3.5" /> {t('terminal.newSession')}
         </Button>
       </div>
 
@@ -199,7 +194,7 @@ export default function TerminalPage() {
                 <span
                   role="button"
                   tabIndex={0}
-                  title="重连"
+                  title={t('terminal.reconnect')}
                   onClick={(e) => {
                     e.stopPropagation();
                     reconnectSession(s.id);
@@ -235,9 +230,9 @@ export default function TerminalPage() {
       {activeSession && !activeSession.alive && (
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
           <div className="flex flex-col items-center gap-3 rounded-lg border bg-card/95 p-6 shadow-lg">
-            <p className="text-sm text-muted-foreground">终端连接已断开</p>
+            <p className="text-sm text-muted-foreground">{t('terminal.disconnected')}</p>
             <Button size="sm" onClick={() => reconnectSession(activeSession.id)}>
-              <RotateCw className="h-3.5 w-3.5" /> 重新连接
+              <RotateCw className="h-3.5 w-3.5" /> {t('terminal.reconnectBtn')}
             </Button>
           </div>
         </div>
@@ -246,14 +241,14 @@ export default function TerminalPage() {
       {sessions.length === 0 && (
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
           <Button variant="ghost" onClick={openSession}>
-            <Plus className="h-4 w-4" /> 打开第一个会话
+            <Plus className="h-4 w-4" /> {t('terminal.openFirst')}
           </Button>
         </div>
       )}
 
       <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
         <span>
-          提示：会话通过后端 SSH 通道转发，断线后可点击重连按钮恢复。
+          {t('terminal.tip')}
         </span>
         {sessions.length > 0 && (
           <Button
@@ -261,7 +256,7 @@ export default function TerminalPage() {
             variant="ghost"
             onClick={() => sessions.forEach((s) => closeSession(s.id))}
           >
-            <Trash2 className="h-3.5 w-3.5" /> 关闭全部
+            <Trash2 className="h-3.5 w-3.5" /> {t('terminal.closeAll')}
           </Button>
         )}
       </div>

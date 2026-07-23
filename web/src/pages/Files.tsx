@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   ChevronRight,
   ChevronUp,
@@ -39,6 +40,7 @@ type SortKey = 'name' | 'sizeBytes' | 'modTime';
 type SortDir = 'asc' | 'desc';
 
 export default function FilesPage() {
+  const { t } = useTranslation();
   const [path, setPath] = useState('/mnt');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
@@ -88,7 +90,7 @@ export default function FilesPage() {
       setSelected(new Set());
       qc.invalidateQueries({ queryKey: ['files', path] });
     } catch (err) {
-      setUploadError(err instanceof ApiError ? err.message : '删除失败');
+      setUploadError(err instanceof ApiError ? err.message : t('files.deleteFailed'));
     } finally {
       setConfirmDelete(false);
     }
@@ -118,7 +120,7 @@ export default function FilesPage() {
       );
       qc.invalidateQueries({ queryKey: ['files', path] });
     } catch (err) {
-      setUploadError(err instanceof ApiError ? err.message : '上传失败');
+      setUploadError(err instanceof ApiError ? err.message : t('files.uploadFailed'));
     } finally {
       setUploadProgress(null);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -210,14 +212,14 @@ export default function FilesPage() {
             ) : (
               <Upload className="h-3.5 w-3.5" />
             )}
-            上传
+            {t('files.upload')}
           </Button>
           <Button
             size="sm"
             variant="outline"
             onClick={() => setMkdirOpen(true)}
           >
-            <FolderPlus className="h-3.5 w-3.5" /> 新建文件夹
+            <FolderPlus className="h-3.5 w-3.5" /> {t('files.newFolder')}
           </Button>
           <Button
             size="sm"
@@ -225,16 +227,16 @@ export default function FilesPage() {
             disabled={selected.size === 0}
             onClick={() => setConfirmDelete(true)}
           >
-            <Trash2 className="h-3.5 w-3.5" /> 删除
+            <Trash2 className="h-3.5 w-3.5" /> {t('files.delete')}
           </Button>
           <Button
             size="sm"
             variant="outline"
             disabled={selected.size !== 1 || selectedEntries[0]?.isDir}
             onClick={download}
-            title={selected.size === 1 && selectedEntries[0]?.isDir ? '不能下载目录' : ''}
+            title={selected.size === 1 && selectedEntries[0]?.isDir ? t('files.cannotDownloadDir') : ''}
           >
-            <Download className="h-3.5 w-3.5" /> 下载
+            <Download className="h-3.5 w-3.5" /> {t('files.download')}
           </Button>
           <Button
             size="sm"
@@ -242,7 +244,7 @@ export default function FilesPage() {
             disabled={selected.size !== 1}
             onClick={() => selectedEntries[0] && setRenameTarget(selectedEntries[0])}
           >
-            <Pencil className="h-3.5 w-3.5" /> 重命名
+            <Pencil className="h-3.5 w-3.5" /> {t('files.rename')}
           </Button>
           <Button
             size="sm"
@@ -250,7 +252,7 @@ export default function FilesPage() {
             disabled={selected.size !== 1 || selectedEntries[0]?.isDir}
             onClick={() => selectedEntries[0] && setPreviewTarget(selectedEntries[0])}
           >
-            <Eye className="h-3.5 w-3.5" /> 预览
+            <Eye className="h-3.5 w-3.5" /> {t('files.preview')}
           </Button>
         </div>
       </div>
@@ -258,7 +260,7 @@ export default function FilesPage() {
       {/* Upload progress bar */}
       {uploadProgress !== null && (
         <div className="mb-2 flex items-center gap-2 rounded-md border bg-muted/30 p-2">
-          <span className="text-xs text-muted-foreground">上传中…</span>
+          <span className="text-xs text-muted-foreground">{t('files.uploading')}</span>
           <Progress className="flex-1" value={uploadProgress} />
           <span className="text-xs tabular-nums text-muted-foreground">{uploadProgress}%</span>
         </div>
@@ -272,7 +274,7 @@ export default function FilesPage() {
             className="text-xs underline"
             onClick={() => setUploadError(null)}
           >
-            关闭
+            {t('common.close')}
           </button>
         </div>
       )}
@@ -293,11 +295,11 @@ export default function FilesPage() {
         <CardContent className="h-full p-0">
           {isLoading ? (
             <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> 读取目录…
+              <Loader2 className="h-4 w-4 animate-spin" /> {t('files.readingDir')}
             </div>
           ) : isError ? (
             <div className="flex h-full items-center justify-center text-sm text-destructive">
-              无法读取目录。请确认后端 SFTP 已就绪。
+              {t('files.cannotReadDir')}
             </div>
           ) : (
             <div className="h-full overflow-auto">
@@ -306,17 +308,17 @@ export default function FilesPage() {
                   <tr className="border-b">
                     <th className="px-3 py-2 text-left font-medium">
                       <button className="group inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('name')}>
-                        名称 <SortIcon column="name" />
+                        {t('files.name')} <SortIcon column="name" />
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right font-medium">
                       <button className="group inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('sizeBytes')}>
-                        大小 <SortIcon column="sizeBytes" />
+                        {t('files.size')} <SortIcon column="sizeBytes" />
                       </button>
                     </th>
                     <th className="px-3 py-2 text-right font-medium">
                       <button className="group inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('modTime')}>
-                        修改时间 <SortIcon column="modTime" />
+                        {t('files.modified')} <SortIcon column="modTime" />
                       </button>
                     </th>
                   </tr>
@@ -353,7 +355,7 @@ export default function FilesPage() {
                   {sortedEntries.length === 0 && (
                     <tr>
                       <td colSpan={3} className="px-3 py-8 text-center text-muted-foreground">
-                        空目录
+                        {t('files.emptyDir')}
                       </td>
                     </tr>
                   )}
@@ -368,7 +370,7 @@ export default function FilesPage() {
           <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10 backdrop-blur-sm">
             <div className="flex flex-col items-center gap-2 text-primary">
               <Upload className="h-8 w-8" />
-              <span className="text-sm font-medium">松开以上传文件到当前目录</span>
+              <span className="text-sm font-medium">{t('files.dropToUpload')}</span>
             </div>
           </div>
         )}
@@ -391,9 +393,9 @@ export default function FilesPage() {
       />
       <ConfirmDialog
         open={confirmDelete}
-        title="确认删除"
-        description={`确认删除 ${selected.size} 个文件？此操作不可恢复。`}
-        confirmText="删除"
+        title={t('files.confirmDeleteTitle')}
+        description={t('files.confirmDeleteDesc', { count: selected.size })}
+        confirmText={t('files.delete')}
         variant="destructive"
         onConfirm={del}
         onCancel={() => setConfirmDelete(false)}
@@ -413,6 +415,7 @@ function RenameDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const [newName, setNewName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -438,7 +441,7 @@ function RenameDialog({
       onDone();
       onClose();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : '重命名失败');
+      setError(err instanceof ApiError ? err.message : t('files.renameFailed'));
     } finally {
       setLoading(false);
     }
@@ -454,10 +457,10 @@ function RenameDialog({
     >
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>重命名</DialogTitle>
+          <DialogTitle>{t('files.renameTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="rename-input">新名称</Label>
+          <Label htmlFor="rename-input">{t('files.newName')}</Label>
           <Input
             id="rename-input"
             value={newName}
@@ -469,10 +472,10 @@ function RenameDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={loading}>
-            取消
+            {t('common.cancel')}
           </Button>
           <Button onClick={submit} disabled={loading || !newName}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : '确认'}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('common.confirm')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -493,6 +496,7 @@ function MkdirDialog({
   onClose: () => void;
   onDone: () => void;
 }) {
+  const { t } = useTranslation();
   const [name, setName] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -508,7 +512,7 @@ function MkdirDialog({
       onClose();
       setName('');
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : '创建失败');
+      setError(err instanceof ApiError ? err.message : t('files.createFailed'));
     } finally {
       setLoading(false);
     }
@@ -527,29 +531,29 @@ function MkdirDialog({
     >
       <DialogContent className="max-w-sm">
         <DialogHeader>
-          <DialogTitle>新建文件夹</DialogTitle>
+          <DialogTitle>{t('files.newFolderTitle')}</DialogTitle>
         </DialogHeader>
         <div className="space-y-2">
-          <Label htmlFor="mkdir-input">文件夹名称</Label>
+          <Label htmlFor="mkdir-input">{t('files.folderName')}</Label>
           <Input
             id="mkdir-input"
             value={name}
             onChange={(e) => setName(e.target.value)}
             autoFocus
             onKeyDown={(e) => e.key === 'Enter' && submit()}
-            placeholder="例如：photos"
+            placeholder={t('files.folderExample')}
           />
           <p className="text-xs text-muted-foreground">
-            将创建于 {basePath}/
+            {t('files.willCreateAt')} {basePath}/
           </p>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={loading}>
-            取消
+            {t('common.cancel')}
           </Button>
           <Button onClick={submit} disabled={loading || !name}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : '创建'}
+            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('files.create')}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -637,6 +641,7 @@ function PreviewDialog({
   target: FileEntry | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [textContent, setTextContent] = useState<string | null>(null);
@@ -697,12 +702,12 @@ function PreviewDialog({
           if (controller.signal.aborted) return;
           setTextContent(text);
         } else {
-          setError('不支持预览此文件类型，请下载后查看。');
+          setError(t('files.cannotPreview'));
         }
       })
       .catch((err) => {
         if (controller.signal.aborted) return;
-        setError(err instanceof ApiError ? err.message : '预览加载失败');
+        setError(err instanceof ApiError ? err.message : t('files.previewFailed'));
       })
       .finally(() => {
         if (!controller.signal.aborted) setLoading(false);
@@ -712,7 +717,7 @@ function PreviewDialog({
       controller.abort();
       if (blobUrl) URL.revokeObjectURL(blobUrl);
     };
-  }, [target, targetPath]);
+  }, [target, targetPath, t]);
 
   const handleClose = () => {
     if (hasUnsavedChanges) {
@@ -753,7 +758,7 @@ function PreviewDialog({
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     } catch (err) {
-      setSaveError(err instanceof ApiError ? err.message : '保存失败');
+      setSaveError(err instanceof ApiError ? err.message : t('files.saveFailed'));
     } finally {
       setSaving(false);
     }
@@ -817,7 +822,7 @@ function PreviewDialog({
         <div className="min-h-[200px]">
           {loading && (
             <div className="flex h-40 items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> 加载预览…
+              <Loader2 className="h-4 w-4 animate-spin" /> {t('files.loadingPreview')}
             </div>
           )}
           {error && !loading && (
@@ -834,7 +839,7 @@ function PreviewDialog({
             <div>
               {truncated && (
                 <p className="mb-2 text-xs text-warning">
-                  文件较大，仅显示前 64KB 内容。
+                  {t('files.fileTooLarge')}
                 </p>
               )}
               <pre className="max-h-[55vh] overflow-auto overflow-x-auto rounded-md bg-muted/40 p-3" style={codeStyle}>
@@ -882,37 +887,37 @@ function PreviewDialog({
           {saveSuccess && (
             <div className="flex items-center gap-2 rounded-md border border-green-500/40 bg-green-500/10 p-2 text-sm text-ind-emerald">
               <Save className="h-3.5 w-3.5" />
-              文件已保存
+              {t('files.fileSaved')}
             </div>
           )}
         </div>
         <DialogFooter className="gap-2">
           {canEdit && !editing && textContent !== null && !truncated && (
             <Button variant="outline" onClick={startEditing}>
-              <Pencil className="h-3.5 w-3.5" /> 编辑
+              <Pencil className="h-3.5 w-3.5" /> {t('files.edit')}
             </Button>
           )}
           {editing && (
             <>
               <Button variant="outline" onClick={cancelEditing} disabled={saving}>
-                取消
+                {t('common.cancel')}
               </Button>
               <Button onClick={saveEdits} disabled={saving}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-                保存
+                {t('common.save')}
               </Button>
             </>
           )}
           <Button variant="outline" onClick={handleClose}>
-            关闭
+            {t('common.close')}
           </Button>
         </DialogFooter>
       </DialogContent>
       <ConfirmDialog
         open={confirmDiscard !== null}
-        title="未保存的修改"
-        description="当前编辑内容尚未保存，确定要放弃修改吗？"
-        confirmText="放弃修改"
+        title={t('files.unsavedTitle')}
+        description={t('files.unsavedDesc')}
+        confirmText={t('files.discardChanges')}
         variant="destructive"
         onConfirm={() => {
           setEditing(false);

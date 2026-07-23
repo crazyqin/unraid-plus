@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Boxes,
@@ -43,14 +44,7 @@ const STATUS_VARIANT: Record<DockerContainer['status'], 'success' | 'secondary' 
   dead: 'destructive',
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  running: '运行中',
-  exited: '已退出',
-  paused: '已暂停',
-  restarting: '重启中',
-  created: '已创建',
-  dead: '已停止',
-};
+
 
 /** Status → left border color class for container cards */
 const STATUS_BORDER: Record<string, string> = {
@@ -89,6 +83,15 @@ function Highlight({ text, query }: { text: string; query: string }) {
 }
 
 export default function DockerPage() {
+  const { t } = useTranslation();
+  const STATUS_LABEL: Record<string, string> = {
+    running: t('docker.running'),
+    exited: t('docker.exited'),
+    paused: t('docker.paused'),
+    restarting: t('docker.restarting'),
+    created: t('docker.created'),
+    dead: t('docker.stopped'),
+  };
   const refresh = useSettingsStore((s) => s.refreshInterval);
   const qc = useQueryClient();
   const [filter, setFilter] = useState('');
@@ -130,7 +133,7 @@ export default function DockerPage() {
       await api.post(`/docker/containers/${id}/${action}`);
       qc.invalidateQueries({ queryKey: ['docker'] });
     } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : '操作失败');
+      setActionError(err instanceof ApiError ? err.message : t('common.failed'));
     } finally {
       setPendingAction(null);
     }
@@ -147,7 +150,7 @@ export default function DockerPage() {
         <div className="flex items-center justify-between rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           <span>{actionError}</span>
           <button className="text-xs underline" onClick={() => setActionError(null)}>
-            关闭
+            {t('common.close')}
           </button>
         </div>
       )}
@@ -160,15 +163,15 @@ export default function DockerPage() {
             <Boxes className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">Docker 容器</h1>
+            <h1 className="text-xl font-semibold">{t('docker.title')}</h1>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Badge
                 variant={running > 0 ? 'success' : 'secondary'}
                 className="text-[10px]"
               >
-                {running > 0 ? '运行中' : '空闲'}
+                {running > 0 ? t('docker.running') : t('docker.idle')}
               </Badge>
-              <span>{running} / {data?.length ?? 0} 个容器</span>
+              <span>{running} / {data?.length ?? 0} {t('docker.containerCount')}</span>
             </div>
           </div>
         </div>
@@ -176,7 +179,7 @@ export default function DockerPage() {
           <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
             className="h-8 pl-8 text-sm"
-            placeholder="搜索容器名…"
+            placeholder={t('docker.searchPlaceholder')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
           />
@@ -185,13 +188,13 @@ export default function DockerPage() {
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> 加载容器列表…
+          <Loader2 className="h-4 w-4 animate-spin" /> {t('docker.loading')}
         </div>
       ) : containers.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
             <Boxes className="h-8 w-8" />
-            没有匹配的容器。
+            {t('docker.noMatch')}
           </CardContent>
         </Card>
       ) : (
@@ -256,29 +259,29 @@ export default function DockerPage() {
                 )}
 
                 <div className="text-xs text-muted-foreground">
-                  启动于 {c.startedAt ? timeAgo(c.startedAt) : '—'}
+                  {t('docker.startedAt')} {c.startedAt ? timeAgo(c.startedAt) : '—'}
                 </div>
                 <div className="mt-auto flex flex-wrap gap-2 pt-1">
                   {c.status !== 'running' && (
                     <Button size="sm" variant="success" onClick={() => act(c.id, 'start')} disabled={pendingAction !== null}>
-                      {pendingAction === `${c.id}:start` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} 启动
+                      {pendingAction === `${c.id}:start` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} {t('docker.start')}
                     </Button>
                   )}
                   {c.status === 'running' && (
                     <Button size="sm" variant="destructive" onClick={() => act(c.id, 'stop')} disabled={pendingAction !== null}>
-                      {pendingAction === `${c.id}:stop` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />} 停止
+                      {pendingAction === `${c.id}:stop` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />} {t('docker.stop')}
                     </Button>
                   )}
                   <Button size="sm" variant="outline" onClick={() => act(c.id, 'restart')} disabled={pendingAction !== null}>
-                    {pendingAction === `${c.id}:restart` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} 重启
+                    {pendingAction === `${c.id}:restart` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} {t('docker.restart')}
                   </Button>
                   {c.status === 'running' && (
                     <Button size="sm" variant="ghost" onClick={() => act(c.id, 'pause')} disabled={pendingAction !== null}>
-                      <Pause className="h-3.5 w-3.5" /> 暂停
+                      <Pause className="h-3.5 w-3.5" /> {t('docker.pause')}
                     </Button>
                   )}
                   <Button size="sm" variant="ghost" onClick={() => setLogsFor(c)} disabled={pendingAction !== null}>
-                    <ScrollText className="h-3.5 w-3.5" /> 日志
+                    <ScrollText className="h-3.5 w-3.5" /> {t('docker.logs')}
                   </Button>
                 </div>
               </CardContent>
@@ -289,9 +292,9 @@ export default function DockerPage() {
 
       <ConfirmDialog
         open={!!confirmAction}
-        title={confirmAction?.action === 'stop' ? '确认停止容器' : '确认重启容器'}
-        description={`确定要${confirmAction?.action === 'stop' ? '停止' : '重启'}容器 "${confirmAction?.name}" 吗？${confirmAction?.action === 'stop' ? '运行中的服务将中断。' : ''}`}
-        confirmText={confirmAction?.action === 'stop' ? '停止' : '重启'}
+        title={confirmAction?.action === 'stop' ? t('docker.confirmStop') : t('docker.confirmRestart')}
+        description={t('docker.confirmStopDesc', { action: confirmAction?.action === 'stop' ? t('docker.stop') : t('docker.restart'), name: confirmAction?.name ?? '' })}
+        confirmText={confirmAction?.action === 'stop' ? t('docker.stop') : t('docker.restart')}
         variant="destructive"
         onConfirm={() => confirmAction && act(confirmAction.id, confirmAction.action)}
         onCancel={() => setConfirmAction(null)}
@@ -369,11 +372,12 @@ function LogDialog({
   container: DockerContainer | null;
   onClose: () => void;
 }) {
+  const { t } = useTranslation();
   return (
     <Dialog open={!!container} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl">
         <DialogHeader>
-          <DialogTitle>日志 · {container?.name}</DialogTitle>
+          <DialogTitle>{t('docker.logTitle')} {container?.name}</DialogTitle>
         </DialogHeader>
         <LogStream containerId={container?.id} />
       </DialogContent>
@@ -382,6 +386,7 @@ function LogDialog({
 }
 
 function LogStream({ containerId }: { containerId?: string }) {
+  const { t } = useTranslation();
   const [buffer, setBuffer] = useState('');
   const [connected, setConnected] = useState(false);
   const [ended, setEnded] = useState(false);
@@ -450,13 +455,13 @@ function LogStream({ containerId }: { containerId?: string }) {
             connected ? 'bg-success' : ended ? 'bg-muted-foreground' : 'bg-warning',
           )}
         />
-        {connected ? '实时日志流已连接' : ended ? '已结束（容器可能已停止）' : '连接中…'}
+        {connected ? t('docker.logConnected') : ended ? t('docker.logEnded') : t('docker.logConnecting')}
       </div>
       <pre
         ref={preRef}
         className="h-80 overflow-auto overflow-x-auto whitespace-pre-wrap break-all rounded-md bg-black/80 p-3 font-mono text-xs leading-relaxed text-green-400"
       >
-        {buffer || (ended ? '（无日志输出）' : '等待日志…')}
+        {buffer || (ended ? t('docker.logEmpty') : t('docker.logWaiting'))}
       </pre>
     </div>
   );

@@ -14,6 +14,7 @@ import SettingsPage from './pages/Settings';
 import LoginPage from './pages/Login';
 import { useAuthStore } from './stores/auth';
 import { useSettingsStore } from './stores/settings';
+import { useTranslation } from 'react-i18next';
 
 export default function App() {
   const server = useAuthStore((s) => s.server);
@@ -22,6 +23,8 @@ export default function App() {
   const isUiAuthenticated = useAuthStore((s) => s.isUiAuthenticated);
   const authChecked = useAuthStore((s) => s.authChecked);
   const checkAuth = useAuthStore((s) => s.checkAuth);
+
+  const { t } = useTranslation();
 
   // Probe auth status + servers on boot.
   useEffect(() => {
@@ -53,7 +56,7 @@ export default function App() {
   if (!authChecked) {
     return (
       <div className="flex min-h-screen items-center justify-center gap-2 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> 加载中…
+        <Loader2 className="h-4 w-4 animate-spin" /> {t('common.loading')}
       </div>
     );
   }

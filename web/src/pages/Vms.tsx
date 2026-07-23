@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   Cpu,
@@ -39,12 +40,7 @@ const STATUS_VARIANT: Record<VmInfo['status'], 'success' | 'secondary' | 'warnin
   unknown: 'secondary',
 };
 
-const STATUS_LABEL: Record<string, string> = {
-  running: '运行中',
-  shutoff: '已关机',
-  paused: '已暂停',
-  unknown: '未知',
-};
+
 
 /** Status → left border color class for VM cards */
 const STATUS_BORDER: Record<string, string> = {
@@ -63,6 +59,13 @@ const STATUS_BG: Record<string, string> = {
 };
 
 export default function VmsPage() {
+  const { t } = useTranslation();
+  const STATUS_LABEL: Record<string, string> = {
+    running: t('vms.running'),
+    shutoff: t('vms.shutoff'),
+    paused: t('vms.paused'),
+    unknown: t('vms.unknown'),
+  };
   const qc = useQueryClient();
   const refresh = useSettingsStore((s) => s.refreshInterval);
   const [vncVm, setVncVm] = useState<VmInfo | null>(null);
@@ -91,7 +94,7 @@ export default function VmsPage() {
       await api.post(`/vms/${id}/${action}`);
       qc.invalidateQueries({ queryKey: ['vms'] });
     } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : '操作失败');
+      setActionError(err instanceof ApiError ? err.message : t('common.failed'));
     } finally {
       setPendingAction(null);
     }
@@ -108,7 +111,7 @@ export default function VmsPage() {
         <div className="flex items-center justify-between rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           <span>{actionError}</span>
           <button className="text-xs underline" onClick={() => setActionError(null)}>
-            关闭
+            {t('common.close')}
           </button>
         </div>
       )}
@@ -121,15 +124,15 @@ export default function VmsPage() {
             <Monitor className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">虚拟机</h1>
+            <h1 className="text-xl font-semibold">{t('vms.title')}</h1>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Badge
                 variant={running > 0 ? 'success' : 'secondary'}
                 className="text-[10px]"
               >
-                {running > 0 ? '运行中' : '空闲'}
+                {running > 0 ? t('vms.running') : t('vms.idle')}
               </Badge>
-              <span>{running} / {data?.length ?? 0} 台虚拟机</span>
+              <span>{running} / {data?.length ?? 0} {t('vms.vmCount')}</span>
             </div>
           </div>
         </div>
@@ -137,7 +140,7 @@ export default function VmsPage() {
           <div className="relative w-48 shrink-0">
             <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              placeholder="搜索虚拟机…"
+              placeholder={t('vms.searchPlaceholder')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="h-8 pl-8 text-sm"
@@ -148,26 +151,26 @@ export default function VmsPage() {
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" /> 加载虚拟机列表…
+          <Loader2 className="h-4 w-4 animate-spin" /> {t('vms.loading')}
         </div>
       ) : isError ? (
         <Card>
           <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            无法获取虚拟机信息。请确认 Unraid 已启用 libvirt / libvirtd。
+            {t('vms.cannotFetch')}
           </CardContent>
         </Card>
       ) : (data ?? []).length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
             <Cpu className="h-8 w-8" />
-            没有虚拟机。
+            {t('vms.noVM')}
           </CardContent>
         </Card>
       ) : filtered.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
             <Cpu className="h-8 w-8" />
-            没有匹配的虚拟机。
+            {t('vms.noMatch')}
           </CardContent>
         </Card>
       ) : (
@@ -198,30 +201,30 @@ export default function VmsPage() {
                 <div className="mt-auto flex flex-wrap gap-2 pt-1">
                   {vm.status !== 'running' && vm.status !== 'paused' && (
                     <Button size="sm" variant="success" onClick={() => act(vm.id, 'start')} disabled={pendingAction !== null}>
-                      {pendingAction === `${vm.id}:start` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} 启动
+                      {pendingAction === `${vm.id}:start` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} {t('vms.start')}
                     </Button>
                   )}
                   {vm.status === 'running' && (
                     <>
                       <Button size="sm" variant="outline" onClick={() => act(vm.id, 'shutdown')} disabled={pendingAction !== null}>
-                        {pendingAction === `${vm.id}:shutdown` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />} 安全关机
+                        {pendingAction === `${vm.id}:shutdown` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />} {t('vms.shutdown')}
                       </Button>
                       <Button size="sm" variant="destructive" onClick={() => act(vm.id, 'stop')} disabled={pendingAction !== null}>
-                        {pendingAction === `${vm.id}:stop` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />} 强制停止
+                        {pendingAction === `${vm.id}:stop` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />} {t('vms.forceStop')}
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => act(vm.id, 'suspend')} disabled={pendingAction !== null}>
-                        <Pause className="h-3.5 w-3.5" /> 暂停
+                        <Pause className="h-3.5 w-3.5" /> {t('vms.pause')}
                       </Button>
                     </>
                   )}
                   {vm.status === 'paused' && (
                     <Button size="sm" variant="success" onClick={() => act(vm.id, 'resume')} disabled={pendingAction !== null}>
-                      <Play className="h-3.5 w-3.5" /> 恢复
+                      <Play className="h-3.5 w-3.5" /> {t('vms.resume')}
                     </Button>
                   )}
                   {vm.status === 'running' && (
                     <Button size="sm" variant="outline" onClick={() => setVncVm(vm)} disabled={pendingAction !== null}>
-                      <Monitor className="h-3.5 w-3.5" /> 控制台
+                      <Monitor className="h-3.5 w-3.5" /> {t('vms.console')}
                     </Button>
                   )}
                 </div>
@@ -233,9 +236,9 @@ export default function VmsPage() {
 
       <ConfirmDialog
         open={!!confirmAction}
-        title="确认强制停止虚拟机"
-        description={`强制停止虚拟机 "${confirmAction?.name}" 可能导致数据丢失，建议优先使用"安全关机"。确定要强制停止吗？`}
-        confirmText="强制停止"
+        title={t('vms.confirmForceStopTitle')}
+        description={t('vms.confirmForceStopDesc', { name: confirmAction?.name ?? '' })}
+        confirmText={t('vms.forceStop')}
         variant="destructive"
         onConfirm={() => confirmAction && act(confirmAction.id, confirmAction.action)}
         onCancel={() => setConfirmAction(null)}
@@ -249,6 +252,7 @@ export default function VmsPage() {
 /* ------------------------------- VNC Dialog ------------------------------- */
 
 function VNCDialog({ vm, onClose }: { vm: VmInfo | null; onClose: () => void }) {
+  const { t } = useTranslation();
   const [vncLoading, setVncLoading] = useState(true);
 
   // Reset loading state when vm changes
@@ -272,18 +276,18 @@ function VNCDialog({ vm, onClose }: { vm: VmInfo | null; onClose: () => void }) 
         <DialogHeader className="px-4 pt-4 pb-2">
           <DialogTitle className="flex items-center gap-2">
             <Monitor className="h-4 w-4" />
-            VNC 控制台 · {vm.name}
+            {t('vms.vncConsole')} {vm.name}
           </DialogTitle>
         </DialogHeader>
         <div className="px-4 pb-1 text-xs text-muted-foreground">
-          通过 SSH 隧道连接到虚拟机的 VNC 服务。如无画面，请确认虚拟机已配置 VNC 显卡。
+          {t('vms.vncDesc')}
         </div>
         <div className="relative" style={{ height: '70vh' }}>
           {vncLoading && (
             <div className="absolute inset-0 z-10 flex items-center justify-center bg-[#0b0b0d]">
               <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
                 <Loader2 className="h-6 w-6 animate-spin" />
-                正在连接 VNC…
+                {t('vms.vncConnecting')}
               </div>
             </div>
           )}

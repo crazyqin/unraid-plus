@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import {
   Activity,
   AlertTriangle,
@@ -41,33 +42,39 @@ const DISK_STATUS_VARIANT: Record<DiskInfo['status'], 'success' | 'warning' | 'd
   unknown: 'secondary',
 };
 
-const DISK_STATUS_LABEL: Record<DiskInfo['status'], string> = {
-  ok: '正常',
-  warning: '警告',
-  critical: '危险',
-  unknown: '未知',
+const DISK_STATUS_KEY: Record<DiskInfo['status'], string> = {
+  ok: 'storage.statusOk',
+  warning: 'storage.statusWarn',
+  critical: 'storage.statusDanger',
+  unknown: 'storage.statusUnknown',
 };
 
-const ARRAY_STATE_LABEL: Record<string, string> = {
-  started: '已启动',
-  stopped: '已停止',
-  starting: '启动中',
-  stopping: '停止中',
+const ARRAY_STATE_KEY: Record<string, string> = {
+  started: 'storage.arrayStarted',
+  stopped: 'storage.arrayStopped',
+  starting: 'storage.arrayStarting',
+  stopping: 'storage.arrayStopping',
 };
 
-// SMART self-test status → (badge variant, label, icon, text class).
-const SMART_STATUS: Record<
+const SMART_STATUS_META: Record<
   SmartInfo['status'],
-  { variant: 'success' | 'warning' | 'destructive' | 'secondary'; label: string; icon: typeof CheckCircle2 }
+  { variant: 'success' | 'warning' | 'destructive' | 'secondary'; icon: typeof CheckCircle2 }
 > = {
-  ok: { variant: 'success', label: 'SMART 正常', icon: CheckCircle2 },
-  warning: { variant: 'warning', label: 'SMART 警告', icon: AlertTriangle },
-  failing: { variant: 'destructive', label: 'SMART 失败', icon: XCircle },
-  standby: { variant: 'secondary', label: '休眠', icon: Moon },
-  unknown: { variant: 'success', label: '', icon: CheckCircle2 },
+  ok: { variant: 'success', icon: CheckCircle2 },
+  warning: { variant: 'warning', icon: AlertTriangle },
+  failing: { variant: 'destructive', icon: XCircle },
+  standby: { variant: 'secondary', icon: Moon },
+  unknown: { variant: 'success', icon: CheckCircle2 },
 };
 
-/** Status → left border color class for disk cards */
+const SMART_LABEL_KEY: Record<SmartInfo['status'], string> = {
+  ok: 'storage.smartOk',
+  warning: 'storage.smartWarn',
+  failing: 'storage.smartFail',
+  standby: 'storage.standby',
+  unknown: '',
+};
+
 const STATUS_BORDER: Record<string, string> = {
   ok: 'border-l-emerald-500/60',
   warning: 'border-l-amber-500/60',
@@ -75,7 +82,6 @@ const STATUS_BORDER: Record<string, string> = {
   unknown: 'border-l-border',
 };
 
-/** Status → subtle background tint for disk cards */
 const STATUS_BG: Record<string, string> = {
   ok: '',
   warning: 'bg-amber-500/5',
@@ -91,6 +97,7 @@ interface SmartRefreshResp {
 }
 
 export default function StoragePage() {
+  const { t } = useTranslation();
   const refresh = useSettingsStore((s) => s.refreshInterval);
   const qc = useQueryClient();
 
@@ -108,12 +115,12 @@ export default function StoragePage() {
   const refreshMut = useMutation({
     mutationFn: () => api.post<SmartRefreshResp>('/smart/refresh'),
     onSuccess: (r) => {
-      setRefreshMsg({ kind: 'ok', text: r.message ?? `已刷新 ${r.count} 块` });
+      setRefreshMsg({ kind: 'ok', text: r.message ?? t('storage.smartRefreshed', { count: r.count }) });
       qc.invalidateQueries({ queryKey: ['storage'] });
       window.setTimeout(() => setRefreshMsg(null), 3000);
     },
     onError: (e: unknown) => {
-      const msg = e instanceof ApiError ? e.message : '刷新失败';
+      const msg = e instanceof ApiError ? e.message : t('storage.smartRefreshFailed');
       setRefreshMsg({ kind: 'err', text: msg });
       window.setTimeout(() => setRefreshMsg(null), 3000);
     },
@@ -127,13 +134,13 @@ export default function StoragePage() {
     onSuccess: (r) => {
       setRefreshMsg({
         kind: r.ok ? 'ok' : 'err',
-        text: r.ok ? (r.message ?? '操作成功') : (r.detail ?? r.message ?? '操作失败'),
+        text: r.ok ? (r.message ?? t('common.success')) : (r.detail ?? r.message ?? t('common.failed')),
       });
       qc.invalidateQueries({ queryKey: ['storage'] });
       window.setTimeout(() => setRefreshMsg(null), 4000);
     },
     onError: (e: unknown) => {
-      const msg = e instanceof ApiError ? e.message : '阵列操作失败';
+      const msg = e instanceof ApiError ? e.message : t('common.failed');
       setRefreshMsg({ kind: 'err', text: msg });
       window.setTimeout(() => setRefreshMsg(null), 4000);
     },
@@ -147,13 +154,13 @@ export default function StoragePage() {
     onSuccess: (r) => {
       setRefreshMsg({
         kind: r.ok ? 'ok' : 'err',
-        text: r.ok ? (r.message ?? '操作成功') : (r.detail ?? r.message ?? '操作失败'),
+        text: r.ok ? (r.message ?? t('common.success')) : (r.detail ?? r.message ?? t('common.failed')),
       });
       qc.invalidateQueries({ queryKey: ['parity'] });
       window.setTimeout(() => setRefreshMsg(null), 4000);
     },
     onError: (e: unknown) => {
-      const msg = e instanceof ApiError ? e.message : 'Parity 操作失败';
+      const msg = e instanceof ApiError ? e.message : t('common.failed');
       setRefreshMsg({ kind: 'err', text: msg });
       window.setTimeout(() => setRefreshMsg(null), 4000);
     },
@@ -168,7 +175,7 @@ export default function StoragePage() {
   if (isLoading) {
     return (
       <div className="flex items-center gap-2 p-6 text-sm text-muted-foreground">
-        <Loader2 className="h-4 w-4 animate-spin" /> 加载阵列信息…
+        <Loader2 className="h-4 w-4 animate-spin" /> {t('storage.loading')}
       </div>
     );
   }
@@ -176,7 +183,7 @@ export default function StoragePage() {
     return (
       <Card className="m-6">
         <CardContent className="py-12 text-center text-sm text-muted-foreground">
-          无法获取磁盘信息。请确认后端已连接到 Unraid。
+          {t('storage.cannotFetch')}
         </CardContent>
       </Card>
     );
@@ -196,15 +203,15 @@ export default function StoragePage() {
             <HardDrive className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">存储阵列</h1>
+            <h1 className="text-xl font-semibold">{t('storage.title')}</h1>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Badge
                 variant={data.state === 'started' ? 'success' : 'secondary'}
                 className="text-[10px]"
               >
-                {ARRAY_STATE_LABEL[data.state] ?? data.state}
+                {ARRAY_STATE_KEY[data.state] ? t(ARRAY_STATE_KEY[data.state]) : data.state}
               </Badge>
-              <span>{healthyDisks}/{totalDisks} 块硬盘健康</span>
+              <span>{healthyDisks}/{totalDisks} {t('storage.diskHealthy')}</span>
             </div>
           </div>
         </div>
@@ -216,7 +223,7 @@ export default function StoragePage() {
               disabled={arrayMut.isPending}
               onClick={() => setConfirmStopArray(true)}
             >
-              <Square className="h-3.5 w-3.5" /> 停止阵列
+              <Square className="h-3.5 w-3.5" /> {t('storage.stopArray')}
             </Button>
           ) : (
             <Button
@@ -226,7 +233,7 @@ export default function StoragePage() {
               onClick={() => arrayMut.mutate('start')}
             >
               {arrayMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              启动阵列
+              {t('storage.startArray')}
             </Button>
           )}
           {refreshMsg && (
@@ -246,7 +253,7 @@ export default function StoragePage() {
             onClick={() => refreshMut.mutate()}
           >
             <RefreshCw className={cn('h-3.5 w-3.5', refreshMut.isPending && 'animate-spin')} />
-            刷新 SMART
+            {t('storage.smartRefresh')}
           </Button>
         </div>
       </div>
@@ -258,13 +265,13 @@ export default function StoragePage() {
             <CardTitle className="flex items-center justify-between text-base">
               <span className="flex items-center gap-2">
                 <Activity className="h-4 w-4 animate-pulse text-primary" />
-                Parity 检查进行中
+                {t('storage.parityCheckRunning')}
               </span>
               <div className="flex items-center gap-2">
                 {parity.errors > 0 && (
                   <Badge variant="destructive" className="text-[10px]">
                     <AlertTriangle className="mr-1 h-3 w-3" />
-                    {parity.errors} 错误
+                    {parity.errors} {t('common.error')}
                   </Badge>
                 )}
                 <Button
@@ -273,7 +280,7 @@ export default function StoragePage() {
                   disabled={parityMut.isPending}
                   onClick={() => parityMut.mutate('stop')}
                 >
-                  <Square className="h-3.5 w-3.5" /> 停止检查
+                  <Square className="h-3.5 w-3.5" /> {t('storage.stopCheck')}
                 </Button>
               </div>
             </CardTitle>
@@ -286,8 +293,8 @@ export default function StoragePage() {
               </span>
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-              <span>速度：{parity.speed}</span>
-              <span>剩余：{parity.remaining}</span>
+              <span>{t('storage.speed')}{parity.speed}</span>
+              <span>{t('storage.remaining')}{parity.remaining}</span>
             </div>
           </CardContent>
         </Card>
@@ -298,7 +305,7 @@ export default function StoragePage() {
         <div className="flex items-center justify-between rounded-lg border border-dashed p-3">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <ShieldCheck className="h-4 w-4 text-muted-foreground" />
-            Parity 检查未运行
+            {t('storage.parityIdle')}
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -310,7 +317,7 @@ export default function StoragePage() {
                 setConfirmParity(true);
               }}
             >
-              <Play className="h-3.5 w-3.5" /> 开始检查
+              <Play className="h-3.5 w-3.5" /> {t('storage.startCheckBtn')}
             </Button>
             <Button
               size="sm"
@@ -321,20 +328,20 @@ export default function StoragePage() {
                 setConfirmParity(true);
               }}
             >
-              <ShieldCheck className="h-3.5 w-3.5" /> 纠错检查
+              <ShieldCheck className="h-3.5 w-3.5" /> {t('storage.correctingCheck')}
             </Button>
           </div>
         </div>
       )}
 
-      <DiskGroup title="阵列磁盘" disks={data.disks} />
-      <DiskGroup title="缓存池" disks={data.cacheDisks} />
+      <DiskGroup title={t('storage.arrayDisks')} disks={data.disks} />
+      <DiskGroup title={t('storage.cachePool')} disks={data.cacheDisks} />
 
       <ConfirmDialog
         open={confirmStopArray}
-        title="确认停止阵列"
-        description="所有磁盘将被卸载。确认要停止阵列吗？"
-        confirmText="停止阵列"
+        title={t('storage.confirmStopArray')}
+        description={t('storage.confirmStopArrayDesc')}
+        confirmText={t('storage.stopArray')}
         variant="destructive"
         loading={arrayMut.isPending}
         onConfirm={() => {
@@ -345,11 +352,11 @@ export default function StoragePage() {
       />
       <ConfirmDialog
         open={confirmParity}
-        title={parityAction === 'correcting' ? '启动纠错 Parity 检查' : '启动 Parity 检查'}
-        description={parityAction === 'correcting' 
-          ? '纠错检查将自动修复不一致的 Parity 数据，可能需要数小时。确认启动？'
-          : '这将读取所有阵列磁盘，可能需要数小时。确认启动？'}
-        confirmText={parityAction === 'correcting' ? '开始纠错' : '开始检查'}
+        title={parityAction === 'correcting' ? t('storage.confirmStartCorrecting') : t('storage.confirmStartCheck')}
+        description={parityAction === 'correcting'
+          ? t('storage.confirmCorrectingDesc')
+          : t('storage.confirmCheckDesc')}
+        confirmText={parityAction === 'correcting' ? t('storage.startCorrecting') : t('storage.startCheckBtn')}
         loading={parityMut.isPending}
         onConfirm={() => {
           parityMut.mutate(parityAction);
@@ -364,6 +371,7 @@ export default function StoragePage() {
 /* ------------------------------ Disk Group ------------------------------- */
 
 function DiskGroup({ title, disks }: { title: string; disks: DiskInfo[] }) {
+  const { t } = useTranslation();
   if (disks.length === 0) return null;
   const total = disks.reduce((s, d) => s + d.sizeBytes, 0);
   const used = disks.reduce((s, d) => s + d.usedBytes, 0);
@@ -380,7 +388,7 @@ function DiskGroup({ title, disks }: { title: string; disks: DiskInfo[] }) {
             <HardDrive className="h-4 w-4 text-muted-foreground" />
             {title}
             <span className="text-xs font-normal text-muted-foreground">
-              {disks.length} 块
+              {disks.length} {t('storage.diskCount')}
             </span>
           </span>
           <span className="text-xs font-normal tabular-nums text-muted-foreground">
@@ -411,6 +419,7 @@ function DiskGroup({ title, disks }: { title: string; disks: DiskInfo[] }) {
 /* ------------------------------ Disk Row --------------------------------- */
 
 function DiskRow({ disk: d }: { disk: DiskInfo }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const pct = d.sizeBytes > 0 ? (d.usedBytes / d.sizeBytes) * 100 : 0;
 
@@ -422,7 +431,6 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
     },
   });
 
-  // Unraid LED color mapping
   const unraidColorMap: Record<string, string> = {
     'green-on': 'bg-emerald-500',
     'green-off': 'bg-emerald-500/30',
@@ -436,7 +444,6 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
   const isSsd = d.rotational === '0';
   const TransportIcon = d.transport === 'nvme' ? Zap : d.transport === 'usb' ? Usb : Cable;
 
-  // Temperature color logic
   const tempHigh = d.tempC !== undefined && d.tempC >= 50;
   const tempCritical = d.tempC !== undefined && d.tempC >= 65;
   const tempColor = tempCritical
@@ -450,7 +457,6 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
       ? 'bg-warning/10 border-warning/30'
       : 'bg-transparent border-transparent';
 
-  // Progress bar color
   const progressColor =
     pct > 90 ? 'bg-destructive' : pct > 75 ? 'bg-warning' : 'bg-primary';
 
@@ -528,16 +534,16 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
             variant={DISK_STATUS_VARIANT[d.status]}
             className="px-1.5 py-0 text-[9px] leading-none"
           >
-            {DISK_STATUS_LABEL[d.status] ?? d.status}
+            {t(DISK_STATUS_KEY[d.status] ?? d.status)}
           </Badge>
-          {/* SMART badge — show for ok/warning/failing, show '休眠' for standby */}
+          {/* SMART badge — show for ok/warning/failing, show standby for standby */}
           {(d.smart?.available && d.smart.status !== 'unknown') && (
             <Badge
-              variant={SMART_STATUS[d.smart.status].variant}
+              variant={SMART_STATUS_META[d.smart.status].variant}
               className="px-1.5 py-0 text-[9px] leading-none"
             >
               <SmartStatusIcon status={d.smart.status} />
-              {SMART_STATUS[d.smart.status].label}
+              {t(SMART_LABEL_KEY[d.smart.status])}
             </Badge>
           )}
           {/* Standby badge when smart is unavailable and disk appears spun down */}
@@ -547,7 +553,7 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
               className="px-1.5 py-0 text-[9px] leading-none"
             >
               <Moon className="mr-0.5 h-3 w-3" />
-              休眠
+              {t('storage.standby')}
             </Badge>
           )}
         </div>
@@ -588,9 +594,9 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
                 const dev = d.device.replace(/^\/dev\//, '');
                 spinMut.mutate({ device: dev, action: 'spinup' });
               }}
-              title="唤醒磁盘"
+              title={t('storage.spinUp')}
             >
-              <Sun className="h-2.5 w-2.5" /> 唤醒
+              <Sun className="h-2.5 w-2.5" /> {t('storage.spinUpShort')}
             </button>
             <button
               className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-500 disabled:opacity-50"
@@ -599,9 +605,9 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
                 const dev = d.device.replace(/^dev\//, '');
                 spinMut.mutate({ device: dev, action: 'spindown' });
               }}
-              title="休眠磁盘"
+              title={t('storage.spinDown')}
             >
-              <Moon className="h-2.5 w-2.5" /> 休眠
+              <Moon className="h-2.5 w-2.5" /> {t('storage.spinDownShort')}
             </button>
           </div>
         )}
@@ -616,7 +622,7 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
 /* ------------------------------- SMART bits ------------------------------ */
 
 function SmartStatusIcon({ status }: { status: SmartInfo['status'] }) {
-  const Icon = SMART_STATUS[status].icon;
+  const Icon = SMART_STATUS_META[status].icon;
   return <Icon className="mr-0.5 h-2.5 w-2.5" />;
 }
 
@@ -625,6 +631,7 @@ function SmartStatusIcon({ status }: { status: SmartInfo['status'] }) {
  * auto-expanded for warning/failing disks.
  */
 function SmartDetail({ smart, expanded = false }: { smart?: SmartInfo; expanded?: boolean }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(expanded);
 
   // Sync expanded prop: when a disk goes from ok→warning, auto-expand.
@@ -638,10 +645,10 @@ function SmartDetail({ smart, expanded = false }: { smart?: SmartInfo; expanded?
   if (!smart || !smart.available || smart.status === 'unknown') return null;
 
   const counters: { label: string; value: number }[] = [
-    { label: '重映射', value: smart.reallocated },
-    { label: '待处理', value: smart.pending },
-    { label: '离线不可纠正', value: smart.uncorrectable },
-    { label: '介质错误', value: smart.mediaErrors },
+    { label: t('storage.reallocated'), value: smart.reallocated },
+    { label: t('storage.pending'), value: smart.pending },
+    { label: t('storage.offlineUncorrectable'), value: smart.uncorrectable },
+    { label: t('storage.mediaErrors'), value: smart.mediaErrors },
   ].filter((c) => c.value > 0);
 
   const isFailing = smart.status === 'failing';
@@ -679,7 +686,7 @@ function SmartDetail({ smart, expanded = false }: { smart?: SmartInfo; expanded?
           </span>
         </span>
         <span className="flex shrink-0 items-center gap-1.5">
-          <span className="text-muted-foreground/60">刷新于 {timeAgo(smart.fetchedAt)}</span>
+          <span className="text-muted-foreground/60">{t('storage.refreshedAt')} {timeAgo(smart.fetchedAt)}</span>
           {!hasProblem && (
             <ChevronDown className={cn('h-3 w-3 transition-transform', open && 'rotate-180')} />
           )}
@@ -689,7 +696,7 @@ function SmartDetail({ smart, expanded = false }: { smart?: SmartInfo; expanded?
       {/* Expanded detail for healthy disks */}
       {!hasProblem && open && (
         <div className="mt-1 text-ind-emerald">
-          自检通过 · 无可靠性告警
+          {t('storage.smartOkDetail')}
         </div>
       )}
 
@@ -698,7 +705,7 @@ function SmartDetail({ smart, expanded = false }: { smart?: SmartInfo; expanded?
         <>
           {isFailing && (
             <div className="mt-1 font-medium text-destructive">
-              自检未通过 — 该硬盘可能即将故障，请尽快备份数据！
+              {t('storage.smartFailDetail')}
             </div>
           )}
           {counters.length > 0 && (

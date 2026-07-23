@@ -21,25 +21,15 @@ import { useAuthStore } from '@/stores/auth';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import { api } from '@/lib/api';
+import { useTranslation } from 'react-i18next';
 
 interface NavItem {
   to: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   hint: string;
-  /** If true, this nav item is only shown when SSH is available. */
   requiresSSH?: boolean;
 }
-
-const NAV: NavItem[] = [
-  { to: '/', label: '仪表盘', icon: LayoutDashboard, hint: '服务器 CPU、内存、网络、磁盘的整体状态' },
-  { to: '/storage', label: '存储', icon: HardDrive, hint: '磁盘阵列与缓存盘的容量、温度、健康' },
-  { to: '/files', label: '文件', icon: FolderTree, hint: '基于 SFTP 的文件管理，可上传/下载/在线预览', requiresSSH: true },
-  { to: '/terminal', label: '终端', icon: TerminalSquare, hint: '浏览器内的 SSH 命令行', requiresSSH: true },
-  { to: '/vms', label: '虚拟机', icon: Cpu, hint: 'Unraid 上的 KVM 虚拟机启停' },
-  { to: '/docker', label: 'Docker', icon: Container, hint: 'Docker 容器列表、启停与日志' },
-  { to: '/settings', label: '设置', icon: Settings, hint: '连接配置、安全选项、界面偏好' },
-];
 
 /** Check if a path matches the current location. */
 function isPathActive(currentPath: string, itemPath: string): boolean {
@@ -48,6 +38,7 @@ function isPathActive(currentPath: string, itemPath: string): boolean {
 }
 
 export default function Sidebar() {
+  const { t } = useTranslation();
   const collapsed = useSettingsStore((s) => s.sidebarCollapsed);
   const toggle = useSettingsStore((s) => s.toggleSidebar);
   const server = useAuthStore((s) => s.server);
@@ -58,6 +49,16 @@ export default function Sidebar() {
   const refreshServers = useAuthStore((s) => s.refreshServers);
   const navigate = useNavigate();
   const location = useLocation();
+
+  const NAV: NavItem[] = [
+    { to: '/', label: t('nav.dashboard'), icon: LayoutDashboard, hint: t('nav.dashboardHint') },
+    { to: '/storage', label: t('nav.storage'), icon: HardDrive, hint: t('nav.storageHint') },
+    { to: '/files', label: t('nav.files'), icon: FolderTree, hint: t('nav.filesHint'), requiresSSH: true },
+    { to: '/terminal', label: t('nav.terminal'), icon: TerminalSquare, hint: t('nav.terminalHint'), requiresSSH: true },
+    { to: '/vms', label: t('nav.vms'), icon: Cpu, hint: t('nav.vmsHint') },
+    { to: '/docker', label: t('nav.docker'), icon: Container, hint: t('nav.dockerHint') },
+    { to: '/settings', label: t('nav.settings'), icon: Settings, hint: t('nav.settingsHint') },
+  ];
 
   const handleReconnect = async (id: string) => {
     try {
@@ -118,12 +119,12 @@ export default function Sidebar() {
         <div className="mx-3 mt-3 space-y-1">
           <div className="flex items-center justify-between px-1">
             <span className="text-[10px] font-medium uppercase text-muted-foreground">
-              服务器
+              {t('sidebar.server')}
             </span>
             <button
               onClick={() => navigate('/onboarding?mode=add')}
               className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              title="添加服务器"
+              title={t('sidebar.addServer')}
             >
               <Plus className="h-3 w-3" />
             </button>
@@ -163,7 +164,7 @@ export default function Sidebar() {
                       handleReconnect(s.id);
                     }}
                     className="rounded p-0.5 hover:bg-accent"
-                    title="重连"
+                    title={t('sidebar.reconnect')}
                   >
                     <RefreshCw className="h-3 w-3" />
                   </button>
@@ -174,7 +175,7 @@ export default function Sidebar() {
                     setDeleteTarget(s.id);
                   }}
                   className="rounded p-0.5 hover:bg-destructive/10 hover:text-destructive"
-                  title="删除"
+                  title={t('sidebar.delete')}
                 >
                   <Trash2 className="h-3 w-3" />
                 </button>
@@ -183,7 +184,7 @@ export default function Sidebar() {
           ))}
           {servers.length === 0 && (
             <div className="px-2 py-2 text-center text-[10px] text-muted-foreground">
-              尚未添加服务器
+              {t('sidebar.noServer')}
             </div>
           )}
         </div>
@@ -256,15 +257,15 @@ export default function Sidebar() {
           <ChevronLeft
             className={cn('h-4 w-4 transition-transform', collapsed && 'rotate-180')}
           />
-          {!collapsed && <span>收起侧栏</span>}
+          {!collapsed && <span>{t('sidebar.collapseSidebar')}</span>}
         </button>
       </div>
 
       <ConfirmDialog
         open={!!deleteTarget}
-        title="确认删除服务器"
-        description="删除后将断开连接并移除保存的配置。确定要删除吗？"
-        confirmText="删除"
+        title={t('sidebar.confirmDeleteTitle')}
+        description={t('sidebar.confirmDeleteDesc')}
+        confirmText={t('common.delete')}
         variant="destructive"
         onConfirm={() => deleteTarget && handleDelete(deleteTarget)}
         onCancel={() => setDeleteTarget(null)}

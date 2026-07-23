@@ -67,30 +67,17 @@ func (h *Handler) DockerStats(c *gin.Context) {
 
 	// Check cache first.
 	statsCache.RLock()
+	prefix := sid + "/"
 	cached := make([]containerStats, 0, len(statsCache.m))
-	allFresh := time.Since(statsCache.ts) < statsCacheTTL && len(statsCache.m) > 0
-	for _, s := range statsCache.m {
-		// Only include entries for this server
-		if len(sid) > 0 {
-			prefix := sid + "/"
-			if len(s.ID) >= len(prefix) && s.ID[:len(prefix)] == prefix {
-				cached = append(cached, containerStats{
-					ID:        s.ID[len(prefix):], // strip server prefix for response
-					Name:      s.Name,
-					CPUPct:    s.CPUPct,
-					MemUsage:  s.MemUsage,
-					MemLimit:  s.MemLimit,
-					MemPct:    s.MemPct,
-					NetRx:     s.NetRx,
-					NetTx:     s.NetTx,
-					BlockRead: s.BlockRead,
-					BlockWr:   s.BlockWr,
-					PIDs:      s.PIDs,
-				})
-			}
+	hasServerEntries := false
+	for key, s := range statsCache.m {
+		// Only include entries for this server (key = "serverID/containerID")
+		if strings.HasPrefix(key, prefix) {
+			cached = append(cached, s)
+			hasServerEntries = true
 		}
 	}
-	if allFresh && len(cached) > 0 {
+	if time.Since(statsCache.ts) < statsCacheTTL && hasServerEntries {
 		statsCache.RUnlock()
 		c.JSON(http.StatusOK, cached)
 		return
@@ -148,10 +135,8 @@ func (h *Handler) DockerStats(c *gin.Context) {
 
 	// Update cache — replace only entries for this server.
 	statsCache.Lock()
-	// Remove old entries for this server
-	prefix := sid + "/"
 	for k := range statsCache.m {
-		if len(k) >= len(prefix) && k[:len(prefix)] == prefix {
+		if strings.HasPrefix(k, prefix) {
 			delete(statsCache.m, k)
 		}
 	}

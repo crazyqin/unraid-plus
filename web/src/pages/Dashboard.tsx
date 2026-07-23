@@ -30,6 +30,7 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Progress } from '@/components/ui/progress';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
@@ -126,20 +127,29 @@ export default function DashboardPage() {
                 </Badge>
               )}
               {data && modeLabel && (
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    'text-[10px]',
-                    sshAvailable && apiAvailable
-                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                      : apiAvailable
-                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                        : 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30',
-                  )}
-                >
-                  <Zap className="mr-1 h-3 w-3" />
-                  {modeLabel}
-                </Badge>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        'text-[10px] cursor-default',
+                        sshAvailable && apiAvailable
+                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                          : apiAvailable
+                            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                            : 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30',
+                      )}
+                    >
+                      <Zap className="mr-1 h-3 w-3" />
+                      {modeLabel}
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {modeLabel === '双通道' ? 'WebGUI API + SSH 均已连接，所有功能可用' :
+                     modeLabel === 'API 模式' ? '仅 WebGUI API 已连接，终端和文件管理不可用' :
+                     '仅 SSH 已连接，部分功能受限'}
+                  </TooltipContent>
+                </Tooltip>
               )}
               <span>
                 服务器实时状态{refreshInterval > 0 ? ` · 每 ${refreshInterval / 1000}s 刷新` : ' · 已暂停刷新'}

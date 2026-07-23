@@ -83,13 +83,23 @@ export default function TopBar() {
         <span className="max-w-[200px] truncate text-xs text-muted-foreground" title={server?.label || server?.host}>
           {server?.label || server?.host}
         </span>
-        <div className={cn(
-          'flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
-          modeStyle,
-        )}>
-          <Zap className="h-3 w-3" />
-          {modeLabel}
-        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <div className={cn(
+              'flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium cursor-default',
+              modeStyle,
+            )}>
+              <Zap className="h-3 w-3" />
+              {modeLabel}
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>
+            {modeLabel === '双通道' ? 'WebGUI API + SSH 均已连接，所有功能可用' :
+             modeLabel === 'API' ? '仅 WebGUI API 已连接，终端和文件管理不可用' :
+             modeLabel === 'SSH' ? '仅 SSH 已连接，部分功能受限' :
+             '未连接到服务器'}
+          </TooltipContent>
+        </Tooltip>
       </div>
 
       <div className="flex items-center gap-2">

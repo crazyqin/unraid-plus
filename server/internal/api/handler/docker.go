@@ -84,24 +84,29 @@ func (h *Handler) ListContainers(c *gin.Context) {
 	// Fetch container icons from Unraid's image directory.
 	// Icons are stored as <container-name>.png in the Docker plugin's state dir.
 	// We batch-read them in one SSH command for efficiency.
-	if len(containers) > 0 {
-		iconDir := "/usr/local/emhttp/state/plugins/dynamix.docker.manager/images"
-		// Build a command that reads each icon and outputs "name:<base64>"
-		var parts []string
+	// Multiple possible locations across Unraid versions.
+	if len(containers) > 0 && cli != nil {
+		// Build a command that:
+		// 1. Detects which icon directory exists
+		// 2. Reads each icon and outputs "ICON:name:base64"
+		// Uses semicolons instead of newlines to avoid shell parsing issues.
+		var nameList []string
 		for _, ct := range containers {
-			name := strings.TrimPrefix(ct.Name, "/") // docker names have leading /
-			if name == "" {
-				continue
+			name := strings.TrimPrefix(ct.Name, "/")
+			if name != "" {
+				nameList = append(nameList, shellQuote(name))
 			}
-			// Try <name>.png, fall back to <name>-icon.png
-			parts = append(parts,
-				`icon=`+shellQuote(name)+`; f=`+shellQuote(iconDir+"/"+name+".png")+`; `+
-					`if [ -f "$f" ]; then echo "ICON:$icon:$(base64 -w0 "$f")"; fi`,
-			)
 		}
-		if len(parts) > 0 {
-			// Run all checks in one shot, delimited by newlines
-			iconCmd := strings.Join(parts, "\n")
+		if len(nameList) > 0 {
+			// Probe icon directories in priority order, then read all found icons
+			iconCmd := `ICONDIR="";` +
+				`for d in /usr/local/emhttp/state/plugins/dynamix.docker.manager/images /boot/config/plugins/dynamix.docker.manager/images /usr/local/emhttp/plugins/dynamix.docker.manager/images; do ` +
+				`if [ -d "$d" ]; then ICONDIR="$d"; break; fi; done; ` +
+				`if [ -n "$ICONDIR" ]; then ` +
+				`for n in ` + strings.Join(nameList, " ") + `; do ` +
+				`f="${ICONDIR}/${n}.png"; ` +
+				`if [ -f "$f" ]; then echo "ICON:${n}:$(base64 -w0 "$f")"; fi; ` +
+				`done; fi`
 			iconOut, _ := cli.Run(iconCmd)
 			iconMap := parseIconOutput(iconOut)
 			for i := range containers {

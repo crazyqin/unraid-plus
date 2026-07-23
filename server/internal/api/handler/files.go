@@ -55,7 +55,7 @@ func (h *Handler) ListFiles(c *gin.Context) {
 	}
 	var req listFilesReq
 	if err := c.ShouldBindQuery(&req); err != nil || req.Path == "" {
-		req.Path = "/mnt/user"
+		req.Path = "/mnt"
 	}
 	req.Path = path.Clean(req.Path)
 
@@ -381,7 +381,7 @@ func (h *Handler) UploadFile(c *gin.Context) {
 	if !ok {
 		return
 	}
-	dir := path.Clean(c.DefaultQuery("dir", "/mnt/user"))
+	dir := path.Clean(c.DefaultQuery("dir", "/mnt"))
 	if !isAllowedRoot(dir) {
 		errOut(c, http.StatusForbidden, "拒绝上传到非允许目录")
 		return

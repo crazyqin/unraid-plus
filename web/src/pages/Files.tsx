@@ -39,7 +39,7 @@ type SortKey = 'name' | 'sizeBytes' | 'modTime';
 type SortDir = 'asc' | 'desc';
 
 export default function FilesPage() {
-  const [path, setPath] = useState('/mnt/user');
+  const [path, setPath] = useState('/mnt');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState(false);

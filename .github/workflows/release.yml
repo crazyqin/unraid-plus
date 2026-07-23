@@ -44,7 +44,7 @@ jobs:
 
       - name: Sync frontend dist into server
         run: |
-          rm -rf server/internal/web/dist/*
+          mkdir -p server/internal/web/dist
           cp -r web/dist/* server/internal/web/dist/
 
       - uses: actions/setup-go@v5

@@ -67,7 +67,7 @@ func (h *Handler) Dashboard(c *gin.Context) {
 	loadStr, _ := cli.Run("cat /proc/loadavg")
 	modelName, _ := cli.Run("grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //'")
 	coreCountStr, _ := cli.Run("nproc")
-	temps, _ := cli.Run("for z in /sys/class/thermal/thermal_zone*; do cat $z/temp 2>/dev/null || true; done")
+	temps, _ := cli.Run(readCoreTempCmd())
 
 	time.Sleep(900 * time.Millisecond)
 
@@ -390,4 +390,43 @@ func atofSafe(s string) float64 {
 		return 0
 	}
 	return v
+}
+
+// readCoreTempCmd returns a shell command that reads per-core CPU temperatures.
+//
+// Strategy (in order of preference):
+//  1. hwmon "coretemp" (Intel): reads temp*_input where temp*_label starts with
+//     "Core" or "Package" to distinguish per-core vs package temps. Each Core
+//     label maps to one logical core.
+//  2. hwmon "k10temp" (AMD): usually provides Tctl/Tdie (package temps).
+//  3. Fallback: thermal_zone (package-level temp, often just 1-2 zones).
+//
+// The command outputs one temperature value per line in millidegrees, matching
+// the format expected by parseThermal.
+func readCoreTempCmd() string {
+	return `( 
+    p=$(grep -xl coretemp /sys/class/hwmon/hwmon*/name 2>/dev/null | head -1)
+    if [ -n "$p" ]; then
+      d=${p%/*}
+      # Read all temp*_input, but prefer "Core N" labels over "Package id N"
+      # Sort files numerically by the number in tempN
+      for f in $(ls $d/temp*_input 2>/dev/null | sort -t'p' -k2 -n); do
+        label=""
+        lbl=${f%_input}_label
+        if [ -f "$lbl" ]; then label=$(cat "$lbl" 2>/dev/null); fi
+        # Include Core temps and Package temps (Core = per-core, Package = aggregate)
+        case "$label" in
+          Core*|Package*|"") cat "$f" 2>/dev/null ;;
+        esac
+      done
+      exit 0
+    fi
+    p=$(grep -xl k10temp /sys/class/hwmon/hwmon*/name 2>/dev/null | head -1)
+    if [ -n "$p" ]; then
+      d=${p%/*}
+      for f in $(ls $d/temp*_input 2>/dev/null | sort -t'p' -k2 -n); do cat "$f" 2>/dev/null; done
+      exit 0
+    fi
+    for z in /sys/class/thermal/thermal_zone*; do cat $z/temp 2>/dev/null || true; done
+  )`
 }

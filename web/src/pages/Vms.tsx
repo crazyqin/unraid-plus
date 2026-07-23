@@ -172,7 +172,7 @@ export default function VmsPage() {
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {filtered.map((vm) => (
             <Card key={vm.id} className={cn(
-              'border-l-2 transition-colors hover:bg-muted/30',
+              'flex flex-col border-l-2 transition-colors hover:bg-muted/30',
               STATUS_BORDER[vm.status] ?? 'border-l-border',
               STATUS_BG[vm.status],
             )}>
@@ -182,7 +182,7 @@ export default function VmsPage() {
                   <Badge variant={STATUS_VARIANT[vm.status]} className="text-[9px] px-1.5 py-0 leading-none">{STATUS_LABEL[vm.status] ?? vm.status}</Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="flex flex-1 flex-col space-y-3">
                 <div className="flex items-center gap-1.5">
                   <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-blue-600 dark:text-blue-400">
                     <Cpu className="h-2.5 w-2.5" />
@@ -193,7 +193,7 @@ export default function VmsPage() {
                     {formatBytes(vm.memoryBytes)}
                   </span>
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="mt-auto flex flex-wrap gap-2 pt-1">
                   {vm.status !== 'running' && vm.status !== 'paused' && (
                     <Button size="sm" variant="success" onClick={() => act(vm.id, 'start')} disabled={pendingAction !== null}>
                       {pendingAction === `${vm.id}:start` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} 启动

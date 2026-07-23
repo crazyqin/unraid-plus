@@ -198,7 +198,7 @@ export default function DockerPage() {
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {containers.map((c) => (
             <Card key={c.id} className={cn(
-              'border-l-2 transition-colors hover:bg-muted/30',
+              'flex flex-col border-l-2 transition-colors hover:bg-muted/30',
               STATUS_BORDER[c.status] ?? 'border-l-border',
               STATUS_BG[c.status],
             )}>
@@ -215,7 +215,7 @@ export default function DockerPage() {
                   <Badge variant={STATUS_VARIANT[c.status]} className="text-[9px] px-1.5 py-0 leading-none">{STATUS_LABEL[c.status] ?? c.status}</Badge>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="flex flex-1 flex-col space-y-3">
                 <div className="flex flex-wrap gap-1">
                   {c.ports.slice(0, 3).map((p) => (
                     <Badge key={p} variant="outline" className="font-mono text-[9px] px-1.5 py-0 leading-none">
@@ -237,7 +237,7 @@ export default function DockerPage() {
                 <div className="text-xs text-muted-foreground">
                   启动于 {c.startedAt ? timeAgo(c.startedAt) : '—'}
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="mt-auto flex flex-wrap gap-2 pt-1">
                   {c.status !== 'running' && (
                     <Button size="sm" variant="success" onClick={() => act(c.id, 'start')} disabled={pendingAction !== null}>
                       {pendingAction === `${c.id}:start` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} 启动

@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Moon, RefreshCw, Sun, Wifi, WifiOff } from 'lucide-react';
+import { Activity, Moon, RefreshCw, Sun, Wifi, WifiOff, Zap } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -9,10 +9,23 @@ import { cn } from '@/lib/utils';
 
 export default function TopBar() {
   const server = useAuthStore((s) => s.server);
+  const sshAvailable = useAuthStore((s) => s.sshAvailable);
+  const apiAvailable = useAuthStore((s) => s.apiAvailable);
   const refreshInterval = useSettingsStore((s) => s.refreshInterval);
   const setRefreshInterval = useSettingsStore((s) => s.setRefreshInterval);
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
+
+  // Derive connection mode label and style
+  const modeLabel =
+    sshAvailable && apiAvailable ? '双通道' :
+    apiAvailable ? 'API' :
+    sshAvailable ? 'SSH' : '未连接';
+  const modeStyle =
+    sshAvailable && apiAvailable ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
+    apiAvailable ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+    sshAvailable ? 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400' :
+    'border-muted-foreground/40 bg-muted text-muted-foreground';
 
   const [themeOpen, setThemeOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
@@ -70,6 +83,13 @@ export default function TopBar() {
         <span className="max-w-[200px] truncate text-xs text-muted-foreground" title={server?.label || server?.host}>
           {server?.label || server?.host}
         </span>
+        <div className={cn(
+          'flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium',
+          modeStyle,
+        )}>
+          <Zap className="h-3 w-3" />
+          {modeLabel}
+        </div>
       </div>
 
       <div className="flex items-center gap-2">

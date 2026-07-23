@@ -19,6 +19,7 @@ import {
   Network,
   ShieldCheck,
   Thermometer,
+  Zap,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import {
@@ -39,6 +40,7 @@ import {
 } from '@/lib/utils';
 import type { DashboardSummary, ArrayStatus, ParityStatus } from '@/types';
 import { useSettingsStore, type ChartRange } from '@/stores/settings';
+import { useAuthStore } from '@/stores/auth';
 
 interface Sample {
   t: number;
@@ -68,6 +70,13 @@ export default function DashboardPage() {
   const refreshInterval = useSettingsStore((s) => s.refreshInterval);
   const chartRange = useSettingsStore((s) => s.chartRange);
   const setChartRange = useSettingsStore((s) => s.setChartRange);
+  const sshAvailable = useAuthStore((s) => s.sshAvailable);
+  const apiAvailable = useAuthStore((s) => s.apiAvailable);
+
+  const modeLabel =
+    sshAvailable && apiAvailable ? '双通道' :
+    apiAvailable ? 'API 模式' :
+    sshAvailable ? 'SSH 模式' : '';
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api.get<DashboardSummary>('/dashboard'),
@@ -113,6 +122,22 @@ export default function DashboardPage() {
               {data && (
                 <Badge variant="success" className="text-[10px]">
                   在线
+                </Badge>
+              )}
+              {data && modeLabel && (
+                <Badge
+                  variant="secondary"
+                  className={cn(
+                    'text-[10px]',
+                    sshAvailable && apiAvailable
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                      : apiAvailable
+                        ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
+                        : 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30',
+                  )}
+                >
+                  <Zap className="mr-1 h-3 w-3" />
+                  {modeLabel}
                 </Badge>
               )}
               <span>

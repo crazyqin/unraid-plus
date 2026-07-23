@@ -24,16 +24,44 @@ type vm struct {
 }
 
 // ListVMs returns VMs.
-// v0.4+: Prefer Unraid HTTP API (VMMachines.php) with SSH fallback.
-// The HTTP API returns HTML which we parse to extract VM data including VNC port.
+// v0.4+: SSH first (full data from virsh), API-only fallback for VNC port.
 func (h *Handler) ListVMs(c *gin.Context) {
-	_, sid, ok := h.activeClientWithID(c)
-	if !ok {
+	// SSH first — virsh gives richer/more reliable data
+	cli, _, hasSSH := h.activeClientWithID(c)
+	if hasSSH {
+		vms := h.listVMsSSH(cli)
+
+		// Supplement VNC port from API when available (virsh dominfo doesn't include it)
+		_, sid, hasSid := h.activeClientWithID(c)
+		if hasSid && h.ur.HasSession(sid) {
+			apiVMs, err := h.listVMsAPI(sid)
+			if err == nil {
+				vncMap := map[string]int{}
+				for _, vm := range apiVMs {
+					if vm.VNCPort > 0 {
+						vncMap[vm.Name] = vm.VNCPort
+					}
+				}
+				for i := range vms {
+					if vms[i].VNCPort == 0 {
+						if port, ok := vncMap[vms[i].Name]; ok {
+							vms[i].VNCPort = port
+						}
+					}
+				}
+			}
+		}
+
+		for i := range vms {
+			vms[i].Via = "ssh"
+		}
+		c.JSON(http.StatusOK, vms)
 		return
 	}
 
-	// Try HTTP API first (API-only mode compatible)
-	if h.ur.HasSession(sid) {
+	// API-only fallback (SSH unavailable)
+	_, sid, hasSid := h.activeClientWithID(c)
+	if hasSid && h.ur.HasSession(sid) {
 		vms, err := h.listVMsAPI(sid)
 		if err == nil {
 			for i := range vms {
@@ -42,19 +70,9 @@ func (h *Handler) ListVMs(c *gin.Context) {
 			c.JSON(http.StatusOK, vms)
 			return
 		}
-		logger.Debugf("vm api list failed, falling back to SSH: %v", err)
 	}
 
-	// SSH fallback
-	cli, ok := h.activeClient(c)
-	if !ok {
-		return
-	}
-	vms := h.listVMsSSH(cli)
-	for i := range vms {
-		vms[i].Via = "ssh"
-	}
-	c.JSON(http.StatusOK, vms)
+	c.JSON(http.StatusOK, []vm{})
 }
 
 // VMAction starts / stops / restarts / pauses / resumes a VM.

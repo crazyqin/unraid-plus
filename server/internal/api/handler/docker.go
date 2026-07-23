@@ -34,39 +34,60 @@ type mount struct {
 }
 
 // ListContainers returns Docker containers.
-// v0.4+: Prefer Unraid HTTP API (DockerContainers.php) with SSH fallback.
-// The HTTP API returns HTML which we parse to extract container data.
-// SSH fallback uses `docker ps -a --format ...` for richer/structured data.
+// v0.4+: SSH first (full data: image, ports, uptime, icons), API-only fallback
+// (basic data when SSH unavailable — e.g. API-only mode).
 func (h *Handler) ListContainers(c *gin.Context) {
-	_, sid, ok := h.activeClientWithID(c)
-	if !ok {
+	// SSH first — docker ps gives much richer data than HTML parsing
+	cli, _, hasSSH := h.activeClientWithID(c)
+	if hasSSH {
+		containers := h.listContainersSSH(cli)
+		for i := range containers {
+			containers[i].Via = "ssh"
+		}
+
+		// Supplement icon URLs from API when available (for containers
+		// without a local icon file, the API HTML may have the label URL)
+		_, sid, hasSid := h.activeClientWithID(c)
+		if hasSid && h.ur.HasSession(sid) {
+			apiContainers, err := h.listContainersAPI(sid)
+			if err == nil {
+				apiIconMap := map[string]string{}
+				for _, ct := range apiContainers {
+					if ct.IconURL != "" {
+						apiIconMap[ct.Name] = ct.IconURL
+					}
+				}
+				for i := range containers {
+					name := strings.TrimPrefix(containers[i].Name, "/")
+					if containers[i].Icon == "" && containers[i].IconURL == "" {
+						if iconURL, ok := apiIconMap[name]; ok {
+							containers[i].IconURL = iconURL
+						} else if iconURL, ok := apiIconMap[containers[i].Name]; ok {
+							containers[i].IconURL = iconURL
+						}
+					}
+				}
+			}
+		}
+
+		c.JSON(http.StatusOK, containers)
 		return
 	}
 
-	// Try HTTP API first (API-only mode compatible)
-	if h.ur.HasSession(sid) {
+	// API-only fallback (SSH unavailable)
+	_, sid, hasSid := h.activeClientWithID(c)
+	if hasSid && h.ur.HasSession(sid) {
 		containers, err := h.listContainersAPI(sid)
-		if err == nil && len(containers) >= 0 {
-			// API path succeeded (even 0 containers is valid — Docker not installed)
+		if err == nil {
 			for i := range containers {
 				containers[i].Via = "api"
 			}
 			c.JSON(http.StatusOK, containers)
 			return
 		}
-		logger.Debugf("docker api list failed, falling back to SSH: %v", err)
 	}
 
-	// SSH fallback
-	cli, ok := h.activeClient(c)
-	if !ok {
-		return
-	}
-	containers := h.listContainersSSH(cli)
-	for i := range containers {
-		containers[i].Via = "ssh"
-	}
-	c.JSON(http.StatusOK, containers)
+	c.JSON(http.StatusOK, []container{})
 }
 
 // parseIconOutput parses "ICON:name:base64data" lines from the batch icon read.

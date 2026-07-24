@@ -341,7 +341,7 @@
     "nicknameHint": "好记的名字，比如「客厅NAS」「Tower」。",
     "advancedSettings": "高级设置（SSH 端口、用户名、密钥认证）",
     "sshPort": "SSH 端口",
-    "sshPortHint": "默认 22，改过才需要填。",
+    "sshPortHint": "默认 22。如果 SSH 在其他端口，必须填写正确端口才能连接。",
     "username": "用户名",
     "usernameHint": "默认 root，通常无需修改。",
     "sshHostOverride": "SSH 主机名（覆盖）",

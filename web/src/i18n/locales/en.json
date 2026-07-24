@@ -341,7 +341,7 @@
     "nicknameHint": "A memorable name, e.g. \"Living Room NAS\" or \"Tower\".",
     "advancedSettings": "Advanced Settings (SSH port, username, key auth)",
     "sshPort": "SSH Port",
-    "sshPortHint": "Default 22, only change if customized.",
+    "sshPortHint": "Default 22. Must match your server's actual SSH port.",
     "username": "Username",
     "usernameHint": "Default root, usually no need to change.",
     "sshHostOverride": "SSH Hostname Override",

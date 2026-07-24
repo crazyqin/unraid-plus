@@ -90,7 +90,13 @@ func (c *Client) Login(serverID, apiBase, username, password string) error {
 	loginPageURL := base + "/login"
 	resp, err := httpc.Get(loginPageURL)
 	if err != nil {
-		return fmt.Errorf("fetch login page failed: %w", err)
+		if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline") {
+			return fmt.Errorf("连接超时：无法访问 %s，请检查服务器地址和网络", base)
+		}
+		if strings.Contains(err.Error(), "connection refused") {
+			return fmt.Errorf("连接被拒绝：%s 未响应，请检查 WebGUI 是否启用", base)
+		}
+		return fmt.Errorf("无法访问 %s：%w", base, err)
 	}
 	io.ReadAll(resp.Body)
 	resp.Body.Close()
@@ -103,7 +109,10 @@ func (c *Client) Login(serverID, apiBase, username, password string) error {
 
 	resp, err = httpc.PostForm(loginURL, form)
 	if err != nil {
-		return fmt.Errorf("login request failed: %w", err)
+		if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "deadline") {
+			return fmt.Errorf("登录请求超时：%s 响应过慢", base)
+		}
+		return fmt.Errorf("登录请求失败：%w", err)
 	}
 	defer resp.Body.Close()
 
@@ -116,7 +125,7 @@ func (c *Client) Login(serverID, apiBase, username, password string) error {
 	// Note: Unraid 7.x redirects to /Dashboard; older versions use /Main.
 	finalPath := resp.Request.URL.Path
 	if resp.StatusCode == http.StatusOK && !strings.Contains(finalPath, "Dashboard") && !strings.Contains(finalPath, "Main") {
-		return fmt.Errorf("login failed: invalid credentials (status 200, not redirected)")
+		return fmt.Errorf("登录失败：用户名或密码错误（状态 200，未重定向）")
 	}
 
 	// Extract cookies from the jar for our base URL
@@ -124,7 +133,14 @@ func (c *Client) Login(serverID, apiBase, username, password string) error {
 	cookies := jar.Cookies(parsedBase)
 
 	if len(cookies) == 0 {
-		return fmt.Errorf("login returned no session cookies")
+		// Some Unraid versions may return 302 without setting cookies visible
+		// to the jar. If we got redirected to /Dashboard, login likely succeeded
+		// — treat it as success and create a minimal session.
+		if strings.Contains(finalPath, "Dashboard") || strings.Contains(finalPath, "Main") {
+			logger.Infof("unraid api login redirect without cookies for %s, creating session anyway", serverID)
+		} else {
+			return fmt.Errorf("登录返回无会话 Cookie，请确认 WebGUI 正常运行")
+		}
 	}
 
 	// Store the session with a fresh jar containing the login cookies

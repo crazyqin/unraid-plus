@@ -102,7 +102,12 @@ export default function OnboardingPage() {
       setResult(r);
       if (r.ok) next();
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : t('onboarding.connectFailed'));
+      const msg = e instanceof ApiError ? e.message : t('onboarding.connectFailed');
+      setError(msg);
+      // Auto-expand advanced settings if SSH port issue is mentioned
+      if (msg.includes('端口') || msg.includes('SSH')) {
+        setShowAdvanced(true);
+      }
     } finally {
       setConnecting(false);
     }

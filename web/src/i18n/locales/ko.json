@@ -341,7 +341,7 @@
     "nicknameHint": "기억하기 쉬운 이름, 예: 「거실 NAS」「Tower」.",
     "advancedSettings": "고급 설정 (SSH 포트, 사용자 이름, 키 인증)",
     "sshPort": "SSH 포트",
-    "sshPortHint": "기본 22, 변경한 경우만 입력.",
+    "sshPortHint": "기본 22. 서버의 실제 SSH 포트와 일치해야 합니다.",
     "username": "사용자 이름",
     "usernameHint": "기본 root, 보통 변경 불필요.",
     "sshHostOverride": "SSH 호스트명 오버라이드",

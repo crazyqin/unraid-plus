@@ -341,7 +341,7 @@
     "nicknameHint": "覚えやすい名前、例：「リビングNAS」「Tower」。",
     "advancedSettings": "詳細設定（SSHポート、ユーザー名、鍵認証）",
     "sshPort": "SSHポート",
-    "sshPortHint": "デフォルト22、変更時のみ入力。",
+    "sshPortHint": "デフォルト22。サーバーの実際のSSHポートと一致させる必要があります。",
     "username": "ユーザー名",
     "usernameHint": "デフォルトroot、通常変更不要。",
     "sshHostOverride": "SSHホスト名オーバーライド",

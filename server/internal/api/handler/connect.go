@@ -144,15 +144,18 @@ func (h *Handler) Connect(c *gin.Context) {
 		// SSH failed — not fatal if API is available
 		if apiAvailable {
 			logger.Infof("SSH connect for %s failed (API-only mode): %v", sid, err)
-			resp.Message = "WebGUI 连接成功，SSH 连接失败（终端和文件功能不可用）"
-		} else {
-			// Both failed
-			status := http.StatusBadGateway
-			if isNetworkErr(err) {
-				errOut(c, status, "无法连接到 Unraid 服务器：" + friendlySSHError(err))
-			} else {
-				errOut(c, http.StatusUnauthorized, "WebGUI 和 SSH 均连接失败，请检查地址和密码")
+			hint := friendlySSHError(err)
+			if req.SSHPort == 22 && isNetworkErr(err) {
+				hint += "（默认端口 22 被使用，如 SSH 在其他端口请在高级设置中修改）"
 			}
+			resp.Message = "WebGUI 连接成功，SSH 连接失败（终端和文件功能不可用）" + " — " + hint
+		} else {
+			// Both failed — report both errors for clarity
+			sshHint := friendlySSHError(err)
+			if req.SSHPort == 22 && isNetworkErr(err) {
+				sshHint += "（默认端口 22 被使用，如 SSH 在其他端口请在高级设置中修改）"
+			}
+			errOut(c, http.StatusBadGateway, "WebGUI 和 SSH 均连接失败。WebGUI: 请检查地址和密码；SSH: "+sshHint)
 			return
 		}
 	} else {
@@ -186,16 +189,24 @@ func (h *Handler) Connect(c *gin.Context) {
 }
 
 // hostFromAPIBase extracts the hostname from a URL like "https://tower.local:443"
-// or "https://192.168.1.99". Returns the raw host portion (no port).
+// or "192.168.1.99" or "tower.local". Returns the raw host portion (no port).
+//
+// Go's url.Parse treats "tower.local" (no scheme, no //) as a path, not a host.
+// We prepend "//" when there's no scheme so the parser treats it as an authority.
 func hostFromAPIBase(apiBase string) string {
-	u, err := url.Parse(apiBase)
-	if err != nil || u.Hostname() == "" {
-		// Fallback: strip scheme
-		s := strings.TrimPrefix(apiBase, "https://")
-		s = strings.TrimPrefix(s, "http://")
-		return strings.SplitN(s, ":", 2)[0]
+	s := apiBase
+	// If no scheme present, prepend "//" so url.Parse sees it as an authority.
+	if !strings.HasPrefix(s, "http://") && !strings.HasPrefix(s, "https://") {
+		s = "//" + s
 	}
-	return u.Hostname()
+	u, err := url.Parse(s)
+	if err == nil && u.Hostname() != "" {
+		return u.Hostname()
+	}
+	// Ultimate fallback: strip scheme, then take everything before the first ":"
+	s = strings.TrimPrefix(apiBase, "https://")
+	s = strings.TrimPrefix(s, "http://")
+	return strings.SplitN(s, ":", 2)[0]
 }
 
 // ListServers returns all saved servers and their connection status.
@@ -464,6 +475,8 @@ func friendlySSHError(err error) string {
 		return "连接被拒绝：检查 Unraid 是否在线、SSH 端口是否正确"
 	case strings.Contains(s, "i/o timeout"):
 		return "连接超时：检查 IP 是否可达、是否在同一个网络"
+	case strings.Contains(s, "no such host"):
+		return "DNS 解析失败：无法找到主机，请检查服务器地址是否正确"
 	case strings.Contains(s, "host key mismatch"):
 		return "服务器指纹变更，可能存在中间人攻击，连接被拒绝"
 	}

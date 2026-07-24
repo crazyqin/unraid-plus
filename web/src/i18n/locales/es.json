@@ -341,7 +341,7 @@
     "nicknameHint": "Un nombre fácil de recordar, ej. « NAS salón » o « Tower ».",
     "advancedSettings": "Ajustes avanzados (puerto SSH, usuario, auth por clave)",
     "sshPort": "Puerto SSH",
-    "sshPortHint": "Por defecto 22, solo cambiar si fue personalizado.",
+    "sshPortHint": "Por defecto 22. Debe coincidir con el puerto SSH real del servidor.",
     "username": "Nombre de usuario",
     "usernameHint": "Por defecto root, normalmente sin necesidad de cambiar.",
     "sshHostOverride": "Sobreescribir nombre de host SSH",

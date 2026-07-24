@@ -18,14 +18,7 @@ import (
 var vncUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true
-		}
-		return strings.HasPrefix(origin, "http://localhost") ||
-			strings.HasPrefix(origin, "http://127.0.0.1")
-	},
+	CheckOrigin:     AllowWSOrigin,
 }
 
 // VNCProxy handles a WebSocket connection that bridges to a VNC server on the

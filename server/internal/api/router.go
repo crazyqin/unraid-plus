@@ -168,14 +168,7 @@ func buildRouter(cfg *config.Config, h *handler.Handler) http.Handler {
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true
-		}
-		return strings.HasPrefix(origin, "http://localhost") ||
-			strings.HasPrefix(origin, "http://127.0.0.1")
-	},
+	CheckOrigin:     handler.AllowWSOrigin,
 }
 
 func serveTerminal(hub *ssh.TerminalHub, w http.ResponseWriter, r *http.Request) {

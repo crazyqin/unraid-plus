@@ -13,32 +13,27 @@ import (
 	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
-// dockerLogsUpgrader is purpose-built for /ws/docker-logs. Same permissive
-// origin check as the terminal upgrader — the API router already sits behind
-// the same CORS policy.
+// dockerLogsUpgrader is purpose-built for /ws/docker-logs.
+// Origin: allow same-host LAN deployments (not only localhost).
 var dockerLogsUpgrader = websocket.Upgrader{
 	ReadBufferSize:  4096,
 	WriteBufferSize: 4096,
-	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			return true
-		}
-		return strings.HasPrefix(origin, "http://localhost") ||
-			strings.HasPrefix(origin, "http://127.0.0.1")
-	},
+	CheckOrigin:     AllowWSOrigin,
 }
 
-// containerIDRe matches a docker container id (hex, 12-64 chars) OR a legal
-// container name ([A-Za-z0-9_.-], up to 128 chars). Anything else is rejected
-// to prevent shell injection — the value flows into `docker logs <id>`.
-var containerIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.\-]{0,127}$`)
+// containerIDRe matches:
+//   - docker container id (hex, 12-64)
+//   - container name ([A-Za-z0-9_.-])
+//   - Unraid PrefixedID ("<64hex>:<localId>")
+// Anything else is rejected — the value flows into `docker logs <id>`.
+var containerIDRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.\-:]{0,200}$`)
 
 // DockerLogs streams a container's logs over WebSocket. Query params:
 //
-//	container (required) — container id or name
+//	container (required) — container id, PrefixedID, or name
 //	tail              (optional, default 200)  — number of trailing lines first
 //	follow            (optional, default true) — keep streaming new logs
+//	serverId          (optional) — multi-server routing
 //
 // Wire format: server sends TextMessage frames containing raw log bytes
 // (stdout+stderr merged by `docker logs` already). On stream end the server
@@ -49,6 +44,15 @@ func (h *Handler) DockerLogs(c *gin.Context) {
 		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
 			"ok":      false,
 			"message": "缺少或非法的 container 参数",
+		})
+		return
+	}
+	// Strip Unraid PrefixedID machine hash — docker CLI only knows local ids.
+	container = stripDockerContainerID(container)
+	if container == "" || !containerIDRe.MatchString(container) {
+		c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+			"ok":      false,
+			"message": "无法解析 container id",
 		})
 		return
 	}
@@ -64,7 +68,7 @@ func (h *Handler) DockerLogs(c *gin.Context) {
 		follow = false
 	}
 
-	cli, _, hasSSH, _ := h.resolveServer(c)
+	cli, _, hasSSH, _ := h.prepareServer(c)
 	if !hasSSH {
 		// Docker logs requires SSH (docker logs command via WebSocket)
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
@@ -154,4 +158,40 @@ func (w *wsWriter) Write(p []byte) (int, error) {
 		return 0, err
 	}
 	return len(p), nil
+}
+
+// stripDockerContainerID removes Unraid PrefixedID machine-hash prefix.
+// "aabbcc...hash:601778a4deadbeef" → "601778a4deadbeef"
+func stripDockerContainerID(id string) string {
+	if i := strings.LastIndex(id, ":"); i >= 0 && i < len(id)-1 {
+		prefix := id[:i]
+		// machine hashes are long hex strings
+		if len(prefix) >= 16 {
+			return id[i+1:]
+		}
+	}
+	return id
+}
+
+// AllowWSOrigin accepts empty Origin (non-browser clients) and same-host
+// Origins so LAN deployments (http://192.168.x.x:9876) work. This app is
+// self-hosted and never intentionally embedded cross-origin.
+func AllowWSOrigin(r *http.Request) bool {
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	// Same host as the request (scheme may differ if reverse-proxied)
+	host := r.Host
+	if host == "" {
+		return true
+	}
+	if strings.Contains(origin, "://"+host) {
+		return true
+	}
+	// Common local aliases
+	return strings.HasPrefix(origin, "http://localhost") ||
+		strings.HasPrefix(origin, "http://127.0.0.1") ||
+		strings.HasPrefix(origin, "https://localhost") ||
+		strings.HasPrefix(origin, "https://127.0.0.1")
 }

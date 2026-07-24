@@ -387,14 +387,14 @@ export default function DockerPage() {
                     )}
                   </div>
 
-                  <div className="mt-auto flex flex-wrap gap-2 pt-1">
+                  <div className="mt-auto grid grid-cols-2 gap-2 pt-2">
                     {c.status !== 'running' && (
                       <Button
                         size="sm"
                         variant="success"
                         onClick={() => act(c.id, 'start')}
                         disabled={pendingAction !== null}
-                        className="h-8 rounded-xl"
+                        className="h-9 rounded-xl"
                       >
                         {pendingAction === `${c.id}:start` ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -410,7 +410,7 @@ export default function DockerPage() {
                         variant="destructive"
                         onClick={() => act(c.id, 'stop')}
                         disabled={pendingAction !== null}
-                        className="h-8 rounded-xl"
+                        className="h-9 rounded-xl"
                       >
                         {pendingAction === `${c.id}:stop` ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -425,7 +425,7 @@ export default function DockerPage() {
                       variant="outline"
                       onClick={() => act(c.id, 'restart')}
                       disabled={pendingAction !== null}
-                      className="h-8 rounded-xl"
+                      className="h-9 rounded-xl"
                     >
                       {pendingAction === `${c.id}:restart` ? (
                         <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -440,7 +440,7 @@ export default function DockerPage() {
                         variant="ghost"
                         onClick={() => act(c.id, 'pause')}
                         disabled={pendingAction !== null}
-                        className="h-8 rounded-xl"
+                        className="h-9 rounded-xl"
                       >
                         <Pause className="h-3.5 w-3.5" /> {t('docker.pause')}
                       </Button>
@@ -450,7 +450,10 @@ export default function DockerPage() {
                       variant="ghost"
                       onClick={() => setLogsFor(c)}
                       disabled={pendingAction !== null}
-                      className="h-8 rounded-xl"
+                      className={cn(
+                        'h-9 rounded-xl',
+                        c.status !== 'running' ? 'col-span-2' : '',
+                      )}
                     >
                       <ScrollText className="h-3.5 w-3.5" /> {t('docker.logs')}
                     </Button>
@@ -545,42 +548,77 @@ function LogDialog({
             {t('docker.logTitle')} {container?.name}
           </DialogTitle>
         </DialogHeader>
-        <LogStream containerId={container?.id} />
+        <LogStream
+          containerId={container?.id}
+          shortId={container?.shortId}
+          name={container?.name}
+        />
       </DialogContent>
     </Dialog>
   );
 }
 
-function LogStream({ containerId }: { containerId?: string }) {
+function LogStream({
+  containerId,
+  shortId,
+  name,
+}: {
+  containerId?: string;
+  shortId?: string;
+  name?: string;
+}) {
   const { t } = useTranslation();
   const [buffer, setBuffer] = useState('');
   const [connected, setConnected] = useState(false);
   const [ended, setEnded] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const preRef = useRef<HTMLPreElement>(null);
+  const openedRef = useRef(false);
 
   useEffect(() => {
-    if (!containerId) return;
+    if (!containerId && !shortId && !name) return;
     setBuffer('');
     setEnded(false);
     setConnected(false);
+    setError(null);
+    openedRef.current = false;
+    let closedByUs = false;
 
+    // Prefer short local docker id / name — PrefixedIDs break older validators.
+    const local =
+      (shortId && shortId.slice(0, 64)) ||
+      (containerId?.includes(':') ? containerId.split(':').pop() : containerId) ||
+      name ||
+      '';
     const url = wsUrl(
-      `/ws/docker-logs?container=${encodeURIComponent(containerId)}&tail=200&follow=true`,
+      `/ws/docker-logs?container=${encodeURIComponent(local)}&tail=200&follow=true`,
     );
     const ws = new WebSocket(url);
 
-    ws.onopen = () => setConnected(true);
+    ws.onopen = () => {
+      openedRef.current = true;
+      setConnected(true);
+    };
     ws.onclose = () => {
       setConnected(false);
       setEnded(true);
+      // Only error if the socket never opened (auth/SSH/origin/id rejection).
+      if (!openedRef.current && !closedByUs) {
+        setError(t('docker.logFailed'));
+      }
     };
-    ws.onerror = () => {};
+    ws.onerror = () => {
+      if (!openedRef.current) {
+        setError(t('docker.logFailed'));
+      }
+    };
     ws.onmessage = (e) => {
       const chunk = typeof e.data === 'string' ? e.data : '';
       if (chunk === '{"type":"exit"}') {
         setEnded(true);
         return;
       }
+      setError(null);
       setBuffer((prev) => {
         const next = prev + chunk;
         if (next.length > 262144) return next.slice(-262144);
@@ -589,9 +627,11 @@ function LogStream({ containerId }: { containerId?: string }) {
     };
 
     return () => {
+      closedByUs = true;
       ws.close();
     };
-  }, [containerId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [containerId, shortId, name]);
 
   useEffect(() => {
     const el = preRef.current;
@@ -606,16 +646,33 @@ function LogStream({ containerId }: { containerId?: string }) {
         <span
           className={cn(
             'h-1.5 w-1.5 rounded-full',
-            connected ? 'bg-emerald-500' : ended ? 'bg-muted-foreground' : 'bg-amber-500',
+            error
+              ? 'bg-destructive'
+              : connected
+                ? 'bg-emerald-500'
+                : ended
+                  ? 'bg-muted-foreground'
+                  : 'bg-amber-500 animate-pulse',
           )}
         />
-        {connected ? t('common.online') : ended ? t('common.offline') : t('common.loading')}
+        {error
+          ? t('common.error')
+          : connected
+            ? t('docker.logConnected')
+            : ended
+              ? t('docker.logEnded')
+              : t('docker.logConnecting')}
       </div>
+      {error && (
+        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {error}
+        </div>
+      )}
       <pre
         ref={preRef}
         className="max-h-[50vh] overflow-auto rounded-xl border border-border/40 bg-black/40 p-4 font-mono-data text-[11px] leading-relaxed text-emerald-100/90"
       >
-        {buffer || t('docker.logWaiting')}
+        {buffer || (error ? '' : t('docker.logWaiting'))}
       </pre>
     </div>
   );

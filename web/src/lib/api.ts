@@ -229,8 +229,14 @@ export const api = {
     }),
 };
 
-/** Build a WebSocket URL relative to the current origin. */
+/** Build a WebSocket URL relative to the current origin.
+ *  Injects ?serverId= for multi-server data routes when active. */
 export function wsUrl(path: string): string {
   const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${proto}//${window.location.host}${path}`;
+  let p = path;
+  if (_activeServerId && !p.includes('serverId=')) {
+    const sep = p.includes('?') ? '&' : '?';
+    p = `${p}${sep}serverId=${encodeURIComponent(_activeServerId)}`;
+  }
+  return `${proto}//${window.location.host}${p}`;
 }

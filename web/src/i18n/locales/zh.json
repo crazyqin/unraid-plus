@@ -163,7 +163,8 @@
     "logEnded": "已结束（容器可能已停止）",
     "logConnecting": "连接中…",
     "logEmpty": "（无日志输出）",
-    "logWaiting": "等待日志…"
+    "logWaiting": "等待日志…",
+    "logFailed": "无法连接日志流。需要 SSH 连接，或容器可能不存在。"
   },
   "vms": {
     "title": "虚拟机",

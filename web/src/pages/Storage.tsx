@@ -188,11 +188,13 @@ export default function StoragePage() {
   const healthyDisks = [...(data.disks ?? []), ...(data.cacheDisks ?? [])].filter(d => d.status === 'ok').length;
 
   return (
-    <div className="space-y-5 p-5 md:p-6">
+    <div className="relative space-y-6 p-5 md:p-8">
+      <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-violet-500/10 blur-3xl" />
+
       {/* Degraded mode banner (API-only, no SSH) */}
       {data.degraded && (
         <motion.div
-          className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-600 dark:text-amber-400"
+          className="flex items-center gap-2 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-3.5 text-sm text-amber-600 dark:text-amber-400"
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={springGentle}
@@ -201,29 +203,34 @@ export default function StoragePage() {
           <span>{t('storage.degradedNotice')}</span>
         </motion.div>
       )}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <motion.div
-          className="flex items-center gap-3"
-          initial={{ opacity: 0, y: 12 }}
+          className="flex items-start gap-4"
+          initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
           transition={springGentle}
         >
           <div className={cn(
-            'flex h-10 w-10 items-center justify-center rounded-xl',
+            'flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl',
             data.state === 'started' ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground',
           )}>
             <HardDrive className="h-5 w-5" />
           </div>
-          <div>
+          <div className="min-w-0 space-y-2.5">
+            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-muted-foreground/65">
+              Array
+            </div>
             <h1 className="text-display-md text-foreground">{t('storage.title')}</h1>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-2 pt-0.5 text-sm text-muted-foreground">
               <Badge
                 variant={data.state === 'started' ? 'success' : 'secondary'}
-                className="text-[10px] tracking-wide"
+                className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide"
               >
                 {ARRAY_STATE_KEY[data.state] ? t(ARRAY_STATE_KEY[data.state]) : data.state}
               </Badge>
-              <span>{healthyDisks}/{totalDisks} {t('storage.diskHealthy')}</span>
+              <span className="text-xs">
+                {healthyDisks}/{totalDisks} {t('storage.diskHealthy')}
+              </span>
             </div>
           </div>
         </motion.div>
@@ -275,30 +282,33 @@ export default function StoragePage() {
 
       {/* Parity check progress + controls */}
       {parity && parity.state === 'checking' && (
-        <motion.div className="card-bento border-primary/30" variants={fadeUpVariants} whileHover={{ y: -2 }} transition={springGentle}>
-          <div className="pb-3">
-            <div className="flex items-center justify-between text-base">
-              <span className="flex items-center gap-2">
-                <Activity className="h-4 w-4 skeleton-shimmer text-primary" />
-                {t('storage.parityCheckRunning')}
-              </span>
-              <div className="flex items-center gap-2">
-                {parity.errors > 0 && (
-                  <Badge variant="destructive" className="text-[10px] tracking-wide">
-                    <AlertTriangle className="mr-1 h-3 w-3" />
-                    {parity.errors} {t('common.error')}
-                  </Badge>
-                )}
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="rounded-lg h-8"
-                  disabled={parityMut.isPending}
-                  onClick={() => parityMut.mutate('stop')}
-                >
-                  <Square className="h-3.5 w-3.5" /> {t('storage.stopCheck')}
-                </Button>
-              </div>
+        <motion.div
+          className="card-bento space-y-3 border-primary/30 p-5"
+          variants={fadeUpVariants}
+          whileHover={{ y: -2 }}
+          transition={springGentle}
+        >
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="flex items-center gap-2 text-base font-semibold">
+              <Activity className="h-4 w-4 text-primary" />
+              {t('storage.parityCheckRunning')}
+            </span>
+            <div className="flex items-center gap-2">
+              {parity.errors > 0 && (
+                <Badge variant="destructive" className="rounded-lg px-2 py-1 text-xs tracking-wide">
+                  <AlertTriangle className="mr-1 h-3.5 w-3.5" />
+                  {parity.errors} {t('common.error')}
+                </Badge>
+              )}
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 rounded-xl"
+                disabled={parityMut.isPending}
+                onClick={() => parityMut.mutate('stop')}
+              >
+                <Square className="h-3.5 w-3.5" /> {t('storage.stopCheck')}
+              </Button>
             </div>
           </div>
           <div className="space-y-2">
@@ -399,34 +409,39 @@ function DiskGroup({ title, disks }: { title: string; disks: DiskInfo[] }) {
     usedPct > 90 ? 'bg-destructive' : usedPct > 75 ? 'bg-warning' : 'bg-success';
 
   return (
-    <motion.div className="card-bento" variants={fadeUpVariants} whileHover={{ y: -2 }} transition={springGentle}>
-      <div className="pb-3">
-        <div className="flex items-center justify-between text-base">
-          <span className="flex items-center gap-2">
-            <HardDrive className="h-4 w-4 text-muted-foreground" />
-            {title}
-            <span className="text-xs font-normal text-muted-foreground">
+    <motion.div
+      className="card-bento overflow-hidden"
+      variants={fadeUpVariants}
+      whileHover={{ y: -2 }}
+      transition={springGentle}
+    >
+      {/* Explicit padding so title/usage never collide with card border */}
+      <div className="space-y-3 border-b border-border/30 px-5 pt-5 pb-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 flex-wrap items-center gap-2">
+            <HardDrive className="h-4 w-4 shrink-0 text-muted-foreground" />
+            <span className="text-base font-semibold tracking-tight">{title}</span>
+            <span className="rounded-full bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
               {disks.length} {t('storage.diskCount')}
             </span>
-          </span>
-          <span className="text-xs font-normal tabular-nums text-muted-foreground font-mono-data">
+          </div>
+          <span className="shrink-0 pt-0.5 text-right text-xs tabular-nums text-muted-foreground font-mono-data">
             {formatBytes(used)} / {formatBytes(total)}
           </span>
         </div>
-        {/* Group-level mini progress bar */}
-        <div className="mt-2 flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Progress
-            className="h-1.5"
+            className="h-1.5 flex-1"
             value={usedPct}
             indicatorClassName={groupIndicatorColor}
           />
-          <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground font-mono-data">
+          <span className="shrink-0 text-xs font-semibold tabular-nums text-muted-foreground font-mono-data">
             {formatPct(usedPct)}
           </span>
         </div>
       </div>
-      <div className="space-y-2.5">
-        <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-2.5">
+      <div className="space-y-3 p-5">
+        <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-3">
           {disks.map((d) => (
             <DiskRow key={d.device} disk={d} />
           ))}
@@ -486,14 +501,14 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
     <motion.div
       variants={fadeUpVariants}
       className={cn(
-        'rounded-lg border border-l-2 p-3 transition-colors hover:bg-muted/30',
+        'rounded-xl border border-l-[3px] p-4 transition-colors hover:bg-muted/25',
         STATUS_BORDER[d.status] ?? 'border-l-border',
         STATUS_BG[d.status],
       )}
     >
       {/* Row 1: Identity (left) + Badges (right) */}
       <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center gap-2.5">
           {ledDot && (
             <span
               className={cn(
@@ -505,8 +520,8 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
             />
           )}
           <div className="min-w-0">
-            <div className="flex items-center gap-1.5">
-              <span className="truncate text-sm font-medium">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="truncate text-[15px] font-semibold tracking-tight">
                 {d.diskName || d.name || d.device}
               </span>
               {d.diskName && d.name && d.name !== d.diskName && (
@@ -515,65 +530,64 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
                 </span>
               )}
               {isSsd && (
-                <Badge variant="secondary" className="px-1 py-0 text-[9px] leading-none tracking-wide">
+                <Badge variant="secondary" className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold tracking-wide">
                   SSD
                 </Badge>
               )}
             </div>
-            <div className="mt-0.5 flex items-center gap-1 text-[10px] font-mono-data text-muted-foreground/70">
-              {d.transport && <TransportIcon className="h-2.5 w-2.5 shrink-0" />}
+            <div className="mt-1 flex items-center gap-1.5 text-[11px] font-mono-data text-muted-foreground/75">
+              {d.transport && <TransportIcon className="h-3 w-3 shrink-0" />}
               <span>{d.device}</span>
               <span className="text-muted-foreground/40">·</span>
-              <span>{d.fsType}</span>
+              <span>{d.fsType || '—'}</span>
             </div>
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           {/* Temperature pill */}
-          {d.tempC !== undefined && (
+          {d.tempC !== undefined && d.tempC !== null && (
             <span
               className={cn(
-                'inline-flex items-center gap-0.5 rounded-lg border px-1.5 py-0.5 text-[10px] font-medium tabular-nums',
+                'inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-xs font-semibold tabular-nums',
                 tempBg,
                 tempColor,
               )}
             >
-              <Thermometer className="h-2.5 w-2.5" />
+              <Thermometer className="h-3.5 w-3.5" />
               {d.tempC}°
             </span>
           )}
           {/* Error badge */}
           {d.errors > 0 && (
-            <Badge variant="destructive" className="px-1.5 py-0 text-[9px] leading-none tracking-wide">
-              <AlertTriangle className="mr-0.5 h-2.5 w-2.5" />
+            <Badge variant="destructive" className="rounded-lg px-2 py-1 text-xs font-semibold tracking-wide">
+              <AlertTriangle className="mr-1 h-3.5 w-3.5" />
               {d.errors}
             </Badge>
           )}
-          {/* Status badge */}
+          {/* Status badge — larger, more readable */}
           <Badge
             variant={DISK_STATUS_VARIANT[d.status]}
-            className="px-1.5 py-0 text-[9px] leading-none tracking-wide"
+            className="rounded-lg px-2.5 py-1 text-xs font-semibold tracking-wide"
           >
             {t(DISK_STATUS_KEY[d.status] ?? d.status)}
           </Badge>
-          {/* SMART badge — show for ok/warning/failing, show standby for standby */}
+          {/* SMART badge */}
           {(d.smart?.available && d.smart.status !== 'unknown') && (
             <Badge
               variant={SMART_STATUS_META[d.smart.status].variant}
-              className="px-1.5 py-0 text-[9px] leading-none tracking-wide"
+              className="rounded-lg px-2 py-1 text-xs font-semibold tracking-wide"
             >
               <SmartStatusIcon status={d.smart.status} />
               {t(SMART_LABEL_KEY[d.smart.status])}
             </Badge>
           )}
-          {/* Standby badge when smart is unavailable and disk appears spun down */}
           {d.smart?.status === 'standby' && (
             <Badge
               variant="secondary"
-              className="px-1.5 py-0 text-[9px] leading-none tracking-wide"
+              className="rounded-lg px-2 py-1 text-xs font-semibold tracking-wide"
             >
-              <Moon className="mr-0.5 h-3 w-3" />
+              <Moon className="mr-1 h-3.5 w-3.5" />
               {t('storage.standby')}
             </Badge>
           )}

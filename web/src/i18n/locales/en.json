@@ -163,7 +163,8 @@
     "logEnded": "Ended (container may have stopped)",
     "logConnecting": "Connecting…",
     "logEmpty": "(no log output)",
-    "logWaiting": "Waiting for logs…"
+    "logWaiting": "Waiting for logs…",
+    "logFailed": "Cannot open log stream. SSH is required, or the container may not exist."
   },
   "vms": {
     "title": "Virtual Machines",

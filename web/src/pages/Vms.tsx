@@ -101,10 +101,12 @@ export default function VmsPage() {
   );
 
   return (
-    <div className="space-y-5 p-5 md:p-6">
+    <div className="relative space-y-6 p-5 md:p-8">
+      <div className="pointer-events-none absolute -left-20 top-0 h-64 w-64 rounded-full bg-sky-500/10 blur-3xl" />
+
       {actionError && (
         <motion.div
-          className="flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+          className="flex items-center justify-between rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
         >
@@ -118,16 +120,19 @@ export default function VmsPage() {
       {/* Header */}
       <motion.div
         className="flex flex-wrap items-end justify-between gap-4"
-        initial={{ opacity: 0, y: 12 }}
+        initial={{ opacity: 0, y: 14 }}
         animate={{ opacity: 1, y: 0 }}
         transition={springGentle}
       >
-        <div>
+        <div className="space-y-2.5">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-muted-foreground/65">
+            Hypervisor
+          </div>
           <h1 className="text-display-md text-foreground">{t('vms.title')}</h1>
-          <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <Badge
               variant={running > 0 ? 'success' : 'secondary'}
-              className="text-[10px] font-semibold tracking-wide px-2.5"
+              className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide"
             >
               {running > 0 ? t('vms.running') : t('vms.idle')}
             </Badge>
@@ -185,49 +190,103 @@ export default function VmsPage() {
               transition={springGentle}
             >
               <div className="px-5 pt-5 pb-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="text-sm font-semibold truncate">{vm.name}</div>
-                  <Badge variant={STATUS_VARIANT[vm.status]} className="text-[9px] px-1.5 py-0 leading-none shrink-0 font-semibold tracking-wide">{STATUS_LABEL[vm.status] ?? vm.status}</Badge>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="truncate text-[15px] font-semibold tracking-tight">{vm.name}</div>
+                  <Badge
+                    variant={STATUS_VARIANT[vm.status]}
+                    className="shrink-0 rounded-lg px-2.5 py-1 text-xs font-semibold tracking-wide"
+                  >
+                    {STATUS_LABEL[vm.status] ?? vm.status}
+                  </Badge>
                 </div>
               </div>
-              <div className="flex-1 flex flex-col gap-3 px-5 pb-5">
-                <div className="flex items-center gap-1.5">
-                  <span className="inline-flex items-center gap-1 rounded-md bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-mono-data tabular-nums text-ind-blue">
-                    <Cpu className="h-2.5 w-2.5" />
+              <div className="flex flex-1 flex-col gap-3 px-5 pb-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-blue-500/10 px-2 py-1 text-xs font-mono-data tabular-nums text-ind-blue">
+                    <Cpu className="h-3.5 w-3.5" />
                     {vm.vcpus} vCPU
                   </span>
-                  <span className="inline-flex items-center gap-1 rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-mono-data tabular-nums text-ind-violet">
-                    <MemoryStick className="h-2.5 w-2.5" />
+                  <span className="inline-flex items-center gap-1 rounded-lg bg-violet-500/10 px-2 py-1 text-xs font-mono-data tabular-nums text-ind-violet">
+                    <MemoryStick className="h-3.5 w-3.5" />
                     {formatBytes(vm.memoryBytes)}
                   </span>
                 </div>
-                <div className="mt-auto flex flex-wrap gap-2 pt-1">
+                <div className="mt-auto grid grid-cols-2 gap-2 pt-2">
                   {vm.status !== 'running' && vm.status !== 'paused' && (
-                    <Button size="sm" variant="success" onClick={() => act(vm.id, 'start')} disabled={pendingAction !== null} className="rounded-lg h-8">
-                      {pendingAction === `${vm.id}:start` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} {t('vms.start')}
+                    <Button
+                      size="sm"
+                      variant="success"
+                      onClick={() => act(vm.id, 'start')}
+                      disabled={pendingAction !== null}
+                      className="col-span-2 h-9 rounded-xl"
+                    >
+                      {pendingAction === `${vm.id}:start` ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <Play className="h-3.5 w-3.5" />
+                      )}{' '}
+                      {t('vms.start')}
                     </Button>
                   )}
                   {vm.status === 'running' && (
                     <>
-                      <Button size="sm" variant="outline" onClick={() => act(vm.id, 'shutdown')} disabled={pendingAction !== null} className="rounded-lg h-8">
-                        {pendingAction === `${vm.id}:shutdown` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />} {t('vms.shutdown')}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setVncVm(vm)}
+                        disabled={pendingAction !== null}
+                        className="h-9 rounded-xl"
+                      >
+                        <Monitor className="h-3.5 w-3.5" /> {t('vms.console')}
                       </Button>
-                      <Button size="sm" variant="destructive" onClick={() => act(vm.id, 'stop')} disabled={pendingAction !== null} className="rounded-lg h-8">
-                        {pendingAction === `${vm.id}:stop` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />} {t('vms.forceStop')}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => act(vm.id, 'shutdown')}
+                        disabled={pendingAction !== null}
+                        className="h-9 rounded-xl"
+                      >
+                        {pendingAction === `${vm.id}:shutdown` ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Power className="h-3.5 w-3.5" />
+                        )}{' '}
+                        {t('vms.shutdown')}
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => act(vm.id, 'suspend')} disabled={pendingAction !== null} className="rounded-lg h-8">
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => act(vm.id, 'suspend')}
+                        disabled={pendingAction !== null}
+                        className="h-9 rounded-xl"
+                      >
                         <Pause className="h-3.5 w-3.5" /> {t('vms.pause')}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => act(vm.id, 'stop')}
+                        disabled={pendingAction !== null}
+                        className="h-9 rounded-xl"
+                      >
+                        {pendingAction === `${vm.id}:stop` ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Square className="h-3.5 w-3.5" />
+                        )}{' '}
+                        {t('vms.forceStop')}
                       </Button>
                     </>
                   )}
                   {vm.status === 'paused' && (
-                    <Button size="sm" variant="success" onClick={() => act(vm.id, 'resume')} disabled={pendingAction !== null} className="rounded-lg h-8">
+                    <Button
+                      size="sm"
+                      variant="success"
+                      onClick={() => act(vm.id, 'resume')}
+                      disabled={pendingAction !== null}
+                      className="col-span-2 h-9 rounded-xl"
+                    >
                       <Play className="h-3.5 w-3.5" /> {t('vms.resume')}
-                    </Button>
-                  )}
-                  {vm.status === 'running' && (
-                    <Button size="sm" variant="outline" onClick={() => setVncVm(vm)} disabled={pendingAction !== null} className="rounded-lg h-8">
-                      <Monitor className="h-3.5 w-3.5" /> {t('vms.console')}
                     </Button>
                   )}
                 </div>

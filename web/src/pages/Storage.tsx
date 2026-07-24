@@ -31,6 +31,7 @@ import { formatBytes, formatPct, formatRate, cn, timeAgo } from '@/lib/utils';
 import type { ArrayStatus, DiskInfo, ParityStatus, SmartInfo } from '@/types';
 import { useSettingsStore } from '@/stores/settings';
 import { ConfirmDialog } from '@/components/ui/alert-dialog';
+import { PageHeader, PageOrb, PageShell } from '@/components/layout/PageShell';
 
 const DISK_STATUS_VARIANT: Record<DiskInfo['status'], 'success' | 'warning' | 'destructive' | 'secondary'> = {
   ok: 'success',
@@ -188,8 +189,8 @@ export default function StoragePage() {
   const healthyDisks = [...(data.disks ?? []), ...(data.cacheDisks ?? [])].filter(d => d.status === 'ok').length;
 
   return (
-    <div className="relative space-y-6 p-5 md:p-8">
-      <div className="pointer-events-none absolute -right-16 -top-16 h-64 w-64 rounded-full bg-violet-500/10 blur-3xl" />
+    <PageShell>
+      <PageOrb className="-right-16 -top-16 bg-violet-500/10" />
 
       {/* Degraded mode banner (API-only, no SSH) */}
       {data.degraded && (
@@ -203,82 +204,69 @@ export default function StoragePage() {
           <span>{t('storage.degradedNotice')}</span>
         </motion.div>
       )}
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <motion.div
-          className="flex items-start gap-4"
-          initial={{ opacity: 0, y: 14 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={springGentle}
-        >
-          <div className={cn(
-            'flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl',
-            data.state === 'started' ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground',
-          )}>
-            <HardDrive className="h-5 w-5" />
-          </div>
-          <div className="min-w-0 space-y-2.5">
-            <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-muted-foreground/65">
-              Array
-            </div>
-            <h1 className="text-display-md text-foreground">{t('storage.title')}</h1>
-            <div className="flex flex-wrap items-center gap-2 pt-0.5 text-sm text-muted-foreground">
-              <Badge
-                variant={data.state === 'started' ? 'success' : 'secondary'}
-                className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide"
-              >
-                {ARRAY_STATE_KEY[data.state] ? t(ARRAY_STATE_KEY[data.state]) : data.state}
-              </Badge>
-              <span className="text-xs">
-                {healthyDisks}/{totalDisks} {t('storage.diskHealthy')}
-              </span>
-            </div>
-          </div>
-        </motion.div>
-        <div className="flex flex-wrap items-center gap-2">
-          {data.state === 'started' ? (
-            <Button
-              size="sm"
-              variant="destructive"
-              className="rounded-lg h-8"
-              disabled={arrayMut.isPending}
-              onClick={() => setConfirmStopArray(true)}
+      <PageHeader
+        eyebrow="Array"
+        title={t('storage.title')}
+        meta={
+          <>
+            <Badge
+              variant={data.state === 'started' ? 'success' : 'secondary'}
+              className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide"
             >
-              <Square className="h-3.5 w-3.5" /> {t('storage.stopArray')}
-            </Button>
-          ) : (
-            <Button
-              size="sm"
-              variant="success"
-              className="rounded-lg h-8"
-              disabled={arrayMut.isPending}
-              onClick={() => arrayMut.mutate('start')}
-            >
-              {arrayMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
-              {t('storage.startArray')}
-            </Button>
-          )}
-          {refreshMsg && (
-            <span
-              className={cn(
-                'text-xs',
-                refreshMsg.kind === 'ok' ? 'text-muted-foreground' : 'text-destructive',
-              )}
-            >
-              {refreshMsg.text}
+              {ARRAY_STATE_KEY[data.state] ? t(ARRAY_STATE_KEY[data.state]) : data.state}
+            </Badge>
+            <span className="text-xs">
+              {healthyDisks}/{totalDisks} {t('storage.diskHealthy')}
             </span>
-          )}
-          <Button
-            variant="outline"
-            size="sm"
-            className="rounded-lg h-8"
-            disabled={refreshMut.isPending}
-            onClick={() => refreshMut.mutate()}
-          >
-            <RefreshCw className={cn('h-3.5 w-3.5', refreshMut.isPending && 'animate-spin')} />
-            {t('storage.smartRefresh')}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <>
+            {data.state === 'started' ? (
+              <Button
+                size="sm"
+                variant="destructive"
+                className="h-9 rounded-xl"
+                disabled={arrayMut.isPending}
+                onClick={() => setConfirmStopArray(true)}
+              >
+                <Square className="h-3.5 w-3.5" /> {t('storage.stopArray')}
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="success"
+                className="h-9 rounded-xl"
+                disabled={arrayMut.isPending}
+                onClick={() => arrayMut.mutate('start')}
+              >
+                {arrayMut.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                {t('storage.startArray')}
+              </Button>
+            )}
+            {refreshMsg && (
+              <span
+                className={cn(
+                  'text-xs',
+                  refreshMsg.kind === 'ok' ? 'text-muted-foreground' : 'text-destructive',
+                )}
+              >
+                {refreshMsg.text}
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 rounded-xl"
+              disabled={refreshMut.isPending}
+              onClick={() => refreshMut.mutate()}
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', refreshMut.isPending && 'animate-spin')} />
+              {t('storage.smartRefresh')}
+            </Button>
+          </>
+        }
+      />
 
       {/* Parity check progress + controls */}
       {parity && parity.state === 'checking' && (
@@ -392,7 +380,7 @@ export default function StoragePage() {
         }}
         onCancel={() => setConfirmParity(false)}
       />
-    </div>
+    </PageShell>
   );
 }
 

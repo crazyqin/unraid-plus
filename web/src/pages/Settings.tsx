@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import i18n from '@/i18n';
 import { springGentle } from '@/lib/motion';
+import { PageHeader, PageOrb, PageShell } from '@/components/layout/PageShell';
 
 const LANGUAGES = [
   { code: 'zh', label: '中文' },
@@ -77,25 +78,29 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="space-y-5 p-5 md:p-6">
+    <PageShell>
+      <PageOrb className="-right-16 -top-10 bg-amber-500/10" />
+
+      <PageHeader
+        eyebrow="Preferences"
+        title={t('settings.title')}
+        meta={<span className="text-sm text-muted-foreground">{t('settings.subtitle')}</span>}
+      />
+
+      {/* Connection */}
       <motion.div
-        initial={{ opacity: 0, y: 12 }}
+        className="card-bento overflow-hidden"
+        initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={springGentle}
       >
-        <h1 className="text-display-md text-foreground">{t('settings.title')}</h1>
-        <p className="text-sm text-muted-foreground">{t('settings.subtitle')}</p>
-      </motion.div>
-
-      {/* Connection */}
-      <div className="card-bento">
-        <div className="px-6 pt-6 pb-2">
-          <div className="flex items-center gap-2 text-base font-semibold">
-            <Server className="h-4 w-4" /> {t('settings.currentConnection')}
+        <div className="space-y-1 border-b border-border/30 px-5 pt-5 pb-4">
+          <div className="flex items-center gap-2 text-base font-semibold tracking-tight">
+            <Server className="h-4 w-4 text-muted-foreground" /> {t('settings.currentConnection')}
           </div>
           <p className="text-sm text-muted-foreground">{t('settings.currentConnectionDesc')}</p>
         </div>
-        <div className="space-y-3 px-6 pb-6 text-sm">
+        <div className="space-y-3 px-5 pb-5 pt-4 text-sm">
           <Row label={t('settings.nicknameHost')} value={server ? `${server.label} · ${server.host}` : '—'} />
           <Row label={t('settings.sshPort')} value={server ? String(server.sshPort) : '—'} />
           <Row label={t('settings.user')} value={server?.user ?? '—'} />
@@ -113,41 +118,41 @@ export default function SettingsPage() {
           />
           <Separator />
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" className="rounded-lg" onClick={() => location.reload()}>
+            <Button variant="outline" size="sm" className="h-9 rounded-xl" onClick={() => location.reload()}>
               <RefreshCw className="h-3.5 w-3.5" /> {t('settings.refreshPage')}
             </Button>
-            <Button variant="destructive" size="sm" className="rounded-lg" onClick={() => setConfirmDisconnect(true)}>
+            <Button variant="destructive" size="sm" className="h-9 rounded-xl" onClick={() => setConfirmDisconnect(true)}>
               <LogOut className="h-3.5 w-3.5" /> {t('settings.disconnect')}
             </Button>
           </div>
         </div>
-      </div>
+      </motion.div>
 
       {/* Security */}
-      <div className="card-bento">
-        <div className="px-6 pt-6 pb-2">
-          <div className="flex items-center gap-2 text-base font-semibold">
-            <Shield className="h-4 w-4" /> {t('settings.security')}
+      <div className="card-bento overflow-hidden">
+        <div className="space-y-1 border-b border-border/30 px-5 pt-5 pb-4">
+          <div className="flex items-center gap-2 text-base font-semibold tracking-tight">
+            <Shield className="h-4 w-4 text-muted-foreground" /> {t('settings.security')}
           </div>
           <p className="text-sm text-muted-foreground">
             {t('settings.keyFreeNote')}
           </p>
         </div>
-        <div className="space-y-3 px-6 pb-6 text-sm">
-          <div className="flex items-center justify-between gap-2">
-            <div>
+        <div className="space-y-4 px-5 pb-5 pt-4 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
               <div className="font-medium">{t('settings.keyFreeTitle')}</div>
               <div className="text-xs text-muted-foreground">
                 {t('settings.keyFreeDesc')}
               </div>
             </div>
-            <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setConfirmRotate(true)}>
+            <Button variant="outline" size="sm" className="h-9 shrink-0 rounded-xl" onClick={() => setConfirmRotate(true)}>
               <KeyRound className="h-3.5 w-3.5" /> {t('settings.generateRotateKey')}
             </Button>
           </div>
           <Separator />
-          <div className="flex items-center justify-between gap-2">
-            <div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
               <div className="font-medium">{t('settings.uiLoginProtection')}</div>
               <div className="text-xs text-muted-foreground">
                 {uiAuthEnabled
@@ -155,8 +160,8 @@ export default function SettingsPage() {
                   : t('settings.passwordDisabledDesc')}
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              <Badge variant={uiAuthEnabled ? 'success' : 'secondary'} className="tracking-wide">
+            <div className="flex shrink-0 items-center gap-2">
+              <Badge variant={uiAuthEnabled ? 'success' : 'secondary'} className="rounded-full tracking-wide">
                 {uiAuthEnabled ? (
                   <>
                     <ShieldCheck className="mr-1 h-3 w-3" /> {t('settings.enabled')}
@@ -172,7 +177,7 @@ export default function SettingsPage() {
             <Button
               variant="outline"
               size="sm"
-              className="rounded-lg"
+              className="h-9 rounded-xl"
               onClick={async () => {
                 await logout();
                 navigate('/login', { replace: true });
@@ -185,22 +190,22 @@ export default function SettingsPage() {
       </div>
 
       {/* UI / preferences */}
-      <div className="card-bento">
-        <div className="px-6 pt-6 pb-2">
-          <div className="flex items-center gap-2 text-base font-semibold">
-            <Monitor className="h-4 w-4" /> {t('settings.uiAndOnboarding')}
+      <div className="card-bento overflow-hidden">
+        <div className="border-b border-border/30 px-5 pt-5 pb-4">
+          <div className="flex items-center gap-2 text-base font-semibold tracking-tight">
+            <Monitor className="h-4 w-4 text-muted-foreground" /> {t('settings.uiAndOnboarding')}
           </div>
         </div>
-        <div className="space-y-5 px-6 pb-6 text-sm">
+        <div className="space-y-5 px-5 pb-5 pt-4 text-sm">
           {/* Language picker */}
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="font-medium flex items-center gap-1.5">
+              <div className="flex items-center gap-1.5 font-medium">
                 <Globe className="h-3.5 w-3.5" /> {t('settings.language')}
               </div>
             </div>
             <select
-              className="rounded-lg border bg-background px-2 py-1 text-sm"
+              className="rounded-xl border border-border/50 bg-background/50 px-2.5 py-1.5 text-sm backdrop-blur-sm"
               value={i18n.language?.split('-')[0] ?? 'zh'}
               onChange={(e) => i18n.changeLanguage(e.target.value)}
             >
@@ -212,15 +217,15 @@ export default function SettingsPage() {
 
           <Separator />
 
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <div className="font-medium">{t('settings.themeStyle')}</div>
               <div className="text-xs text-muted-foreground">
-                {t('settings.currentTheme')}{t('themes.' + theme)} · {t('settings.clickTopbar')} <span className="font-mono-data">☽/☀</span> {t('settings.iconSwitch')}
+                {t('settings.currentTheme')}{t('themes.' + theme)} · {t('settings.clickTopbar')} {t('settings.iconSwitch')}
               </div>
             </div>
             <select
-              className="rounded-lg border bg-background px-2 py-1 text-sm"
+              className="rounded-xl border border-border/50 bg-background/50 px-2.5 py-1.5 text-sm backdrop-blur-sm"
               value={theme}
               onChange={(e) => setTheme(e.target.value as typeof theme)}
             >
@@ -247,7 +252,7 @@ export default function SettingsPage() {
               </div>
             </div>
             <select
-              className="rounded-lg border bg-background px-2 py-1 text-sm"
+              className="rounded-xl border border-border/50 bg-background/50 px-2.5 py-1.5 text-sm backdrop-blur-sm"
               value={refreshInterval}
               onChange={(e) => setRefreshInterval(Number(e.target.value))}
             >
@@ -283,7 +288,7 @@ export default function SettingsPage() {
         onConfirm={rotateKey}
         onCancel={() => setConfirmRotate(false)}
       />
-    </div>
+    </PageShell>
   );
 }
 

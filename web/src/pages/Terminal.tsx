@@ -10,6 +10,7 @@ import { wsUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { springGentle } from '@/lib/motion';
+import { PageHeader, PageShell } from '@/components/layout/PageShell';
 
 interface Session {
   id: string;
@@ -157,22 +158,17 @@ export default function TerminalPage() {
   const activeSession = sessions.find((s) => s.id === activeId);
 
   return (
-    <div className="flex h-full flex-col p-5 md:p-6">
-      <div className="mb-3 flex items-center justify-between">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={springGentle}
-        >
-          <h1 className="text-display-md text-foreground">{t('terminal.title')}</h1>
-          <p className="text-sm text-muted-foreground">
-            {t('terminal.desc')}
-          </p>
-        </motion.div>
-        <Button size="sm" className="rounded-lg" onClick={openSession}>
-          <Plus className="h-3.5 w-3.5" /> {t('terminal.newSession')}
-        </Button>
-      </div>
+    <PageShell className="flex h-full min-h-0 flex-col !space-y-4">
+      <PageHeader
+        eyebrow="Shell"
+        title={t('terminal.title')}
+        meta={<span className="text-sm text-muted-foreground">{t('terminal.desc')}</span>}
+        actions={
+          <Button size="sm" className="h-9 rounded-xl" onClick={openSession}>
+            <Plus className="h-3.5 w-3.5" /> {t('terminal.newSession')}
+          </Button>
+        }
+      />
 
       {/* Tabs */}
       {sessions.length > 0 && (
@@ -260,13 +256,13 @@ export default function TerminalPage() {
           <Button
             size="sm"
             variant="ghost"
-            className="rounded-lg"
+            className="h-9 rounded-xl"
             onClick={() => sessions.forEach((s) => closeSession(s.id))}
           >
             <Trash2 className="h-3.5 w-3.5" /> {t('terminal.closeAll')}
           </Button>
         )}
       </div>
-    </div>
+    </PageShell>
   );
 }

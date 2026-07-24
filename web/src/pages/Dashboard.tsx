@@ -42,6 +42,7 @@ import {
   fadeUpVariants,
   springGentle,
 } from '@/lib/motion';
+import { PageHeader, PageShell } from '@/components/layout/PageShell';
 
 interface Sample {
   t: number;
@@ -108,22 +109,15 @@ export default function DashboardPage() {
   }, [data, maxSamples]);
 
   return (
-    <div className="p-5 md:p-6 space-y-5">
-      {/* Hero header — editorial canvas */}
-      <motion.div
-        className="flex flex-wrap items-end justify-between gap-4"
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={springGentle}
-      >
-        <div>
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground/65">
-            System telemetry
-          </div>
-          <h1 className="text-display-md text-gradient-kinetic">{t('dashboard.title')}</h1>
-          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+    <PageShell>
+      <PageHeader
+        eyebrow="System telemetry"
+        title={t('dashboard.title')}
+        titleClassName="text-gradient-kinetic"
+        meta={
+          <>
             {data && (
-              <Badge variant="success" className="text-[10px] font-semibold tracking-wide px-2.5">
+              <Badge variant="success" className="rounded-full px-2.5 text-[11px] font-semibold tracking-wide">
                 {t('common.online')}
               </Badge>
             )}
@@ -131,12 +125,12 @@ export default function DashboardPage() {
               <Badge
                 variant="secondary"
                 className={cn(
-                  'text-[10px] font-semibold tracking-wide px-2.5',
+                  'rounded-full px-2.5 text-[11px] font-semibold tracking-wide',
                   sshAvailable && apiAvailable
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                    ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                     : apiAvailable
-                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
-                      : 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20',
+                      ? 'border-amber-500/20 bg-amber-500/10 text-amber-600 dark:text-amber-400'
+                      : 'border-sky-500/20 bg-sky-500/10 text-sky-600 dark:text-sky-400',
                 )}
               >
                 <Zap className="mr-1 h-3 w-3" />
@@ -144,33 +138,36 @@ export default function DashboardPage() {
               </Badge>
             )}
             <span className="text-xs">
-              {t('dashboard.serverStatus')}{refreshInterval > 0 ? ` · ${refreshInterval / 1000}s` : ` · ${t('dashboard.refreshPaused')}`}
+              {t('dashboard.serverStatus')}
+              {refreshInterval > 0 ? ` · ${refreshInterval / 1000}s` : ` · ${t('dashboard.refreshPaused')}`}
             </span>
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {data && (
-            <Badge variant="secondary" className="text-[10px] font-mono-data px-2.5 py-1">
-              <Gauge className="mr-1 h-3 w-3" />
-              {t('dashboard.load')} {(data.loadAvg?.[0] ?? 0).toFixed(2)} / {(data.loadAvg?.[1] ?? 0).toFixed(2)} / {(data.loadAvg?.[2] ?? 0).toFixed(2)}
-            </Badge>
-          )}
-          {data && (
-            <Badge variant="secondary" className="text-[10px] font-mono-data px-2.5 py-1">
-              {t('dashboard.started')} {Math.floor(data.uptime / 3600)}h {Math.floor((data.uptime % 3600) / 60)}m
-            </Badge>
-          )}
-          <select
-            className="rounded-lg border border-border/50 bg-background/50 px-2.5 py-1.5 text-xs backdrop-blur-sm transition-colors hover:border-border focus:outline-none focus:ring-1 focus:ring-ring"
-            value={chartRange}
-            onChange={(e) => setChartRange(e.target.value as ChartRange)}
-          >
-            {(Object.keys(RANGE_LABELS) as ChartRange[]).map((r) => (
-              <option key={r} value={r}>{RANGE_LABELS[r]}</option>
-            ))}
-          </select>
-        </div>
-      </motion.div>
+          </>
+        }
+        actions={
+          <>
+            {data && (
+              <Badge variant="secondary" className="rounded-full px-2.5 py-1 font-mono-data text-[11px]">
+                <Gauge className="mr-1 h-3 w-3" />
+                {t('dashboard.load')} {(data.loadAvg?.[0] ?? 0).toFixed(2)} / {(data.loadAvg?.[1] ?? 0).toFixed(2)} / {(data.loadAvg?.[2] ?? 0).toFixed(2)}
+              </Badge>
+            )}
+            {data && (
+              <Badge variant="secondary" className="rounded-full px-2.5 py-1 font-mono-data text-[11px]">
+                {t('dashboard.started')} {Math.floor(data.uptime / 3600)}h {Math.floor((data.uptime % 3600) / 60)}m
+              </Badge>
+            )}
+            <select
+              className="rounded-xl border border-border/50 bg-background/50 px-2.5 py-1.5 text-xs backdrop-blur-sm transition-colors hover:border-border focus:outline-none focus:ring-1 focus:ring-ring"
+              value={chartRange}
+              onChange={(e) => setChartRange(e.target.value as ChartRange)}
+            >
+              {(Object.keys(RANGE_LABELS) as ChartRange[]).map((r) => (
+                <option key={r} value={r}>{RANGE_LABELS[r]}</option>
+              ))}
+            </select>
+          </>
+        }
+      />
 
       {isError && (
         <motion.div
@@ -298,7 +295,7 @@ export default function DashboardPage() {
           <CoreStatus data={data} isLoading={isLoading} />
         </ChartCard>
       </motion.div>
-    </div>
+    </PageShell>
   );
 }
 

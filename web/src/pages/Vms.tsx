@@ -32,6 +32,7 @@ import {
   fadeUpVariants,
   springGentle,
 } from '@/lib/motion';
+import { PageHeader, PageOrb, PageShell } from '@/components/layout/PageShell';
 
 const STATUS_VARIANT: Record<VmInfo['status'], 'success' | 'secondary' | 'warning'> = {
   running: 'success',
@@ -101,8 +102,8 @@ export default function VmsPage() {
   );
 
   return (
-    <div className="relative space-y-6 p-5 md:p-8">
-      <div className="pointer-events-none absolute -left-20 top-0 h-64 w-64 rounded-full bg-sky-500/10 blur-3xl" />
+    <PageShell>
+      <PageOrb className="-left-20 top-0 bg-sky-500/10" />
 
       {actionError && (
         <motion.div
@@ -117,19 +118,11 @@ export default function VmsPage() {
         </motion.div>
       )}
 
-      {/* Header */}
-      <motion.div
-        className="flex flex-wrap items-end justify-between gap-4"
-        initial={{ opacity: 0, y: 14 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={springGentle}
-      >
-        <div className="space-y-2.5">
-          <div className="text-[10px] font-semibold uppercase tracking-[0.28em] text-muted-foreground/65">
-            Hypervisor
-          </div>
-          <h1 className="text-display-md text-foreground">{t('vms.title')}</h1>
-          <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+      <PageHeader
+        eyebrow="Hypervisor"
+        title={t('vms.title')}
+        meta={
+          <>
             <Badge
               variant={running > 0 ? 'success' : 'secondary'}
               className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold tracking-wide"
@@ -137,20 +130,22 @@ export default function VmsPage() {
               {running > 0 ? t('vms.running') : t('vms.idle')}
             </Badge>
             <span className="text-xs">{running} / {data?.length ?? 0} {t('vms.vmCount')}</span>
-          </div>
-        </div>
-        {(data ?? []).length > 0 && (
-          <div className="relative w-48 shrink-0">
-            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
-            <Input
-              placeholder={t('vms.searchPlaceholder')}
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="h-9 pl-9 text-sm rounded-xl border-border/50 bg-card/50 backdrop-blur-sm"
-            />
-          </div>
-        )}
-      </motion.div>
+          </>
+        }
+        actions={
+          (data ?? []).length > 0 ? (
+            <div className="relative w-full max-w-xs shrink-0 sm:w-56">
+              <Search className="absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
+              <Input
+                placeholder={t('vms.searchPlaceholder')}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="h-11 rounded-2xl border-border/40 bg-card/40 pl-10 text-sm backdrop-blur-xl"
+              />
+            </div>
+          ) : undefined
+        }
+      />
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -307,7 +302,7 @@ export default function VmsPage() {
       />
 
       <VNCDialog vm={vncVm} onClose={() => setVncVm(null)} />
-    </div>
+    </PageShell>
   );
 }
 

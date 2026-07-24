@@ -37,9 +37,9 @@ import type { ContainerStats, DockerContainer } from '@/types';
 import {
   staggerContainer,
   fadeUpVariants,
-  springGentle,
   springSnappy,
 } from '@/lib/motion';
+import { PageHeader, PageOrb, PageShell } from '@/components/layout/PageShell';
 
 const STATUS_VARIANT: Record<DockerContainer['status'], 'success' | 'secondary' | 'warning' | 'destructive'> = {
   running: 'success',
@@ -161,9 +161,8 @@ export default function DockerPage() {
   const autoStartCount = (data ?? []).filter((c) => c.autoStart).length;
 
   return (
-    <div className="relative space-y-6 p-5 md:p-8">
-      {/* Ambient orb */}
-      <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
+    <PageShell>
+      <PageOrb className="-right-20 -top-20 bg-primary/10" />
 
       {actionError && (
         <motion.div
@@ -178,50 +177,46 @@ export default function DockerPage() {
         </motion.div>
       )}
 
-      {/* Editorial header */}
-      <motion.div
-        className="flex flex-wrap items-end justify-between gap-6"
-        initial={{ opacity: 0, y: 18 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={springGentle}
-      >
-        <div className="min-w-0">
-          <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.28em] text-muted-foreground/70">
+      <PageHeader
+        eyebrow={
+          <span className="inline-flex items-center gap-2">
             <Boxes className="h-3 w-3 text-primary" />
             Containers
-          </div>
-          <h1 className="text-display-md tracking-tight text-foreground">
-            {t('docker.title')}
-          </h1>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
+          </span>
+        }
+        title={t('docker.title')}
+        meta={
+          <>
             <Badge
               variant={running > 0 ? 'success' : 'secondary'}
-              className="rounded-full px-2.5 text-[10px] font-semibold tracking-wide"
+              className="rounded-full px-2.5 text-[11px] font-semibold tracking-wide"
             >
               <Power className="mr-1 h-3 w-3" />
               {running} {t('docker.running')}
             </Badge>
-            <Badge variant="secondary" className="rounded-full px-2.5 text-[10px] font-mono-data">
+            <Badge variant="secondary" className="rounded-full px-2.5 font-mono-data text-[11px]">
               {(data?.length ?? 0)} {t('docker.containerCount')}
             </Badge>
             {autoStartCount > 0 && (
-              <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+              <Badge variant="outline" className="rounded-full px-2.5 text-[11px]">
                 <Zap className="mr-1 h-3 w-3" />
                 {autoStartCount} auto
               </Badge>
             )}
+          </>
+        }
+        actions={
+          <div className="relative w-full max-w-xs shrink-0 sm:w-56">
+            <Search className="absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
+            <Input
+              className="h-11 rounded-2xl border-border/40 bg-card/40 pl-10 text-sm backdrop-blur-xl"
+              placeholder={t('docker.searchPlaceholder')}
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
           </div>
-        </div>
-        <div className="relative w-full max-w-xs shrink-0">
-          <Search className="absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
-          <Input
-            className="h-11 rounded-2xl border-border/40 bg-card/40 pl-10 text-sm backdrop-blur-xl"
-            placeholder={t('docker.searchPlaceholder')}
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-        </div>
-      </motion.div>
+        }
+      />
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -479,7 +474,7 @@ export default function DockerPage() {
       />
 
       <LogDialog container={logsFor} onClose={() => setLogsFor(null)} />
-    </div>
+    </PageShell>
   );
 }
 

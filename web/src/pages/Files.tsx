@@ -168,7 +168,7 @@ export default function FilesPage() {
   };
 
   return (
-    <div className="flex h-full flex-col p-5 md:p-6">
+    <div className="flex h-full min-h-0 flex-col p-5 md:p-8">
       {/* Hidden file input for uploads */}
       <input
         ref={fileInputRef}
@@ -179,7 +179,7 @@ export default function FilesPage() {
       />
 
       {/* Toolbar */}
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1 text-sm">
           <button
             onClick={() => goto(-1)}

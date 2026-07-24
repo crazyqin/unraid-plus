@@ -145,12 +145,14 @@ var addDockerCtxRe = regexp.MustCompile(
 var dockerStateRe = regexp.MustCompile(`<span\s+class=['"]state['"]\s*>([^<]+)</span>`)
 
 // dockerAppnameRe matches the container name link.
-// Example: <span class='appname'><a class='exec' ...>cd2</a></span>
-var dockerAppnameRe = regexp.MustCompile(`<span\s+class=['"]appname['"]\s*><a[^>]*>([^<]+)</a></span>`)
+// Example: <span class='appname '><a class='exec' ...>cd2</a></span>
+// Note: Unraid 7.x includes a trailing space in the class name ('appname ').
+var dockerAppnameRe = regexp.MustCompile(`<span\s+class=['"]appname\s*['"]\s*><a[^>]*>([^<]+)</a></span>`)
 
-// dockerImageRe matches the image name from the HTML table.
-// Example: <td class='ct-image'>crazyqin/cd2:latest</td>
-var dockerImageRe = regexp.MustCompile(`<td\s+class=['"]ct-image['"]\s*>([^<]+)</td>`)
+// dockerImageRe matches the image name from the container info div.
+// Unraid 7.x embeds the image inside <div class='advanced'> as:
+//   "来自: cloudnas/clouddrive2"  (Chinese) or "From: crazyqin/cd2"  (English)
+var dockerImageRe = regexp.MustCompile(`(?:来自|from):\s*([^\s<][^<]*)`)
 
 // dockerIconSrcRe matches the icon image source.
 // Example: <img src='/plugins/dynamix.docker.manager/images/question.png?1700089733' class='img' ...>
@@ -203,7 +205,7 @@ func (h *Handler) listContainersAPI(sid string) ([]container, error) {
 		containers = append(containers, ct)
 	}
 
-	// Supplement with HTML row data (image name, state text)
+	// Supplement with HTML row data (image name, state text, icon)
 	// Parse HTML rows to extract additional info
 	rows := parseDockerHTMLRows(html)
 	for i := range containers {
@@ -214,6 +216,14 @@ func (h *Handler) listContainersAPI(sid string) ([]container, error) {
 			if info.state != "" && containers[i].State == "" {
 				containers[i].State = info.state
 				containers[i].Status = info.state
+			}
+			// If we have a local icon path but no icon URL, convert to full URL
+			if containers[i].IconURL == "" && info.iconSrc != "" {
+				// Build full URL from the server's API base + local path
+				sess := h.ur.GetSession(sid)
+				if sess != "" {
+					containers[i].IconURL = sess + info.iconSrc
+				}
 			}
 		}
 	}
@@ -226,6 +236,7 @@ type dockerRowInfo struct {
 	image string
 	state string
 	icon  string
+	iconSrc string // src attribute from <img class='img'> (local Unraid path like /plugins/.../question.png)
 }
 
 // parseDockerHTMLRows extracts container data from HTML <tr> rows.
@@ -257,15 +268,37 @@ func parseDockerHTMLRows(html string) map[string]*dockerRowInfo {
 		}
 	}
 
-	// Parse image name
+	// Parse image name from <div class='advanced'> containing "来自:" or "from:"
 	imageMatches := dockerImageRe.FindAllStringSubmatch(html, -1)
 	for i, m := range imageMatches {
 		image := strings.TrimSpace(m[1])
+		if image == "" {
+			continue
+		}
 		if i < len(names) && names[i] != "" {
 			if rows[names[i]] == nil {
 				rows[names[i]] = &dockerRowInfo{}
 			}
 			rows[names[i]].image = image
+		}
+	}
+
+	// Parse icon <img> src (local Unraid path, e.g. /plugins/dynamix.docker.manager/images/question.png)
+	iconMatches := dockerIconSrcRe.FindAllStringSubmatch(html, -1)
+	for i, m := range iconMatches {
+		src := strings.TrimSpace(m[1])
+		// Strip cache-busting query string
+		if idx := strings.Index(src, "?"); idx >= 0 {
+			src = src[:idx]
+		}
+		if src == "" {
+			continue
+		}
+		if i < len(names) && names[i] != "" {
+			if rows[names[i]] == nil {
+				rows[names[i]] = &dockerRowInfo{}
+			}
+			rows[names[i]].iconSrc = src
 		}
 	}
 

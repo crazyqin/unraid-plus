@@ -166,6 +166,17 @@ func (c *Client) HasSession(serverID string) bool {
 	return ok
 }
 
+// GetSession returns the API base URL for a server's WebGUI session.
+// Returns empty string if no session exists.
+func (c *Client) GetSession(serverID string) string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if s, ok := c.sessions[serverID]; ok {
+		return s.apiBase
+	}
+	return ""
+}
+
 // RemoveSession drops the stored session for a server (e.g. on disconnect).
 func (c *Client) RemoveSession(serverID string) {
 	c.mu.Lock()
@@ -463,4 +474,16 @@ func (c *Client) SetCookies(cks []*http.Cookie) {}
 // Used for HTML scraping fallback when SSH is unavailable.
 func (c *Client) FetchPage(serverID, path string) ([]byte, int, error) {
 	return c.get(serverID, path)
+}
+
+// FetchEndpoint fetches a Unraid internal AJAX/PHP endpoint and returns
+// the raw response body. Similar to FetchPage but named differently to
+// distinguish between full-page fetches and AJAX endpoint calls.
+func (c *Client) FetchEndpoint(serverID, path string) ([]byte, int, error) {
+	return c.get(serverID, path)
+}
+
+// PostEndpoint posts to a Unraid internal AJAX/PHP endpoint.
+func (c *Client) PostEndpoint(serverID, path string, form url.Values) ([]byte, int, error) {
+	return c.post(serverID, path, form)
 }

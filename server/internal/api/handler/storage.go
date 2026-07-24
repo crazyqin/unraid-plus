@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strings"
 	"time"
@@ -48,6 +51,7 @@ type arrayStatus struct {
 	CacheDisks []disk `json:"cacheDisks"`
 	Degraded   bool   `json:"degraded,omitempty"`         // true when data from HTML scraping
 	DegradedReason string `json:"degradedReason,omitempty"` // "ssh_unavailable" etc.
+	DeviceCount string `json:"deviceCount,omitempty"` // number of devices from server metadata
 }
 
 // Storage returns the array + cache disk view. v0.7+ reads Unraid's own
@@ -347,40 +351,94 @@ func diskStatus(used, size int64) string {
 // Storage API fallback (HTML scraping from Unraid WebGUI Main page)
 // ---------------------------------------------------------------------------
 
-// storageAPI scrapes the Unraid Main page for basic disk info when SSH
-// is unavailable. This is a degraded view — no per-disk RW rates, no SMART
-// data, and disk info depends on the HTML structure of the Unraid version.
+// storageAPI fetches disk info from Unraid WebGUI when SSH is unavailable.
+// Unraid 7.x uses Nchan for real-time disk updates, but we can get data
+// through internal PHP endpoints and by parsing the page HTML.
 func (h *Handler) storageAPI(c *gin.Context, sid string) {
+	degraded := arrayStatus{
+		State:          "unknown",
+		Disks:          []disk{},
+		CacheDisks:     []disk{},
+		Degraded:       true,
+		DegradedReason: "ssh_unavailable",
+	}
+
+	// Fetch /Main page for array state and server metadata
 	body, status, err := h.ur.FetchPage(sid, "/Main")
 	if err != nil || status != 200 {
-		logger.Debugf("storage API fallback: failed to fetch /Main: %v (status=%d)", err, status)
-		c.JSON(http.StatusOK, arrayStatus{
-			State:          "unknown",
-			Disks:          []disk{},
-			CacheDisks:     []disk{},
-			Degraded:       true,
-			DegradedReason: "ssh_unavailable",
-		})
+		logger.Debugf("storage API: failed to fetch /Main: %v (status=%d)", err, status)
+		c.JSON(http.StatusOK, degraded)
 		return
 	}
 
 	html := string(body)
-	state, disks, cache := parseStorageHTML(html)
-	// Ensure non-nil slices for JSON (Go nil → JSON null, empty slice → JSON [])
-	if disks == nil {
-		disks = []disk{}
-	}
-	if cache == nil {
-		cache = []disk{}
+
+	// Parse array state
+	if strings.Contains(html, "\u9635\u5217\u5df2\u542f\u52a8") || strings.Contains(html, "Array Started") {
+		degraded.State = "started"
+	} else if strings.Contains(html, "\u9635\u5217\u5df2\u505c\u6b62") || strings.Contains(html, "Array Stopped") {
+		degraded.State = "stopped"
 	}
 
-	c.JSON(http.StatusOK, arrayStatus{
-		State:           state,
-		Disks:           disks,
-		CacheDisks:      cache,
-		Degraded:        true,
-		DegradedReason:  "ssh_unavailable",
-	})
+	// Extract device count from <unraid-user-profile server="...">
+	if meta := parseUserProfileJSON(html); meta != nil {
+		degraded.DeviceCount = meta.DeviceCount
+	}
+
+	// Try Unassigned Devices API for non-array disk table data
+	form := url.Values{}
+	form.Set("action", "get_ud_content")
+	if udBody, udStatus, udErr := h.ur.PostEndpoint(sid, "/plugins/unassigned.devices/include/UnassignedDevices.php", form); udErr == nil && udStatus == 200 {
+		var data map[string]json.RawMessage
+		if jsonErr := json.Unmarshal(udBody, &data); jsonErr == nil {
+			if disksHTML, ok := data["disks"]; ok {
+				var diskHTMLStr string
+				if jsonErr2 := json.Unmarshal(disksHTML, &diskHTMLStr); jsonErr2 == nil {
+					_, disks, cache := parseStorageHTML(diskHTMLStr)
+					if disks != nil {
+						degraded.Disks = disks
+					}
+					if cache != nil {
+						degraded.CacheDisks = cache
+					}
+				}
+			}
+		}
+	}
+
+	// Try to extract disk info from the /Main page disk tables directly.
+	// Unraid 7.x renders disk table rows from Nchan data, but the <tbody id="array_devices">
+	// structure still exists with empty rows. Each empty row represents a disk slot.
+	// We can count the rows to know how many disks exist even without their data.
+	extractDiskSlotInfo(html, &degraded)
+
+	c.JSON(http.StatusOK, degraded)
+}
+
+// extractDiskSlotInfo attempts to extract basic disk slot information from
+// the array_devices and cache device table sections in the /Main HTML.
+// In API-only mode, these tables are typically empty (Nchan populates them),
+// but the row count tells us how many slots exist.
+func extractDiskSlotInfo(html string, status *arrayStatus) {
+	// Count rows in <tbody id="array_devices">
+	reArrayRows := regexp.MustCompile(`<tbody\s+id=['"]array_devices['"]\s*>(.*?)</tbody>`)
+	if m := reArrayRows.FindStringSubmatch(html); len(m) > 1 {
+		rowCount := strings.Count(m[1], "<tr")
+		// If we have no disk data yet but know there are slots, create placeholder entries
+		if len(status.Disks) == 0 && rowCount > 0 {
+			// Subtract 1 for the "tr_last" row used for totals
+			slotCount := rowCount
+			if strings.Contains(m[1], "tr_last") {
+				slotCount--
+			}
+			for i := 0; i < slotCount; i++ {
+				status.Disks = append(status.Disks, disk{
+					Name:   fmt.Sprintf("slot%d", i+1),
+					Status: "unknown",
+				})
+			}
+		}
+	}
 }
 
 // Regex patterns for scraping Unraid Main page disk table.

@@ -48,13 +48,18 @@ type serverManager struct {
 	dir     string
 	entries map[string]*serverEntry // keyed by ID
 	gcm     cipher.AEAD            // for encrypting/decrypting passwords
+
+	// Reconnect rate-limiting: per-server last attempt time.
+	reconnectMu       sync.Mutex
+	reconnectAttempts map[string]time.Time // sid -> last attempt timestamp
 }
 
 // newServerManager loads servers.json from dataDir (or creates empty).
 func newServerManager(dataDir string) *serverManager {
 	sm := &serverManager{
-		dir:     dataDir,
-		entries: make(map[string]*serverEntry),
+		dir:               dataDir,
+		entries:           make(map[string]*serverEntry),
+		reconnectAttempts: make(map[string]time.Time),
 	}
 	// Derive an encryption key for password storage. We use the session
 	// key file at <dataDir>/.enc_key — if it doesn't exist, create one.
@@ -303,4 +308,33 @@ func authMode(s string) ssh.AuthMode {
 		return ssh.AuthKey
 	}
 	return ssh.AuthPassword
+}
+
+// reconnectCooldown is the minimum interval between auto-reconnect attempts
+// for the same server. Prevents hammering the Unraid WebGUI when it's down.
+const reconnectCooldown = 30 * time.Second
+
+// shouldTryReconnect returns true if enough time has elapsed since the last
+// auto-reconnect attempt for this server. It records the attempt timestamp.
+func (sm *serverManager) shouldTryReconnect(sid string) bool {
+	sm.reconnectMu.Lock()
+	defer sm.reconnectMu.Unlock()
+
+	now := time.Now()
+	last, exists := sm.reconnectAttempts[sid]
+	if exists && now.Sub(last) < reconnectCooldown {
+		logger.Debugf("reconnect rate-limited for %s (last attempt %.0fs ago, cooldown %s)",
+			sid, now.Sub(last).Seconds(), reconnectCooldown)
+		return false
+	}
+	sm.reconnectAttempts[sid] = now
+	return true
+}
+
+// markReconnectSuccess clears the rate-limit entry for a server after a
+// successful reconnect, so the next disconnect triggers immediate retry.
+func (sm *serverManager) markReconnectSuccess(sid string) {
+	sm.reconnectMu.Lock()
+	defer sm.reconnectMu.Unlock()
+	delete(sm.reconnectAttempts, sid)
 }

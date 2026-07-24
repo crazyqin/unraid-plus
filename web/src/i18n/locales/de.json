@@ -48,7 +48,8 @@
     "dualTip": "WebGUI API + SSH verbunden, alle Funktionen verfügbar",
     "apiTip": "Nur WebGUI API, Terminal und Dateimanager nicht verfügbar",
     "sshTip": "Nur SSH, einige Funktionen eingeschränkt",
-    "notConnected": "Nicht mit Server verbunden"
+    "notConnected": "Nicht mit Server verbunden",
+    "reconnecting": "Automatische Wiederverbindung…"
   },
   "nav": {
     "dashboard": "Dashboard",

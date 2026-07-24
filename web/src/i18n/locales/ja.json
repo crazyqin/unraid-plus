@@ -48,7 +48,8 @@
     "dualTip": "WebGUI API + SSH 接続済み、全機能利用可能",
     "apiTip": "WebGUI APIのみ、ターミナルとファイル管理は不可",
     "sshTip": "SSHのみ、一部機能制限あり",
-    "notConnected": "サーバーに未接続"
+    "notConnected": "サーバーに未接続",
+    "reconnecting": "自動再接続中…"
   },
   "nav": {
     "dashboard": "ダッシュボード",

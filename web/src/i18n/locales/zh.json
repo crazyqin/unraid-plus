@@ -48,7 +48,8 @@
     "dualTip": "WebGUI API + SSH 均已连接，所有功能可用",
     "apiTip": "仅 WebGUI API 已连接，终端和文件管理不可用",
     "sshTip": "仅 SSH 已连接，部分功能受限",
-    "notConnected": "未连接到服务器"
+    "notConnected": "未连接到服务器",
+    "reconnecting": "正在自动重连…"
   },
   "nav": {
     "dashboard": "仪表盘",

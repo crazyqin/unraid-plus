@@ -160,23 +160,26 @@ func (h *Handler) resolveServer(c *gin.Context) (cli *ssh.Client, sid string, ha
 	hasAPI = h.ur.HasSession(sid)
 
 	// Auto-reconnect: if neither transport is available but we have
-	// persisted credentials, try to re-establish sessions.
+	// persisted credentials, try to re-establish sessions (rate-limited).
 	if !hasSSH && !hasAPI && h.sm != nil {
-		hasAPI = h.autoReconnect(sid)
-		if hasAPI {
-			// Also try SSH if API reconnected
-			entry := h.sm.Get(sid)
-			if entry != nil {
-				if sshCli, err := h.pool.Get(entry.Host, entry.Port); err == nil {
-					cli = sshCli
-					hasSSH = true
+		if h.sm.shouldTryReconnect(sid) {
+			hasAPI = h.autoReconnect(sid)
+			if hasAPI {
+				h.sm.markReconnectSuccess(sid)
+				// Also try SSH if API reconnected
+				entry := h.sm.Get(sid)
+				if entry != nil {
+					if sshCli, err := h.pool.Get(entry.Host, entry.Port); err == nil {
+						cli = sshCli
+						hasSSH = true
+					}
 				}
 			}
 		}
 	}
 
 	if !hasSSH && !hasAPI {
-		errOut(c, http.StatusServiceUnavailable, "服务器不可用（SSH 和 WebGUI 均未连接），请尝试重新连接")
+		errOut(c, http.StatusServiceUnavailable, "服务器不可用（SSH 和 WebGUI 均未连接），正在尝试自动重连…")
 		return
 	}
 	return

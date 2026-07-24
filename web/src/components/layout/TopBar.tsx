@@ -1,6 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Activity, Globe, Moon, RefreshCw, Sun, Zap } from 'lucide-react';
+import { Activity, Globe, Moon, RefreshCw, Sun, Zap, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -58,7 +58,26 @@ export default function TopBar() {
   const online = health.data?.ok ?? false;
   const currentTheme = THEMES.find((th) => th.id === theme);
 
+  const isReconnecting = !sshAvailable && !apiAvailable && !!server;
+
   return (
+    <>
+      {/* Reconnecting banner */}
+      <AnimatePresence>
+        {isReconnecting && (
+          <motion.div
+            className="flex items-center justify-center gap-2 bg-amber-500/10 border-b border-amber-500/20 py-1.5 text-[11px] font-medium text-amber-600 dark:text-amber-400"
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <Loader2 className="h-3 w-3 animate-spin" />
+            {t('connection.reconnecting', '正在自动重连…')}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
     <header className="flex h-14 items-center justify-between border-b border-border/40 bg-card/30 backdrop-blur-2xl px-5">
       <div className="flex items-center gap-3">
         {/* Online status pill */}
@@ -269,5 +288,6 @@ export default function TopBar() {
         </Tooltip>
       </div>
     </header>
+    </>
   );
 }

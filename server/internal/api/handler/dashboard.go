@@ -3,7 +3,6 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
-	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/crazyqin/unraid-plus/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/internal/unraid"
 )
 
 type dashboardResp struct {
@@ -21,9 +21,7 @@ type dashboardResp struct {
 	ArrayRw   rwRate      `json:"arrayRwBytesPerSec"`
 	Uptime    int64       `json:"uptime"`
 	LoadAvg   [3]float64  `json:"loadAvg"`
-	Degraded  bool        `json:"degraded,omitempty"`  // true when data from HTML scraping (API-only mode)
-	DegradedReason string `json:"degradedReason,omitempty"` // "ssh_unavailable" etc.
-	ServerMeta *serverMeta `json:"serverMeta,omitempty"` // Unraid server metadata from user-profile JSON
+	ServerMeta *serverMeta `json:"serverMeta,omitempty"` // Unraid server metadata
 }
 
 // serverMeta holds metadata extracted from Unraid's <unraid-user-profile server="..."> JSON.
@@ -69,17 +67,25 @@ type rwRate struct {
 
 // Dashboard returns a snapshot of CPU / memory / network / array throughput.
 //
-// v0.7+ uses Unraid state files (/usr/local/emhttp/state/var.ini) for
-// server metadata (version, name) when available. Live CPU/mem/net/disk
-// stats still come from /proc/* since those need real-time deltas.
+// v0.9+: Uses the official Unraid GraphQL API (/graphql) as the primary data
+// source when available. Falls back to SSH for real-time stats (with delta
+// computation) when GraphQL is not available. HTML scraping is removed.
 //
-// v0.7+: When SSH is unavailable but WebGUI API is available, falls back
-// to scraping the Unraid Dashboard/Main page HTML for basic system info.
-// The response includes degraded=true and the frontend can show a "limited
-// data" indicator.
+// GraphQL provides: CPU model, core count, memory layout, OS info, uptime,
+// CPU/memory usage metrics. SSH provides: per-core CPU usage with deltas,
+// per-core temps, real-time network/disk throughput rates.
 func (h *Handler) Dashboard(c *gin.Context) {
 	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
 	if sid == "" {
+		return
+	}
+
+	// GraphQL-first: when the official API is available, use it for all
+	// metadata and metrics. SSH is only needed for real-time delta-based
+	// stats (per-core usage, network/disk throughput) which require two
+	// /proc snapshots ~1s apart.
+	if hasAPI && h.ur.HasGraphQL(sid) {
+		h.dashboardGraphQL(c, sid, cli, hasSSH)
 		return
 	}
 
@@ -88,14 +94,7 @@ func (h *Handler) Dashboard(c *gin.Context) {
 		return
 	}
 
-	// API-only fallback: scrape HTML from Unraid WebGUI
-	if hasAPI {
-		h.dashboardAPI(c, sid)
-		return
-	}
-
-	// Should not reach here (resolveServer returns error if both unavailable)
-	errOut(c, http.StatusServiceUnavailable, "仪表盘不可用")
+	errOut(c, http.StatusServiceUnavailable, "仪表盘不可用：GraphQL API 不可用且 SSH 未连接")
 }
 
 // dashboardSSH is the full SSH-based dashboard with real-time stats.
@@ -540,336 +539,127 @@ func expandCoreTemps(phyTemps []float64, nCores int) []float64 {
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard API fallback (HTML scraping from Unraid WebGUI)
+// Dashboard via official Unraid GraphQL API
 // ---------------------------------------------------------------------------
 
-// dashboardAPI fetches system info from the Unraid WebGUI when SSH is unavailable.
-// Unraid 7.x uses Nchan WebSocket for real-time updates, but the initial page
-// load still contains key data in embedded JavaScript variables and in the
-// <unraid-user-profile> custom element's server attribute (JSON).
-func (h *Handler) dashboardAPI(c *gin.Context, sid string) {
+// dashboardGraphQL uses the Unraid GraphQL API for system info and metrics.
+// When SSH is also available, it supplements with real-time delta stats
+// (per-core CPU usage, network/disk throughput) that GraphQL can't provide.
+func (h *Handler) dashboardGraphQL(c *gin.Context, sid string, cli *ssh.Client, hasSSH bool) {
 	resp := dashboardResp{
-		Network:         []netInfo{{Iface: "-"}},
 		CPU:             cpuInfo{PerCoreUsagePct: []float64{}, PerCoreTempC: []float64{}},
-		Degraded:        true,
-		DegradedReason:  "ssh_unavailable",
+		Network:         []netInfo{{Iface: "-"}},
 	}
 
-	// Fetch /Main page for JS variables, array state, and user-profile JSON
-	if body, status, err := h.ur.FetchPage(sid, "/Main"); err == nil && status == 200 {
-		html := string(body)
-		parseMainPageJS(html, &resp)
-		// Extract server metadata from <unraid-user-profile server="...">
-		resp.ServerMeta = parseUserProfileJSON(html)
-	}
+	// Fetch system info + metrics concurrently
+	var infoData json.RawMessage
+	var metricsData json.RawMessage
+	var infoErr, metricsErr error
+	var wg sync.WaitGroup
 
-	// Try SystemInformation.php for CPU/memory data
-	if body, status, err := h.ur.FetchEndpoint(sid, "/plugins/dynamix/include/SystemInformation.php"); err == nil && status == 200 {
-		parseSystemInfoHTML(string(body), &resp)
-	}
+	wg.Add(2)
+	go func() {
+		infoData, infoErr = h.ur.GraphQLQuery(sid, unraid.QueryGetSystemInfo, nil)
+		wg.Done()
+	}()
+	go func() {
+		metricsData, metricsErr = h.ur.GraphQLQuery(sid, unraid.QueryGetMetrics, nil)
+		wg.Done()
+	}()
+	wg.Wait()
 
-	// Try Temperature.php for CPU temp
-	if body, status, err := h.ur.FetchEndpoint(sid, "/plugins/dynamix/include/Temperature.php"); err == nil && status == 200 {
-		parseTemperatureHTML(string(body), &resp)
-	}
-
-	// Try /Dashboard page which may contain more system info in the
-	// user-profile component or dashboard-specific panels
-	if body, status, err := h.ur.FetchPage(sid, "/Dashboard"); err == nil && status == 200 {
-		html := string(body)
-		// Extract server metadata if /Main didn't provide it
-		if resp.ServerMeta == nil {
-			resp.ServerMeta = parseUserProfileJSON(html)
+	// Parse system info
+	if infoErr == nil && infoData != nil {
+		info, err := unraid.ParseInfoQuery(infoData)
+		if err == nil && info != nil {
+			if info.CPU != nil {
+				resp.CPU.ModelName = info.CPU.Brand
+				if info.CPU.Brand == "" {
+					resp.CPU.ModelName = info.CPU.Manufacturer
+				}
+				resp.CPU.Cores = info.CPU.Cores
+				if resp.CPU.Cores == 0 {
+					resp.CPU.Cores = info.CPU.Threads
+				}
+			}
+			if info.OS != nil {
+				resp.Uptime = int64(info.OS.Uptime)
+			}
+			// Store server meta from GraphQL info
+			resp.ServerMeta = &serverMeta{
+				Name:      func() string { if info.OS != nil { return info.OS.Hostname }; return "" }(),
+				OSVersion: func() string { if info.Versions != nil && info.Versions.Core != nil { return info.Versions.Core.Unraid }; return "" }(),
+				Model:     func() string { if info.System != nil { return info.System.Model }; return "" }(),
+			}
 		}
-		// Dashboard page may have system info in the statusbar or gauge elements
-		if resp.CPU.ModelName == "" {
-			parseDashboardHTMLSysInfo(html, &resp)
+	}
+
+	// Parse metrics
+	if metricsErr == nil && metricsData != nil {
+		metrics, err := unraid.ParseMetricsQuery(metricsData)
+		if err == nil && metrics != nil {
+			if metrics.CPU != nil {
+				resp.CPU.UsagePct = metrics.CPU.PercentTotal
+			}
+			if metrics.Memory != nil {
+				resp.Memory = memInfo{
+					TotalBytes: metrics.Memory.Total,
+					UsedBytes:  metrics.Memory.Used,
+					CacheBytes: metrics.Memory.BuffCache,
+					UsagePct:   metrics.Memory.PercentTotal,
+				}
+			}
 		}
+	}
+
+	// If SSH is available, supplement with real-time delta stats
+	if hasSSH && cli != nil {
+		h.enrichWithSSHDeltas(cli, &resp)
 	}
 
 	c.JSON(http.StatusOK, resp)
 }
 
+// enrichWithSSHDeltas supplements a GraphQL-based dashboard response with
+// real-time delta stats from SSH: per-core CPU usage, per-core temps,
+// network throughput, and array disk throughput. These require two snapshots
+// ~1s apart and can only be computed from /proc/* files via SSH.
+func (h *Handler) enrichWithSSHDeltas(cli *ssh.Client, resp *dashboardResp) {
+	var cpu1, net1, disk1, temps string
+	var coreCountStr string
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() { cpu1, _ = cli.Run("cat /proc/stat"); wg.Done() }()
+	go func() { net1, _ = cli.Run("cat /proc/net/dev"); wg.Done() }()
+	go func() { disk1, _ = cli.Run("cat /proc/diskstats"); wg.Done() }()
+	go func() { temps, _ = cli.Run(readCoreTempCmd()); wg.Done() }()
+	go func() { coreCountStr, _ = cli.Run("nproc"); wg.Done() }()
+	wg.Wait()
+
+	time.Sleep(900 * time.Millisecond)
+
+	var cpu2, net2, disk2 string
+	var wg2 sync.WaitGroup
+	wg2.Add(3)
+	go func() { cpu2, _ = cli.Run("cat /proc/stat"); wg2.Done() }()
+	go func() { net2, _ = cli.Run("cat /proc/net/dev"); wg2.Done() }()
+	go func() { disk2, _ = cli.Run("cat /proc/diskstats"); wg2.Done() }()
+	wg2.Wait()
+
+	// Overwrite CPU usage with per-core data from SSH deltas
+	cores := resp.CPU.Cores
+	if cores == 0 {
+		cores = atoiSafe(coreCountStr, 1)
+	}
+	resp.CPU.UsagePct, resp.CPU.PerCoreUsagePct = computeCPUUsage(cpu1, cpu2, cores)
+	resp.CPU.PerCoreTempC = expandCoreTemps(parseThermal(temps), cores)
+	resp.Network = computeNet(net1, net2, 0.9)
+	resp.ArrayRw = computeDiskRW(disk1, disk2, 0.9)
+
+	// Load average (SSH-only)
+	if loadStr, err := cli.Run("cat /proc/loadavg"); err == nil {
+		resp.LoadAvg = parseLoadAvg(loadStr)
+	}
+}
+
 // Regex patterns for scraping Unraid Dashboard HTML.
-// The Unraid dashboard page embeds system info in various HTML elements.
-// These patterns are best-effort and may vary across Unraid versions.
-var (
-	// CPU model from "CPU:" or "Processor:" label
-	reCPUModel = regexp.MustCompile(`(?i)(?:CPU|Processor)\s*[:：]\s*<[^>]*>([^<]+)<`)
-	// Memory from "Memory:" label (e.g. "17.3 GB / 31.2 GB")
-	reMemoryLabel = regexp.MustCompile(`(?i)Memory\s*[:：]\s*<[^>]*>([^<]+)<`)
-	// Uptime from "Uptime:" label (e.g. "4 days, 16 hours, 20 minutes")
-	reUptimeLabel = regexp.MustCompile(`(?i)Uptime\s*[:：]\s*<[^>]*>([^<]+)<`)
-	// Array state from mdState or similar (e.g. "Started", "Stopped")
-	reArrayState = regexp.MustCompile(`(?i)class=['"][^'"]*array[^'"]*['"][^>]*>([^<]+)<`)
-	// CPU usage from dashboard gauge/percentage (e.g. "1.9%")
-	reCPUUsage = regexp.MustCompile(`(?i)(?:CPU\s+Usage|CPU\s+Load)\s*[:：]\s*<[^>]*>([^<]*%?)<`)
-	// System info block — broader pattern for the info panel
-	reSysInfoBlock = regexp.MustCompile(`(?s)<div[^>]*class=['"][^'"]*sys-info[^'"]*['"][^>]*>(.*?)</div>`)
-)
-
-// parseDashboardHTML extracts system info from the Unraid dashboard HTML.
-// Returns a dashboardResp with whatever data we could extract; fields we
-// couldn't find are left at their zero values.
-func parseDashboardHTML(html string) dashboardResp {
-	resp := dashboardResp{
-		Network:         []netInfo{{Iface: "-"}},
-		CPU: cpuInfo{
-			PerCoreUsagePct: []float64{},
-			PerCoreTempC:    []float64{},
-		},
-	}
-
-	// Extract CPU model
-	if m := reCPUModel.FindStringSubmatch(html); len(m) > 1 {
-		resp.CPU.ModelName = strings.TrimSpace(m[1])
-	}
-
-	// Extract CPU usage percentage (if available in initial HTML)
-	if m := reCPUUsage.FindStringSubmatch(html); len(m) > 1 {
-		usageStr := strings.TrimSpace(m[1])
-		usageStr = strings.TrimSuffix(usageStr, "%")
-		resp.CPU.UsagePct = atofSafe(usageStr)
-	}
-
-	// Extract memory info (format: "used / total" or "X.X GB / Y.Y GB")
-	if m := reMemoryLabel.FindStringSubmatch(html); len(m) > 1 {
-		memStr := strings.TrimSpace(m[1])
-		resp.Memory = parseMemoryHTMLStr(memStr)
-	}
-
-	// Extract uptime
-	if m := reUptimeLabel.FindStringSubmatch(html); len(m) > 1 {
-		uptimeStr := strings.TrimSpace(m[1])
-		resp.Uptime = parseUptimeHTMLStr(uptimeStr)
-	}
-
-	// Try to extract CPU core count from a "Cores:" label or nproc-like value
-	reCores := regexp.MustCompile(`(?i)(?:Cores|CPU\s*\(s\))\s*[:：]\s*<[^>]*>(\d+)`)
-	if m := reCores.FindStringSubmatch(html); len(m) > 1 {
-		resp.CPU.Cores = atoiSafe(m[1], 1)
-	}
-
-	return resp
-}
-
-// parseSystemInfoHTML extracts CPU model, memory, and core count from
-// Unraid's SystemInformation.php output.
-func parseSystemInfoHTML(html string, resp *dashboardResp) {
-	reCPU := regexp.MustCompile(`(?i)(?:CPU|Processor|model name)\s*[:：]\s*(?:<[^>]*>)?\s*([^<\n]+)`)
-	if m := reCPU.FindStringSubmatch(html); len(m) > 1 {
-		resp.CPU.ModelName = strings.TrimSpace(m[1])
-	}
-	reCPUUsage := regexp.MustCompile(`(?i)(?:CPU\s+Usage|CPU\s+Load)\s*[:：]\s*(?:<[^>]*>)?\s*([^<]*%?)`)
-	if m := reCPUUsage.FindStringSubmatch(html); len(m) > 1 {
-		usageStr := strings.TrimSuffix(strings.TrimSpace(m[1]), "%")
-		resp.CPU.UsagePct = atofSafe(usageStr)
-	}
-	reMem := regexp.MustCompile(`(?i)Memory\s*[:：]\s*(?:<[^>]*>)?\s*([^<\n]+)`)
-	if m := reMem.FindStringSubmatch(html); len(m) > 1 {
-		resp.Memory = parseMemoryHTMLStr(strings.TrimSpace(m[1]))
-	}
-	reCores := regexp.MustCompile(`(?i)(?:Cores|CPU\(s\))\s*[:：]\s*(?:<[^>]*>)?\s*(\d+)`)
-	if m := reCores.FindStringSubmatch(html); len(m) > 1 {
-		resp.CPU.Cores = atoiSafe(m[1], 1)
-	}
-}
-
-// parseTemperatureHTML extracts CPU temperature from Unraid's Temperature.php output.
-func parseTemperatureHTML(html string, resp *dashboardResp) {
-	reTemp := regexp.MustCompile("(\\d+)\\s*\u00b0C")
-	if m := reTemp.FindStringSubmatch(html); len(m) > 1 {
-		temp := atofSafe(m[1])
-		resp.CPU.PerCoreTempC = []float64{temp}
-	}
-}
-
-// parseMainPageJS extracts system info from JS variables embedded in the /Main page.
-func parseMainPageJS(html string, resp *dashboardResp) {
-	// Parse uptime: var uptime = 422410.33;
-	if m := regexp.MustCompile(`var\s+uptime\s*=\s*([0-9.]+)`).FindStringSubmatch(html); len(m) > 1 {
-		resp.Uptime = int64(atofSafe(m[1]))
-	}
-
-	// Array state from status text in HTML
-	if strings.Contains(html, "\u9635\u5217\u5df2\u542f\u52a8") || strings.Contains(html, "Array Started") {
-		// array started
-	} else if strings.Contains(html, "\u9635\u5217\u5df2\u505c\u6b62") || strings.Contains(html, "Array Stopped") {
-		// array stopped
-	}
-
-	// Memory from footer: "MemUsed: 8.3 GB / 31.2 GB"
-	reMemFooter := regexp.MustCompile(`(?i)(?:MemUsed|Memory)\s*[:：]\s*(\d+\.?\d*\s*[KMGT]i?B?)\s*/\s*(\d+\.?\d*\s*[KMGT]i?B?)`)
-	if m := reMemFooter.FindStringSubmatch(html); len(m) > 2 {
-		resp.Memory = parseMemoryHTMLStr(strings.TrimSpace(m[1]) + " / " + strings.TrimSpace(m[2]))
-	}
-}
-
-// parseUserProfileJSON extracts server metadata from the Unraid 7.x
-// <unraid-user-profile server="..."> custom element attribute.
-// This JSON contains name, osVersion, model, regType, etc.
-func parseUserProfileJSON(html string) *serverMeta {
-	// Match: <unraid-user-profile server="{&quot;name&quot;:&quot;Tower&quot;,...}">
-	re := regexp.MustCompile(`<unraid-user-profile\s+server="([^"]*)"`)
-	m := re.FindStringSubmatch(html)
-	if len(m) < 2 {
-		return nil
-	}
-	// HTML-decode the &quot; entities
-	encoded := m[1]
-	encoded = strings.ReplaceAll(encoded, "&quot;", `"`)
-	encoded = strings.ReplaceAll(encoded, "&#39;", "'")
-	encoded = strings.ReplaceAll(encoded, "&amp;", "&")
-
-	// Parse the JSON
-	var raw map[string]interface{}
-	if err := json.Unmarshal([]byte(encoded), &raw); err != nil {
-		return nil
-	}
-	meta := &serverMeta{}
-	if v, ok := raw["name"].(string); ok {
-		meta.Name = v
-	}
-	if v, ok := raw["osVersion"].(string); ok {
-		meta.OSVersion = v
-	}
-	if v, ok := raw["description"].(string); ok {
-		meta.Description = v
-	}
-	if v, ok := raw["model"].(string); ok {
-		meta.Model = v
-	}
-	if v, ok := raw["regTy"].(string); ok {
-		meta.RegType = v
-	}
-	if v, ok := raw["regTo"].(string); ok {
-		meta.RegTo = v
-	}
-	if v, ok := raw["deviceCount"].(string); ok {
-		meta.DeviceCount = v
-	}
-	if v, ok := raw["caseModel"].(string); ok {
-		meta.CaseModel = v
-	}
-	return meta
-}
-
-// parseDashboardHTMLSysInfo extracts CPU model and memory from the Unraid
-// Dashboard page HTML. The Dashboard may embed system info in gauge panels
-// or info blocks that are not available on the /Main page.
-func parseDashboardHTMLSysInfo(html string, resp *dashboardResp) {
-	// Try to find CPU model from various patterns in the dashboard
-	reCPU := regexp.MustCompile(`(?i)(?:CPU|Processor|model\s+name)\s*[:：]\s*(?:<[^>]*>)?\s*([^<\n]+)`)
-	if m := reCPU.FindStringSubmatch(html); len(m) > 1 {
-		resp.CPU.ModelName = strings.TrimSpace(m[1])
-	}
-	// Try to find memory from dashboard info
-	reMem := regexp.MustCompile(`(?i)Memory\s*[:：]\s*(?:<[^>]*>)?\s*([^<\n]+)`)
-	if m := reMem.FindStringSubmatch(html); len(m) > 1 {
-		resp.Memory = parseMemoryHTMLStr(strings.TrimSpace(m[1]))
-	}
-}
-
-// parseMemoryHTMLStr parses memory strings like "17.3 GB / 31.2 GB" or
-// "17.3G / 31.2G" into a memInfo struct.
-func parseMemoryHTMLStr(s string) memInfo {
-	m := memInfo{}
-	parts := strings.Split(s, "/")
-	if len(parts) != 2 {
-		return m
-	}
-	used := parseSizeStr(strings.TrimSpace(parts[0]))
-	total := parseSizeStr(strings.TrimSpace(parts[1]))
-	m.TotalBytes = total
-	m.UsedBytes = used
-	if m.UsedBytes > m.TotalBytes {
-		// The "used" might actually be "available"
-		m.CacheBytes = m.TotalBytes - m.UsedBytes
-		m.UsedBytes = m.TotalBytes - m.CacheBytes
-	}
-	if m.TotalBytes > 0 {
-		m.UsagePct = float64(m.UsedBytes) / float64(m.TotalBytes) * 100
-	}
-	return m
-}
-
-// parseSizeStr converts human-readable sizes like "31.2 GB", "4 GiB",
-// "512 MB" to bytes. Returns 0 on parse error.
-func parseSizeStr(s string) int64 {
-	s = strings.TrimSpace(s)
-	if s == "" {
-		return 0
-	}
-	var mult int64 = 1
-	switch {
-	case strings.HasSuffix(s, "TiB"), strings.HasSuffix(s, "TB"):
-		if strings.HasSuffix(s, "TiB") {
-			mult = 1 << 40
-			s = strings.TrimSuffix(s, "TiB")
-		} else {
-			mult = 1e12
-			s = strings.TrimSuffix(s, "TB")
-		}
-	case strings.HasSuffix(s, "GiB"), strings.HasSuffix(s, "GB"), strings.HasSuffix(s, "G"):
-		if strings.HasSuffix(s, "GiB") {
-			mult = 1 << 30
-			s = strings.TrimSuffix(s, "GiB")
-		} else if strings.HasSuffix(s, "GB") {
-			mult = 1e9
-			s = strings.TrimSuffix(s, "GB")
-		} else {
-			mult = 1e9
-			s = strings.TrimSuffix(s, "G")
-		}
-	case strings.HasSuffix(s, "MiB"), strings.HasSuffix(s, "MB"), strings.HasSuffix(s, "M"):
-		if strings.HasSuffix(s, "MiB") {
-			mult = 1 << 20
-			s = strings.TrimSuffix(s, "MiB")
-		} else if strings.HasSuffix(s, "MB") {
-			mult = 1e6
-			s = strings.TrimSuffix(s, "MB")
-		} else {
-			mult = 1e6
-			s = strings.TrimSuffix(s, "M")
-		}
-	case strings.HasSuffix(s, "KiB"), strings.HasSuffix(s, "KB"), strings.HasSuffix(s, "K"):
-		if strings.HasSuffix(s, "KiB") {
-			mult = 1 << 10
-			s = strings.TrimSuffix(s, "KiB")
-		} else if strings.HasSuffix(s, "KB") {
-			mult = 1e3
-			s = strings.TrimSuffix(s, "KB")
-		} else {
-			mult = 1e3
-			s = strings.TrimSuffix(s, "K")
-		}
-	}
-	return int64(atofSafe(strings.TrimSpace(s)) * float64(mult))
-}
-
-// parseUptimeHTMLStr parses uptime strings like "4 days, 16 hours, 20 minutes"
-// or "112h 20m" into seconds.
-func parseUptimeHTMLStr(s string) int64 {
-	var total int64
-	// "X days, Y hours, Z minutes" pattern
-	days := regexp.MustCompile(`(\d+)\s*day`).FindStringSubmatch(s)
-	hours := regexp.MustCompile(`(\d+)\s*hour`).FindStringSubmatch(s)
-	mins := regexp.MustCompile(`(\d+)\s*min`).FindStringSubmatch(s)
-	if len(days) > 1 {
-		total += int64(atoiSafe(days[1], 0)) * 86400
-	}
-	if len(hours) > 1 {
-		total += int64(atoiSafe(hours[1], 0)) * 3600
-	}
-	if len(mins) > 1 {
-		total += int64(atoiSafe(mins[1], 0)) * 60
-	}
-	// Also try "112h 20m" compact format
-	if total == 0 {
-		hmRe := regexp.MustCompile(`(\d+)h\s*(\d+)m`)
-		if m := hmRe.FindStringSubmatch(s); len(m) > 2 {
-			total = int64(atoiSafe(m[1], 0))*3600 + int64(atoiSafe(m[2], 0))*60
-		}
-	}
-	return total
-}

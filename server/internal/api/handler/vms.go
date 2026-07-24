@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"regexp"
@@ -8,7 +9,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/crazyqin/unraid-plus/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/internal/unraid"
 	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
@@ -19,23 +22,40 @@ type vm struct {
 	Vcpus       int    `json:"vcpus"`
 	MemoryBytes int64  `json:"memoryBytes"`
 	Autostart   bool   `json:"autostart"`
-	VNCPort     int    `json:"vncPort,omitempty"` // VNC display port (5900+N), 0 if not available
-	Via         string `json:"via,omitempty"`     // "api" or "ssh"
+	VNCPort     int    `json:"vncPort,omitempty"`
+	Via         string `json:"via,omitempty"` // "graphql", "api" or "ssh"
 }
 
 // ListVMs returns VMs.
-// v0.4+: SSH first (full data from virsh), API-only fallback for VNC port.
+// v0.9+: GraphQL-first (official Unraid GraphQL API), SSH fallback for
+// vCPU/memory details, HTML scraping as last-resort fallback.
 func (h *Handler) ListVMs(c *gin.Context) {
 	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
 	if sid == "" {
 		return
 	}
 
-	if hasSSH {
-		// SSH first — virsh gives richer/more reliable data
-		vms := h.listVMsSSH(cli)
+	// GraphQL-first
+	if hasAPI && h.ur.HasGraphQL(sid) {
+		vms, err := h.listVMsGraphQL(sid)
+		if err == nil && vms != nil {
+			// SSH enrichment for vCPU, memory, autostart (GraphQL may not have all details)
+			if hasSSH && cli != nil {
+				h.enrichVMsWithSSH(cli, vms)
+			}
+			for i := range vms {
+				vms[i].Via = "graphql"
+			}
+			c.JSON(http.StatusOK, vms)
+			return
+		}
+		logger.Debugf("vm graphql list failed for %s, falling back: %v", sid, err)
+	}
 
-		// Supplement VNC port from API when available (virsh dominfo doesn't include it)
+	// SSH fallback
+	if hasSSH && cli != nil {
+		vms := h.listVMsSSH(cli)
+		// Supplement VNC port from API when available
 		if hasAPI {
 			apiVMs, err := h.listVMsAPI(sid)
 			if err == nil {
@@ -54,7 +74,6 @@ func (h *Handler) ListVMs(c *gin.Context) {
 				}
 			}
 		}
-
 		for i := range vms {
 			vms[i].Via = "ssh"
 		}
@@ -62,7 +81,7 @@ func (h *Handler) ListVMs(c *gin.Context) {
 		return
 	}
 
-	// API-only fallback (SSH unavailable)
+	// Last resort: HTML scraping
 	if hasAPI {
 		vms, err := h.listVMsAPI(sid)
 		if err == nil {
@@ -77,8 +96,84 @@ func (h *Handler) ListVMs(c *gin.Context) {
 	c.JSON(http.StatusOK, []vm{})
 }
 
+// ---------------------------------------------------------------------------
+// VM list via official Unraid GraphQL API
+// ---------------------------------------------------------------------------
+
+// listVMsGraphQL fetches VM list via the Unraid GraphQL API.
+// Uses the ListVMs query which returns structured JSON data.
+func (h *Handler) listVMsGraphQL(sid string) ([]vm, error) {
+	data, err := h.ur.GraphQLQuery(sid, unraid.QueryListVMs, nil)
+	if err != nil {
+		return nil, fmt.Errorf("graphql vm query: %w", err)
+	}
+
+	gqlVMs, err := unraid.ParseVMsQuery(data)
+	if err != nil {
+		return nil, fmt.Errorf("parse vm graphql: %w", err)
+	}
+
+	if len(gqlVMs) == 0 {
+		return []vm{}, nil
+	}
+
+	vms := make([]vm, 0)
+	for _, gqlVM := range gqlVMs {
+		for _, d := range gqlVM.Domains {
+			vms = append(vms, vm{
+				ID:     d.UUID,
+				Name:   d.Name,
+				Status: normalizeVMState(d.State),
+			})
+		}
+	}
+
+	return vms, nil
+}
+
+// enrichVMsWithSSH supplements GraphQL VM data with vCPU, memory, and autostart
+// info from virsh dominfo (not available via GraphQL).
+func (h *Handler) enrichVMsWithSSH(cli *ssh.Client, vms []vm) {
+	for i := range vms {
+		name := vms[i].Name
+		if name == "" {
+			name = vms[i].ID
+		}
+		if name == "" {
+			continue
+		}
+		info, _ := cli.Run("virsh dominfo " + shellQuote(name) + " 2>/dev/null")
+		if info == "" {
+			continue
+		}
+		for _, line := range strings.Split(info, "\n") {
+			kv := strings.SplitN(line, ":", 2)
+			if len(kv) != 2 {
+				continue
+			}
+			key := strings.TrimSpace(kv[0])
+			val := strings.TrimSpace(kv[1])
+			switch key {
+			case "CPU(s)":
+				vms[i].Vcpus = atoiSafe(val, 0)
+			case "Max memory":
+				fields := strings.Fields(val)
+				if len(fields) > 0 {
+					vms[i].MemoryBytes = atoi64Safe(fields[0]) * 1024
+				}
+			case "Autostart":
+				vms[i].Autostart = val == "enable"
+			}
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// VM actions (start / stop / restart / pause / resume / suspend)
+// ---------------------------------------------------------------------------
+
 // VMAction starts / stops / restarts / pauses / resumes a VM.
-// v0.3+: Prefer Unraid HTTP API (VMajax.php) with SSH fallback.
+// v0.9+: GraphQL mutation first, then PHP API (VMajax.php), then SSH fallback.
 func (h *Handler) VMAction(c *gin.Context) {
 	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
 	if sid == "" {
@@ -87,7 +182,15 @@ func (h *Handler) VMAction(c *gin.Context) {
 	id := c.Param("id")
 	action := c.Param("action")
 
-	// Map our action names to VMajax.php action names
+	// GraphQL mutation first
+	if hasAPI && h.ur.HasGraphQL(sid) {
+		if ok, via := h.vmActionGraphQL(sid, action, id); ok {
+			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": via})
+			return
+		}
+	}
+
+	// PHP API fallback (VMajax.php)
 	apiActionMap := map[string]string{
 		"start":    "domain-start",
 		"stop":     "domain-destroy",
@@ -96,8 +199,6 @@ func (h *Handler) VMAction(c *gin.Context) {
 		"suspend":  "domain-pause",
 		"restart":  "domain-restart",
 	}
-
-	// Try Unraid HTTP API first
 	if apiAction, ok := apiActionMap[action]; ok && hasAPI {
 		resp, err := h.ur.VMActionOK(sid, apiAction, id)
 		if err == nil && resp != nil && resp.Success {
@@ -135,21 +236,66 @@ func (h *Handler) VMAction(c *gin.Context) {
 		return
 	}
 
-	errOut(c, http.StatusServiceUnavailable, "VM 操作不可用（SSH 和 API 均不可用）")
+	errOut(c, http.StatusServiceUnavailable, "VM 操作不可用（GraphQL/API/SSH 均不可用）")
+}
+
+// vmActionGraphQL sends a VM action via GraphQL mutation.
+func (h *Handler) vmActionGraphQL(sid, action, vmID string) (bool, string) {
+	var query string
+	var opName string
+	switch action {
+	case "start":
+		query = unraid.MutStartVM
+		opName = "StartVM"
+	case "stop":
+		query = unraid.MutStopVM
+		opName = "StopVM"
+	case "suspend":
+		query = unraid.MutPauseVM
+		opName = "PauseVM"
+	case "resume":
+		query = unraid.MutResumeVM
+		opName = "ResumeVM"
+	case "restart":
+		query = unraid.MutRebootVM
+		opName = "RebootVM"
+	default:
+		// shutdown, force-stop: not mapped to GraphQL yet
+		return false, ""
+	}
+
+	vars := map[string]interface{}{
+		"id": vmID,
+	}
+	data, err := h.ur.GraphQLQueryWithOp(sid, query, vars, opName)
+	if err != nil {
+		logger.Debugf("vm graphql action %s/%s failed: %v", action, vmID, err)
+		return false, ""
+	}
+
+	if data == nil {
+		return false, ""
+	}
+
+	// Verify mutation returned data
+	var result map[string]json.RawMessage
+	if json.Unmarshal(data, &result) == nil {
+		return true, "graphql"
+	}
+
+	return false, ""
 }
 
 // ---------------------------------------------------------------------------
-// VM list via HTTP API (VMMachines.php HTML parsing)
+// VM list via HTTP API (VMMachines.php HTML parsing) -- fallback
 // ---------------------------------------------------------------------------
 
 // addVMCtxRe matches addVMContext() JS calls in the HTML.
-// Example: addVMContext('Debian','51be9109-9d13-fb08-fe16-85fc24d77f8a','Debian','running','/plugins/dynamix.vm.manager/vnc.html?...&host=25432002.cn:8001&port=&path=/wsproxy/5701/','VNC','libvirt/qemu/Debian.log','QEMU','web;no','', '', )
-// Parameters: name, uuid, displayName, state, vncUrl, vncType, logPath, emulator, keyboard, ?
 var addVMCtxRe = regexp.MustCompile(
 	`addVMContext\(\s*'([^']*)'\s*,` + // 1: name
 		`\s*'([^']*)'\s*,` + // 2: uuid
 		`\s*'([^']*)'\s*,` + // 3: display name
-		`\s*'([^']*)'\s*,` + // 4: state (running/shut off/paused/etc.)
+		`\s*'([^']*)'\s*,` + // 4: state
 		`\s*'([^']*)'\s*,` + // 5: VNC URL
 		`\s*'([^']*)'\s*,` + // 6: VNC type
 		`\s*'([^']*)'\s*,` + // 7: log path
@@ -158,31 +304,19 @@ var addVMCtxRe = regexp.MustCompile(
 		`.*?\)`)
 
 // vmVcpuRe matches vCPU count from HTML table cell.
-// Example: <a class='vcpu-...' style='cursor:pointer'>8</a>
 var vmVcpuRe = regexp.MustCompile(`class=['"]vcpu-[^'"]*['"][^>]*>(\d+)`)
 
-// vmMemoryRe matches memory from HTML table cell.
-// Example: <td>8G</td> — but only within VM rows, so we need context
-// We'll parse vCPU and memory from table cells after the VM name cell.
-
 // vmAutostartRe matches autostart checkbox.
-// Example: <input class='autostart' type='checkbox' name='auto_Debian' uuid='51be9109...' >
 var vmAutostartRe = regexp.MustCompile(`class=['"]autostart['"][^>]*uuid=['"]([^'"]+)['"][^>]*checked`)
 
 // vmVNCPortRe matches VNC port info from HTML table cell.
-// Example: VNC:5901 Driver:QXL
 var vmVNCPortRe = regexp.MustCompile(`VNC:(\d+)`)
 
 // vmWsproxyPortRe matches wsproxy port from VNC URL.
-// Example: /wsproxy/5701/
 var vmWsproxyPortRe = regexp.MustCompile(`/wsproxy/(\d+)/`)
 
-// vmIconSrcRe matches VM icon image source.
-// Example: <img src='/plugins/dynamix.vm.manager/templates/images/debian.png' class='img'>
-var vmIconSrcRe = regexp.MustCompile(`<img\s+src=['"]([^'"]+)['"]\s+class=['"]img['"]`)
-
-// listVMsAPI fetches VM list from Unraid HTTP API.
-// Returns parsed VMs or an error if the API is unavailable.
+// listVMsAPI fetches VM list from Unraid HTTP API (HTML scraping).
+// Last-resort fallback when GraphQL and SSH are both unavailable.
 func (h *Handler) listVMsAPI(sid string) ([]vm, error) {
 	body, status, err := h.ur.VMMachines(sid)
 	if err != nil {
@@ -194,22 +328,19 @@ func (h *Handler) listVMsAPI(sid string) ([]vm, error) {
 
 	html := string(body)
 
-	// Quick check: if there's no addVMContext, VMs may not be installed
 	if !strings.Contains(html, "addVMContext") {
 		return []vm{}, nil
 	}
 
-	// Parse addVMContext calls
 	ctxMatches := addVMCtxRe.FindAllStringSubmatch(html, -1)
 	vms := make([]vm, 0, len(ctxMatches))
 
-	// Build a map of UUID → autostart status
 	autostartMap := map[string]bool{}
 	for _, m := range vmAutostartRe.FindAllStringSubmatch(html, -1) {
 		autostartMap[m[1]] = true
 	}
 
-	for i, m := range ctxMatches {
+	for _, m := range ctxMatches {
 		name := m[1]
 		uuid := m[2]
 		state := m[4]
@@ -221,26 +352,15 @@ func (h *Handler) listVMsAPI(sid string) ([]vm, error) {
 			Status: normalizeVMHTMLState(state),
 		}
 
-		// Extract VNC port from VNC URL or wsproxy path
 		if port := vmWsproxyPortRe.FindStringSubmatch(vncURL); len(port) > 1 {
 			v.VNCPort, _ = strconv.Atoi(port[1])
 		}
-		// Also check for VNC:port pattern in the HTML near this VM
-		// (The HTML table has a cell with "VNC:5901 Driver:QXL")
 
-		// Autostart
 		v.Autostart = autostartMap[uuid]
-
-		// vCPU and memory are in table cells — parse from HTML rows
-		// This is a best-effort extraction; the SSH path provides more reliable data
 		vms = append(vms, v)
-
-		// Try to parse vCPU and memory from table rows
-		_ = i // We'll use row-based parsing below
 	}
 
-	// Parse additional per-row data (vCPUs, memory, VNC port)
-	// Split by <tr> to process each row
+	// Parse vCPU from HTML rows
 	vcpuMatches := vmVcpuRe.FindAllStringSubmatch(html, -1)
 	for i, m := range vcpuMatches {
 		if i < len(vms) {
@@ -248,8 +368,7 @@ func (h *Handler) listVMsAPI(sid string) ([]vm, error) {
 		}
 	}
 
-	// Parse memory: look for <td>NG</td> or <td>NM</td> patterns
-	// This is tricky without proper HTML parsing; we do a simple regex scan
+	// Parse memory: <td>NG</td> or <td>NM</td>
 	vmMemoryMatches := regexp.MustCompile(`<td>(\d+)(G|M)</td>`).FindAllStringSubmatch(html, -1)
 	vmMemIdx := 0
 	for i := range vms {
@@ -266,7 +385,7 @@ func (h *Handler) listVMsAPI(sid string) ([]vm, error) {
 		}
 	}
 
-	// Parse VNC port from table cells containing "VNC:5901"
+	// Parse VNC port from table cells
 	vncPortMatches := vmVNCPortRe.FindAllStringSubmatch(html, -1)
 	for i, m := range vncPortMatches {
 		if i < len(vms) && vms[i].VNCPort == 0 {
@@ -292,7 +411,7 @@ func normalizeVMHTMLState(s string) string {
 }
 
 // ---------------------------------------------------------------------------
-// VM list via SSH (fallback)
+// VM list via SSH
 // ---------------------------------------------------------------------------
 
 // listVMsSSH fetches VM list via SSH virsh commands.
@@ -330,7 +449,6 @@ func parseDominfo(name, info string) vm {
 		case "CPU(s)":
 			v.Vcpus = atoiSafe(val, 0)
 		case "Max memory":
-			// virsh reports in KiB; convert to bytes
 			fields := strings.Fields(val)
 			if len(fields) > 0 {
 				v.MemoryBytes = atoi64Safe(fields[0]) * 1024

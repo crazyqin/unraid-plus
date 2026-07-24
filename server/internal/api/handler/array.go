@@ -1,67 +1,83 @@
 package handler
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/crazyqin/unraid-plus/server/internal/unraid"
 	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
-// arrayActionReq is the body for POST /api/storage/array/:action.
-// Currently no fields — action is in the URL path — but we keep the struct
-// for future extensibility (e.g. forced stop, read-only mode).
-type arrayActionReq struct{}
-
 // ArrayAction starts or stops the Unraid array.
-// v0.3+: Prefer Unraid HTTP API (ParityControl.php) with SSH fallback.
-//
-// Unraid's md driver is controlled through /root/mdcmd which writes to
-// /proc/mdstat. The commands are:
-//   mdcmd start   — bring the array online
-//   mdcmd stop    — stop the array (all disks must be spun down, no mounts)
-//
-// Security: action is validated against a strict whitelist (start|stop)
-// before being passed to the shell.
-var allowedArrayActions = map[string]string{
-	"start": "start",
-	"stop":  "stop",
-}
-
+// v0.9+: GraphQL mutation first, then PHP API (ParityControl.php), then SSH.
 func (h *Handler) ArrayAction(c *gin.Context) {
 	_, sid, hasSSH, hasAPI := h.resolveServer(c)
 	if !hasSSH && !hasAPI {
 		return
 	}
 	action := c.Param("action")
-	cmd, valid := allowedArrayActions[action]
-	if !valid {
+	switch action {
+	case "start", "stop":
+	default:
 		errOut(c, http.StatusBadRequest, "不支持的操作: "+action+"（仅支持 start / stop）")
 		return
 	}
 
-	// Try Unraid HTTP API first (ParityControl.php handles array start/stop too)
+	// GraphQL mutation first (official API)
+	if hasAPI && h.ur.HasGraphQL(sid) {
+		var query string
+		var opName string
+		switch action {
+		case "start":
+			query = unraid.MutStartArray
+			opName = "StartArray"
+		case "stop":
+			query = unraid.MutStopArray
+			opName = "StopArray"
+		}
+		data, err := h.ur.GraphQLQueryWithOp(sid, query, nil, opName)
+		if err == nil && data != nil {
+			var result map[string]json.RawMessage
+			if json.Unmarshal(data, &result) == nil {
+				c.JSON(http.StatusOK, gin.H{
+					"ok":      true,
+					"message": "已发送 " + action + " 指令",
+					"via":     "graphql",
+				})
+				return
+			}
+		}
+		if err != nil {
+			logger.Debugf("array graphql action %s failed, falling back: %v", action, err)
+		}
+	}
+
+	// PHP API fallback (ParityControl.php)
 	if hasAPI {
-		body, status, err := h.ur.ParityControl(sid, cmd)
+		body, status, err := h.ur.ParityControl(sid, action)
 		if err == nil && status >= 200 && status < 300 {
 			c.JSON(http.StatusOK, gin.H{
 				"ok":      true,
-				"message": "已发送 " + cmd + " 指令",
+				"message": "已发送 " + action + " 指令",
 				"via":     "api",
 				"detail":  string(body),
 			})
 			return
 		}
 		if err != nil {
-			logger.Debugf("array api action %s failed, falling back to SSH: %v", cmd, err)
+			logger.Debugf("array api action %s failed, falling back to SSH: %v", action, err)
 		}
 	}
 
 	// SSH fallback
 	if !hasSSH {
-		errOut(c, http.StatusServiceUnavailable, "阵列操作需要 SSH 连接（WebGUI API 不可用）")
+		errOut(c, http.StatusServiceUnavailable, "阵列操作需要连接（GraphQL/API/SSH 均不可用）")
 		return
 	}
 	cli, _ := h.pool.Active()
@@ -78,10 +94,8 @@ func (h *Handler) ArrayAction(c *gin.Context) {
 		return
 	}
 
-	out, err := cli.Run("mdcmd " + cmd + " 2>&1")
+	out, err := cli.Run("mdcmd " + action + " 2>&1")
 	if err != nil {
-		// mdcmd returns non-zero for "array already started" etc.
-		// We still return the output so the UI can show the reason.
 		c.JSON(http.StatusConflict, gin.H{
 			"ok":      false,
 			"message": "阵列操作失败",
@@ -91,19 +105,14 @@ func (h *Handler) ArrayAction(c *gin.Context) {
 	}
 	c.JSON(http.StatusOK, gin.H{
 		"ok":      true,
-		"message": "已发送 " + cmd + " 指令",
+		"message": "已发送 " + action + " 指令",
 		"via":     "ssh",
 	})
 }
 
 // ParityCheckAction starts / stops / resumes a parity check / sync.
-// v0.3+: Prefer Unraid HTTP API (ParityControl.php) with SSH fallback.
-//
-// Actions:
-//   - "start": start non-correcting parity check
-//   - "stop": pause/cancel ongoing parity check
-//   - "correcting": start correcting parity check (writes fixes)
-//   - "resume": resume a paused parity check
+// v0.9+: GraphQL does not yet have parity check mutations, so we use PHP API
+// then SSH fallback.
 func (h *Handler) ParityCheckAction(c *gin.Context) {
 	_, sid, hasSSH, hasAPI := h.resolveServer(c)
 	if !hasSSH && !hasAPI {
@@ -111,7 +120,6 @@ func (h *Handler) ParityCheckAction(c *gin.Context) {
 	}
 	action := c.Param("action")
 
-	// Validate action
 	switch action {
 	case "start", "stop", "correcting", "resume":
 	default:
@@ -119,7 +127,7 @@ func (h *Handler) ParityCheckAction(c *gin.Context) {
 		return
 	}
 
-	// Try Unraid HTTP API first
+	// PHP API first (no GraphQL mutation for parity check yet)
 	if hasAPI {
 		body, status, err := h.ur.ParityControl(sid, action)
 		if err == nil && status >= 200 && status < 300 {
@@ -138,7 +146,7 @@ func (h *Handler) ParityCheckAction(c *gin.Context) {
 
 	// SSH fallback
 	if !hasSSH {
-		errOut(c, http.StatusServiceUnavailable, "Parity 操作需要 SSH 连接（WebGUI API 不可用）")
+		errOut(c, http.StatusServiceUnavailable, "Parity 操作需要连接（API/SSH 均不可用）")
 		return
 	}
 	cli, _ := h.pool.Active()
@@ -164,7 +172,7 @@ func (h *Handler) ParityCheckAction(c *gin.Context) {
 	case "correcting":
 		cmd = "mdcmd check CORRECT 2>&1"
 	case "resume":
-		cmd = "mdcmd check 2>&1" // resume is same as check in mdcmd
+		cmd = "mdcmd check 2>&1"
 	default:
 		errOut(c, http.StatusBadRequest, "不支持的操作: "+action)
 		return
@@ -193,23 +201,40 @@ type parityStatusResp struct {
 	Speed     string  `json:"speed"`     // e.g. "152 MB/s"
 	Remaining string  `json:"remaining"` // e.g. "2h 15m"
 	Errors    int     `json:"errors"`    // sync errors found
-	Via       string  `json:"via"`       // "ssh" or "api"
+	Via       string  `json:"via"`       // "graphql", "ssh" or "api"
 }
 
 // parityCheckRe matches the parity check progress line in /proc/mdstat.
 var parityCheckRe = regexp.MustCompile(`check\s*=\s*([\d.]+)%.*finish=([\d.]+)min.*speed=(\d+)([KMG])`)
 
 // ParityStatus returns parity check progress.
-// v0.4+: Tries SSH /proc/mdstat first (richest data), then falls back to
-// var.ini mdState for API-only mode (returns basic state without progress details).
+// v0.9+: GraphQL-first (GetParityStatus query), SSH fallback, API-only mode.
 func (h *Handler) ParityStatus(c *gin.Context) {
-	// Use resolveServer instead of activeClientWithID to support API-only mode
 	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
 	if sid == "" {
 		return
 	}
 
-	// Try SSH first (richest data source: /proc/mdstat has progress/speed/ETA)
+	// GraphQL-first: use official API when available
+	if hasAPI && h.ur.HasGraphQL(sid) {
+		resp := h.parityStatusGraphQL(sid)
+		if resp != nil {
+			// Enrich with /proc/mdstat via SSH if available (more precise speed/ETA)
+			if hasSSH && cli != nil {
+				out, _ := cli.Run("cat /proc/mdstat 2>/dev/null")
+				mdstatResp := parseMdstat(out)
+				// Override speed/remaining with SSH data when parity is checking
+				if mdstatResp.State == "checking" {
+					resp.Speed = mdstatResp.Speed
+					resp.Remaining = mdstatResp.Remaining
+				}
+			}
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+	}
+
+	// SSH fallback
 	if hasSSH && cli != nil {
 		out, _ := cli.Run("cat /proc/mdstat 2>/dev/null")
 		resp := parseMdstat(out)
@@ -218,22 +243,56 @@ func (h *Handler) ParityStatus(c *gin.Context) {
 		return
 	}
 
-	// SSH unavailable — API-only mode
+	// API-only mode (no parity data available)
 	resp := parityStatusResp{State: "unknown", Via: "api"}
-
 	if hasAPI {
-		// API session available but no SSH — we can at least report the array state
-		// The mdState from var.ini tells us if the array is started, but not parity
-		// check progress. Return "idle" as best-effort when SSH is unavailable.
 		resp.State = "idle"
-		resp.Via = "api"
 	}
-
 	c.JSON(http.StatusOK, resp)
 }
 
+// parityStatusGraphQL queries the GraphQL API for parity check status.
+func (h *Handler) parityStatusGraphQL(sid string) *parityStatusResp {
+	data, err := h.ur.GraphQLQuery(sid, unraid.QueryGetParityStatus, nil)
+	if err != nil {
+		logger.Debugf("parity graphql query failed for %s: %v", sid, err)
+		return nil
+	}
+
+	arr, err := unraid.ParseArrayQuery(data)
+	if err != nil {
+		logger.Debugf("parity graphql parse failed for %s: %v", sid, err)
+		return nil
+	}
+
+	if arr.ParityCheckStatus == nil {
+		// No parity check status in response — return idle
+		return &parityStatusResp{State: "idle", Via: "graphql"}
+	}
+
+	pc := arr.ParityCheckStatus
+	resp := &parityStatusResp{Via: "graphql"}
+
+	if pc.Running {
+		resp.State = "checking"
+		resp.Progress = pc.Progress
+		resp.Errors = pc.Errors
+		if pc.Correcting {
+			resp.Speed = fmt.Sprintf("%.0f MB/s (correcting)", pc.Speed)
+		} else {
+			resp.Speed = fmt.Sprintf("%.0f MB/s", pc.Speed)
+		}
+		if pc.Paused {
+			resp.State = "paused"
+		}
+	} else {
+		resp.State = "idle"
+	}
+
+	return resp
+}
+
 // parseMdstat extracts parity check progress from /proc/mdstat content.
-// Extracted as a pure function for testability.
 func parseMdstat(out string) parityStatusResp {
 	resp := parityStatusResp{State: "idle"}
 
@@ -255,7 +314,7 @@ func parseMdstat(out string) parityStatusResp {
 }
 
 // formatSpeed converts a numeric speed + SI suffix (K/M/G) into a
-// human-readable MB/s string. mdstat reports in K (KiB/s) typically.
+// human-readable MB/s string.
 func formatSpeed(num int64, unit string) string {
 	switch unit {
 	case "G":

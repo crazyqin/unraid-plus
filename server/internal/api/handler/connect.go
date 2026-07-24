@@ -117,6 +117,18 @@ func (h *Handler) Connect(c *gin.Context) {
 	}
 	resp.APIAvailable = apiAvailable
 
+	// --- Step 1.5: Probe GraphQL API (if WebGUI login succeeded) ---
+	// The official Unraid GraphQL API at /graphql is available on Unraid 7.2+.
+	// Probing is fast (5s timeout) and we cache the result so handlers can
+	// use GraphQL-first data fetching without re-probing on every request.
+	if apiAvailable {
+		go func() {
+			if h.ur.ProbeGraphQL(sid) {
+				logger.Infof("GraphQL API detected for %s — will use GraphQL-first data fetching", sid)
+			}
+		}()
+	}
+
 	// --- Step 2: SSH connect (best-effort, non-blocking) ---
 	sshAvailable := false
 	mode := ssh.AuthPassword
@@ -334,6 +346,15 @@ func (h *Handler) ReconnectServer(c *gin.Context) {
 		} else {
 			apiAvailable = true
 		}
+	}
+
+	// Probe GraphQL API if WebGUI login succeeded
+	if apiAvailable {
+		go func() {
+			if h.ur.ProbeGraphQL(id) {
+				logger.Infof("GraphQL API detected for %s on reconnect", id)
+			}
+		}()
 	}
 
 	// SSH connect

@@ -206,6 +206,13 @@ func (h *Handler) autoReconnect(sid string) bool {
 		} else {
 			logger.Infof("auto-reconnect: WebGUI session restored for %s", sid)
 
+			// Probe GraphQL API availability (non-blocking)
+			go func() {
+				if h.ur.ProbeGraphQL(sid) {
+					logger.Infof("auto-reconnect: GraphQL API detected for %s", sid)
+				}
+			}()
+
 			// Also try SSH in the background (non-blocking)
 			go func() {
 				sshCfg := &ssh.ConnConfig{

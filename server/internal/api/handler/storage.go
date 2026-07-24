@@ -1,16 +1,15 @@
 package handler
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
-	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/crazyqin/unraid-plus/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/internal/unraid"
 	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
@@ -49,21 +48,22 @@ type arrayStatus struct {
 	State      string `json:"state"`
 	Disks      []disk `json:"disks"`
 	CacheDisks []disk `json:"cacheDisks"`
-	Degraded   bool   `json:"degraded,omitempty"`         // true when data from HTML scraping
-	DegradedReason string `json:"degradedReason,omitempty"` // "ssh_unavailable" etc.
 	DeviceCount string `json:"deviceCount,omitempty"` // number of devices from server metadata
 }
 
-// Storage returns the array + cache disk view. v0.7+ reads Unraid's own
-// structured state files (/usr/local/emhttp/state/disks.ini, var.ini) via
-// SSH — the same data source the Unraid WebUI uses. This replaces the old
-// fragile approach of parsing `df` output and `mdcmd status` format.
-//
-// v0.7+: When SSH is unavailable but WebGUI API is available, falls back
-// to scraping the Unraid Main page HTML for basic disk info.
+// Storage returns the array + cache disk view.
+// v0.9+: Uses the official Unraid GraphQL API (GetArrayStatus) when available.
+// Falls back to SSH (state files + df) when GraphQL is not available.
+// HTML scraping code has been removed.
 func (h *Handler) Storage(c *gin.Context) {
 	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
 	if sid == "" {
+		return
+	}
+
+	// GraphQL-first
+	if hasAPI && h.ur.HasGraphQL(sid) {
+		h.storageGraphQL(c, sid, cli, hasSSH)
 		return
 	}
 
@@ -72,13 +72,7 @@ func (h *Handler) Storage(c *gin.Context) {
 		return
 	}
 
-	// API-only fallback: scrape the Unraid Main page HTML
-	if hasAPI {
-		h.storageAPI(c, sid)
-		return
-	}
-
-	errOut(c, http.StatusServiceUnavailable, "存储信息不可用")
+	errOut(c, http.StatusServiceUnavailable, "存储信息不可用：GraphQL API 不可用且 SSH 未连接")
 }
 
 // storageSSH is the full SSH-based storage handler.
@@ -348,203 +342,147 @@ func diskStatus(used, size int64) string {
 }
 
 // ---------------------------------------------------------------------------
-// Storage API fallback (HTML scraping from Unraid WebGUI Main page)
+// Storage via official Unraid GraphQL API
 // ---------------------------------------------------------------------------
 
-// storageAPI fetches disk info from Unraid WebGUI when SSH is unavailable.
-// Unraid 7.x uses Nchan for real-time disk updates, but we can get data
-// through internal PHP endpoints and by parsing the page HTML.
-func (h *Handler) storageAPI(c *gin.Context, sid string) {
-	degraded := arrayStatus{
-		State:          "unknown",
-		Disks:          []disk{},
-		CacheDisks:     []disk{},
-		Degraded:       true,
-		DegradedReason: "ssh_unavailable",
-	}
-
-	// Fetch /Main page for array state and server metadata
-	body, status, err := h.ur.FetchPage(sid, "/Main")
-	if err != nil || status != 200 {
-		logger.Debugf("storage API: failed to fetch /Main: %v (status=%d)", err, status)
-		c.JSON(http.StatusOK, degraded)
+// storageGraphQL uses the Unraid GraphQL API (GetArrayStatus) for disk data.
+// When SSH is also available, it enriches with RW rates and SMART data.
+func (h *Handler) storageGraphQL(c *gin.Context, sid string, cli *ssh.Client, hasSSH bool) {
+	data, err := h.ur.GraphQLQuery(sid, unraid.QueryGetArrayStatus, nil)
+	if err != nil {
+		logger.Warnf("storage graphql query failed for %s: %v", sid, err)
+		// Fall back to SSH if available
+		if hasSSH && cli != nil {
+			h.storageSSH(c, cli, sid)
+			return
+		}
+		errOut(c, http.StatusServiceUnavailable, "存储信息获取失败: "+err.Error())
 		return
 	}
 
-	html := string(body)
-
-	// Parse array state
-	if strings.Contains(html, "\u9635\u5217\u5df2\u542f\u52a8") || strings.Contains(html, "Array Started") {
-		degraded.State = "started"
-	} else if strings.Contains(html, "\u9635\u5217\u5df2\u505c\u6b62") || strings.Contains(html, "Array Stopped") {
-		degraded.State = "stopped"
+	arr, err := unraid.ParseArrayQuery(data)
+	if err != nil {
+		errOut(c, http.StatusInternalServerError, "解析存储数据失败: "+err.Error())
+		return
 	}
 
-	// Extract device count from <unraid-user-profile server="...">
-	if meta := parseUserProfileJSON(html); meta != nil {
-		degraded.DeviceCount = meta.DeviceCount
-	}
-
-	// Try Unassigned Devices API for non-array disk table data
-	form := url.Values{}
-	form.Set("action", "get_ud_content")
-	if udBody, udStatus, udErr := h.ur.PostEndpoint(sid, "/plugins/unassigned.devices/include/UnassignedDevices.php", form); udErr == nil && udStatus == 200 {
-		var data map[string]json.RawMessage
-		if jsonErr := json.Unmarshal(udBody, &data); jsonErr == nil {
-			if disksHTML, ok := data["disks"]; ok {
-				var diskHTMLStr string
-				if jsonErr2 := json.Unmarshal(disksHTML, &diskHTMLStr); jsonErr2 == nil {
-					_, disks, cache := parseStorageHTML(diskHTMLStr)
-					if disks != nil {
-						degraded.Disks = disks
-					}
-					if cache != nil {
-						degraded.CacheDisks = cache
-					}
-				}
-			}
-		}
-	}
-
-	// Try to extract disk info from the /Main page disk tables directly.
-	// Unraid 7.x renders disk table rows from Nchan data, but the <tbody id="array_devices">
-	// structure still exists with empty rows. Each empty row represents a disk slot.
-	// We can count the rows to know how many disks exist even without their data.
-	extractDiskSlotInfo(html, &degraded)
-
-	c.JSON(http.StatusOK, degraded)
-}
-
-// extractDiskSlotInfo attempts to extract basic disk slot information from
-// the array_devices and cache device table sections in the /Main HTML.
-// In API-only mode, these tables are typically empty (Nchan populates them),
-// but the row count tells us how many slots exist.
-func extractDiskSlotInfo(html string, status *arrayStatus) {
-	// Count rows in <tbody id="array_devices">
-	reArrayRows := regexp.MustCompile(`<tbody\s+id=['"]array_devices['"]\s*>(.*?)</tbody>`)
-	if m := reArrayRows.FindStringSubmatch(html); len(m) > 1 {
-		rowCount := strings.Count(m[1], "<tr")
-		// If we have no disk data yet but know there are slots, create placeholder entries
-		if len(status.Disks) == 0 && rowCount > 0 {
-			// Subtract 1 for the "tr_last" row used for totals
-			slotCount := rowCount
-			if strings.Contains(m[1], "tr_last") {
-				slotCount--
-			}
-			for i := 0; i < slotCount; i++ {
-				status.Disks = append(status.Disks, disk{
-					Name:   fmt.Sprintf("slot%d", i+1),
-					Status: "unknown",
-				})
-			}
-		}
-	}
-}
-
-// Regex patterns for scraping Unraid Main page disk table.
-var (
-	// Disk table rows — Unraid renders each disk as a <tr> with specific classes
-	reDiskRow = regexp.MustCompile(`(?s)<tr[^>]*class=['"][^'"]*dash-disk[^'"]*['"][^>]*>(.*?)</tr>`)
-	// Disk name (e.g. "disk1", "parity", "cache")
-	reDiskSlotName = regexp.MustCompile(`<a[^>]*class=['"][^'"]*info-popup[^'"]*['"][^>]*>([^<]+)</a>`)
-	// Device path (e.g. "sdb", "sdc")
-	reDiskDevice = regexp.MustCompile(`<td[^>]*class=['"][^'"]*dev[^'"]*['"][^>]*>([^<]+)</td>`)
-	// Temperature (e.g. "33°C" or "33°" or just "33")
-	reDiskTemp = regexp.MustCompile(`(\d+)\s*°`)
-	// Size values in table cells (e.g. "3.62 TB", "500 GB")
-	reSizeCell = regexp.MustCompile(`(\d+\.?\d*)\s*(TB|GB|MB|KB|TiB|GiB|MiB|KiB)`)
-	// Color/status indicator (Unraid LED class like "green-on", "yellow-on", "red-blink")
-	reColorIndicator = regexp.MustCompile(`class=['"][^'"]*(green-on|yellow-on|red-blink|red-on|grey-off|blue-on)[^'"]*['"]`)
-	// Array state from the status header
-	reArrayStateLabel = regexp.MustCompile(`(?i)class=['"][^'"]*status[^'"]*['"][^>]*>([^<]+)<`)
-)
-
-// parseStorageHTML extracts disk information from the Unraid Main page HTML.
-// Returns (arrayState, arrayDisks, cacheDisks).
-func parseStorageHTML(html string) (string, []disk, []disk) {
-	// Try to extract array state
-	arrayState := "unknown"
-	if m := reArrayStateLabel.FindStringSubmatch(html); len(m) > 1 {
-		stateStr := strings.TrimSpace(strings.ToLower(m[1]))
-		switch {
-		case strings.Contains(stateStr, "started"):
-			arrayState = "started"
-		case strings.Contains(stateStr, "stopped"):
-			arrayState = "stopped"
-		}
-	}
-
+	// Convert GraphQL disk data to our disk struct
 	var arrayDisks, cacheDisks []disk
-
-	// Find disk table rows
-	rows := reDiskRow.FindAllStringSubmatch(html, -1)
-	for _, rowMatch := range rows {
-		rowHTML := rowMatch[1]
-		name := ""
-		device := ""
-		var sizeBytes, usedBytes int64
-		tempC := 0
-		color := ""
-
-		// Extract disk name
-		if m := reDiskSlotName.FindStringSubmatch(rowHTML); len(m) > 1 {
-			name = strings.TrimSpace(m[1])
-		}
-
-		// Extract device
-		if m := reDiskDevice.FindStringSubmatch(rowHTML); len(m) > 1 {
-			device = strings.TrimSpace(m[1])
-		}
-
-		// Extract temperature
-		if m := reDiskTemp.FindStringSubmatch(rowHTML); len(m) > 1 {
-			tempC = atoiSafe(m[1], 0)
-		}
-
-		// Extract color indicator
-		if m := reColorIndicator.FindStringSubmatch(rowHTML); len(m) > 1 {
-			color = m[1]
-		}
-
-		// Extract size values (first = total, try to find used/free from context)
-		sizeMatches := reSizeCell.FindAllStringSubmatch(rowHTML, -1)
-		if len(sizeMatches) > 0 {
-			// First size is typically total
-			sizeBytes = parseSizeStr(sizeMatches[0][0])
-		}
-		if len(sizeMatches) > 1 {
-			// Second size might be used or free depending on Unraid version
-			secondVal := parseSizeStr(sizeMatches[1][0])
-			if secondVal > 0 && secondVal < sizeBytes {
-				usedBytes = sizeBytes - secondVal // likely free
-			}
-		}
-
-		// Determine if this is a cache or array disk
-		d := disk{
-			Name:      name,
-			Device:    device,
-			SizeBytes: sizeBytes,
-			UsedBytes: usedBytes,
-			Color:     color,
-			Status:    diskStatus(usedBytes, sizeBytes),
-		}
-		if tempC > 0 {
-			d.TempC = &tempC
-		}
-
-		nameLower := strings.ToLower(name)
-		switch {
-		case strings.HasPrefix(nameLower, "cache"):
-			cacheDisks = append(cacheDisks, d)
-		case nameLower != "" && nameLower != "parity":
-			arrayDisks = append(arrayDisks, d)
-		case nameLower == "parity":
-			// Parity disk goes into array list with special status
-			d.Status = "ok"
-			arrayDisks = append(arrayDisks, d)
-		}
+	if arr.Boot != nil {
+		// Boot device (USB flash)
+	}
+	for _, d := range arr.Parities {
+		arrayDisks = append(arrayDisks, gqlDiskToDisk(d))
+	}
+	for _, d := range arr.Disks {
+		arrayDisks = append(arrayDisks, gqlDiskToDisk(d))
+	}
+	for _, d := range arr.Caches {
+		cacheDisks = append(cacheDisks, gqlDiskToDisk(d))
 	}
 
-	return arrayState, arrayDisks, cacheDisks
+	// Enrich with RW rates and SMART if SSH is available
+	if hasSSH && cli != nil {
+		enrichWithRW(cli, arrayDisks, cacheDisks)
+		enrichWithSmart(cli, arrayDisks, sid)
+		enrichWithSmart(cli, cacheDisks, sid)
+	}
+
+	c.JSON(http.StatusOK, arrayStatus{
+		State:      strings.ToLower(arr.State),
+		Disks:      arrayDisks,
+		CacheDisks: cacheDisks,
+	})
 }
+
+// gqlDiskToDisk converts a GraphQL disk response to our disk struct.
+func gqlDiskToDisk(d unraid.GQLDisk) disk {
+	dk := disk{
+		Name:       d.Name,
+		Device:     d.Device,
+		Status:     strings.ToLower(d.Status),
+		Color:      d.Color,
+		Rotational: d.Rotational,
+		Transport:  d.Transport,
+	}
+	if d.Size != "" {
+		dk.SizeBytes = parseGQLDiskSize(d.Size)
+	}
+	if d.FsSize != "" {
+		dk.SizeBytes = parseGQLDiskSize(d.FsSize)
+	}
+	if d.FsUsed != "" {
+		dk.UsedBytes = parseGQLDiskSize(d.FsUsed)
+	}
+	if d.Temp != "" {
+		tempC := atoiSafe(d.Temp, 0)
+		if tempC > 0 {
+			dk.TempC = &tempC
+		}
+	}
+	if d.NumErrors != "" {
+		dk.Errors = atoiSafe(d.NumErrors, 0)
+	}
+	if d.FsType != "" {
+		dk.FsType = d.FsType
+	}
+	if dk.Status == "" && d.Color != "" {
+		// Derive status from Unraid color indicator
+		switch {
+		case strings.Contains(d.Color, "green"):
+			dk.Status = "ok"
+		case strings.Contains(d.Color, "yellow"):
+			dk.Status = "warning"
+		case strings.Contains(d.Color, "red"):
+			dk.Status = "critical"
+		default:
+			dk.Status = "unknown"
+		}
+	}
+	return dk
+}
+
+// parseGQLDiskSize parses a disk size string from the GraphQL API.
+// The API may return sizes like "3.62 TB" or raw numbers.
+func parseGQLDiskSize(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	// Try as a plain number (bytes)
+	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return v
+	}
+	// Try as a human-readable size
+	s = strings.TrimSpace(s)
+	parts := strings.Fields(s)
+	if len(parts) == 0 {
+		return 0
+	}
+	numStr := parts[0]
+	var unit string
+	if len(parts) > 1 {
+		unit = parts[1]
+	} else {
+		// Extract unit from the string (e.g. "3.62TB")
+		re := regexp.MustCompile(`^([0-9.]+)\s*(TB|GB|MB|KB|TiB|GiB|MiB|KiB|T|G|M|K)`)
+		if m := re.FindStringSubmatch(s); len(m) > 2 {
+			numStr = m[1]
+			unit = m[2]
+		}
+	}
+	v := atofSafe(numStr)
+	switch {
+	case strings.HasPrefix(unit, "Ti"), strings.HasPrefix(unit, "T"):
+		return int64(v * float64(1<<40))
+	case strings.HasPrefix(unit, "Gi"), strings.HasPrefix(unit, "G"):
+		return int64(v * float64(1<<30))
+	case strings.HasPrefix(unit, "Mi"), strings.HasPrefix(unit, "M"):
+		return int64(v * float64(1<<20))
+	case strings.HasPrefix(unit, "Ki"), strings.HasPrefix(unit, "K"):
+		return int64(v * float64(1<<10))
+	default:
+		return int64(v)
+	}
+}
+
+

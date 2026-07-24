@@ -28,8 +28,10 @@ import (
 
 // serverSession holds the per-server HTTP session (base URL + cookies).
 type serverSession struct {
-	apiBase string
-	jar     *cookiejar.Jar // per-server cookie jar
+	apiBase           string
+	jar               *cookiejar.Jar // per-server cookie jar
+	apiKey            string         // optional x-api-key for GraphQL auth
+	graphqlAvailable  bool           // set true after ProbeGraphQL succeeds
 }
 
 // Client is the Unraid HTTP API client. It manages per-server sessions
@@ -256,6 +258,14 @@ func (c *Client) post(serverID, path string, form url.Values) ([]byte, int, erro
 // get performs a GET to a WebGUI endpoint.
 func (c *Client) get(serverID, path string) ([]byte, int, error) {
 	return c.doRequest(serverID, http.MethodGet, path, nil)
+}
+
+// makeTransport creates an HTTP transport that skips TLS verification
+// (Unraid uses self-signed certs by default).
+func makeTransport() *http.Transport {
+	return &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
 }
 
 // ---------------------------------------------------------------------------

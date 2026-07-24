@@ -14,6 +14,7 @@ import (
 	"github.com/crazyqin/unraid-plus/server/internal/config"
 	"github.com/crazyqin/unraid-plus/server/internal/ssh"
 	"github.com/crazyqin/unraid-plus/server/internal/unraid"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 // Handler holds shared dependencies for every endpoint.
@@ -129,6 +130,11 @@ func (h *Handler) hasAPISession(c *gin.Context) bool {
 // dual-transport handlers: it checks both SSH and API session, returning
 // whatever is available so the handler can branch accordingly.
 //
+// If both SSH and API sessions are unavailable but we have persisted
+// credentials, it will attempt to auto-reconnect the WebGUI API (fast)
+// and SSH (best-effort). This handles the common case of server restart
+// where in-memory sessions are lost but credentials are on disk.
+//
 // Returns (sshClient, serverID, hasSSH, hasAPI). When both transports are
 // false it writes an error and the caller should return immediately.
 func (h *Handler) resolveServer(c *gin.Context) (cli *ssh.Client, sid string, hasSSH, hasAPI bool) {
@@ -153,11 +159,75 @@ func (h *Handler) resolveServer(c *gin.Context) (cli *ssh.Client, sid string, ha
 	// Check API session
 	hasAPI = h.ur.HasSession(sid)
 
+	// Auto-reconnect: if neither transport is available but we have
+	// persisted credentials, try to re-establish sessions.
+	if !hasSSH && !hasAPI && h.sm != nil {
+		hasAPI = h.autoReconnect(sid)
+		if hasAPI {
+			// Also try SSH if API reconnected
+			entry := h.sm.Get(sid)
+			if entry != nil {
+				if sshCli, err := h.pool.Get(entry.Host, entry.Port); err == nil {
+					cli = sshCli
+					hasSSH = true
+				}
+			}
+		}
+	}
+
 	if !hasSSH && !hasAPI {
-		errOut(c, http.StatusServiceUnavailable, "服务器不可用（SSH 和 WebGUI 均未连接）")
+		errOut(c, http.StatusServiceUnavailable, "服务器不可用（SSH 和 WebGUI 均未连接），请尝试重新连接")
 		return
 	}
 	return
+}
+
+// autoReconnect attempts to re-establish the WebGUI API session (and
+// optionally SSH) for a server using persisted credentials. Returns true
+// if the API session was successfully restored.
+func (h *Handler) autoReconnect(sid string) bool {
+	if h.sm == nil {
+		return false
+	}
+
+	cfg, err := h.sm.ConnConfigFor(sid)
+	if err != nil {
+		logger.Debugf("auto-reconnect: no credentials for %s: %v", sid, err)
+		return false
+	}
+
+	// Try WebGUI API login first (fast, most useful for API-only mode)
+	if cfg.Password != "" && cfg.APIBase != "" {
+		if err := h.ur.Login(sid, cfg.APIBase, cfg.User, cfg.Password); err != nil {
+			logger.Warnf("auto-reconnect: WebGUI login failed for %s: %v", sid, err)
+		} else {
+			logger.Infof("auto-reconnect: WebGUI session restored for %s", sid)
+
+			// Also try SSH in the background (non-blocking)
+			go func() {
+				sshCfg := &ssh.ConnConfig{
+					Host:       cfg.Host,
+					Port:       cfg.Port,
+					User:       cfg.User,
+					AuthMode:   cfg.AuthMode,
+					Password:   cfg.Password,
+					PrivateKey: cfg.PrivateKey,
+					Passphrase: cfg.Passphrase,
+					APIBase:    cfg.APIBase,
+					Label:      cfg.Label,
+				}
+				if result, err := h.pool.Connect(sshCfg); err != nil {
+					logger.Infof("auto-reconnect: SSH for %s failed (API-only mode): %v", sid, err)
+				} else {
+					logger.Infof("auto-reconnect: SSH session restored for %s (version: %s)", sid, result.ServerVersion)
+				}
+			}()
+
+			return true
+		}
+	}
+
+	return false
 }
 
 // errOut writes a uniform {"ok":false,"message":…} error.

@@ -366,6 +366,13 @@ func (h *Handler) storageAPI(c *gin.Context, sid string) {
 
 	html := string(body)
 	state, disks, cache := parseStorageHTML(html)
+	// Ensure non-nil slices for JSON (Go nil → JSON null, empty slice → JSON [])
+	if disks == nil {
+		disks = []disk{}
+	}
+	if cache == nil {
+		cache = []disk{}
+	}
 
 	c.JSON(http.StatusOK, arrayStatus{
 		State:           state,

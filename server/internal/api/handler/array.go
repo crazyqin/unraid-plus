@@ -203,11 +203,14 @@ var parityCheckRe = regexp.MustCompile(`check\s*=\s*([\d.]+)%.*finish=([\d.]+)mi
 // v0.4+: Tries SSH /proc/mdstat first (richest data), then falls back to
 // var.ini mdState for API-only mode (returns basic state without progress details).
 func (h *Handler) ParityStatus(c *gin.Context) {
-	sid, hasSid := h.getServerID(c)
+	// Use resolveServer instead of activeClientWithID to support API-only mode
+	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if sid == "" {
+		return
+	}
 
 	// Try SSH first (richest data source: /proc/mdstat has progress/speed/ETA)
-	cli, _, hasCli := h.activeClientWithID(c)
-	if hasCli {
+	if hasSSH && cli != nil {
 		out, _ := cli.Run("cat /proc/mdstat 2>/dev/null")
 		resp := parseMdstat(out)
 		resp.Via = "ssh"
@@ -216,11 +219,9 @@ func (h *Handler) ParityStatus(c *gin.Context) {
 	}
 
 	// SSH unavailable — API-only mode
-	// We can't get /proc/mdstat, but we can infer basic state from var.ini
-	// if we have a cached state file read. For now, return a basic response.
 	resp := parityStatusResp{State: "unknown", Via: "api"}
 
-	if hasSid && h.ur.HasSession(sid) {
+	if hasAPI {
 		// API session available but no SSH — we can at least report the array state
 		// The mdState from var.ini tells us if the array is started, but not parity
 		// check progress. Return "idle" as best-effort when SSH is unavailable.

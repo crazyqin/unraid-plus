@@ -156,11 +156,12 @@ func (h *Handler) dashboardSSH(c *gin.Context, cli *ssh.Client) {
 	go func() { disk2, _ = cli.Run("cat /proc/diskstats"); wg2.Done() }()
 	wg2.Wait()
 
+	nCores := atoiSafe(coreCountStr, 1)
 	resp := dashboardResp{
 		CPU: cpuInfo{
 			ModelName:    strings.TrimSpace(modelName),
-			Cores:        atoiSafe(coreCountStr, 1),
-			PerCoreTempC: expandCoreTemps(parseThermal(temps), atoiSafe(coreCountStr, 1)),
+			Cores:        nCores,
+			PerCoreTempC: mapTempsToLogicalCores(parseThermalSnapshot(temps), nCores),
 		},
 	}
 	resp.CPU.UsagePct, resp.CPU.PerCoreUsagePct = computeCPUUsage(cpu1, cpu2, resp.CPU.Cores)
@@ -410,32 +411,80 @@ func parseDiskstats(s string) map[string]diskStat {
 	return out
 }
 
-func parseThermal(s string) []float64 {
-	out := []float64{}
+// thermalSnapshot holds labeled core temperatures + optional CPU topology.
+// Format produced by readCoreTempCmd:
+//
+//	L <logicalCPU> <core_id>
+//	T <core_id> <millidegrees>
+//	P <millidegrees>          (package / k10temp / thermal_zone fallback)
+//	Legacy plain millidegree lines are also accepted.
+type thermalSnapshot struct {
+	logicalToCore map[int]int     // logical CPU index → physical core id
+	coreTemp      map[int]float64 // physical core id → °C
+	packageTemp   float64         // package-level °C; 0 if unknown
+	legacy        []float64       // unlabeled plain readings (°C)
+}
+
+func parseThermalSnapshot(s string) thermalSnapshot {
+	snap := thermalSnapshot{
+		logicalToCore: map[int]int{},
+		coreTemp:      map[int]float64{},
+	}
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		v, err := strconv.ParseFloat(line, 64)
-		if err != nil {
-			continue
+		fields := strings.Fields(line)
+		switch {
+		case len(fields) >= 3 && fields[0] == "L":
+			logCPU := atoiSafe(fields[1], -1)
+			coreID := atoiSafe(fields[2], -1)
+			if logCPU >= 0 && coreID >= 0 {
+				snap.logicalToCore[logCPU] = coreID
+			}
+		case len(fields) >= 3 && fields[0] == "T":
+			coreID := atoiSafe(fields[1], -1)
+			temp := milliToCelsius(fields[2])
+			if coreID >= 0 && temp > 0 {
+				snap.coreTemp[coreID] = temp
+			}
+		case len(fields) >= 2 && fields[0] == "P":
+			temp := milliToCelsius(fields[1])
+			if temp > 0 {
+				snap.packageTemp = temp
+			}
+		default:
+			// legacy: bare millidegree value
+			temp := milliToCelsius(line)
+			if temp > 0 {
+				snap.legacy = append(snap.legacy, temp)
+			} else if temp == 0 {
+				snap.legacy = append(snap.legacy, -1)
+			}
 		}
-		// /sys/class/thermal and hwmon report in millidegrees
-		if v > 1000 {
-			v /= 1000
-		}
-		// A reading of 0°C is nonsensical for a running CPU — it typically
-		// means the core is in a deep C-state and the sensor returned 0.
-		// Treat it as unavailable by skipping the entry entirely so the
-		// frontend shows "—" instead of "0°C".
-		if v <= 0 {
-			out = append(out, -1) // -1 = no reading
-			continue
-		}
-		out = append(out, v)
 	}
-	return out
+	return snap
+}
+
+func milliToCelsius(s string) float64 {
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil {
+		return 0
+	}
+	if v > 1000 {
+		v /= 1000
+	}
+	if v <= 0 {
+		return 0
+	}
+	// Round to 1 decimal to avoid noisy UI floats
+	return float64(int(v*10+0.5)) / 10
+}
+
+// parseThermal keeps backward-compatible unlabeled readings (tests / callers).
+func parseThermal(s string) []float64 {
+	return parseThermalSnapshot(s).legacy
 }
 
 func parseUptime(s string) int64 {
@@ -481,85 +530,174 @@ func atofSafe(s string) float64 {
 	return v
 }
 
-// readCoreTempCmd returns a shell command that reads per-core CPU temperatures.
+// readCoreTempCmd returns a shell command that reads CPU topology + temperatures.
 //
-// Strategy (in order of preference):
-//  1. hwmon "coretemp" (Intel): reads temp*_input where temp*_label starts with
-//     "Core" or "Package" to distinguish per-core vs package temps. Each Core
-//     label maps to one logical core.
-//  2. hwmon "k10temp" (AMD): usually provides Tctl/Tdie (package temps).
-//  3. Fallback: thermal_zone (package-level temp, often just 1-2 zones).
+// Output lines (parsed by parseThermalSnapshot):
 //
-// The command outputs one temperature value per line in millidegrees, matching
-// the format expected by parseThermal.
+//	L <logicalCPU> <core_id>     — from /sys/.../topology/core_id
+//	T <core_id> <millidegrees>   — Intel coretemp "Core N"
+//	P <millidegrees>             — package / k10temp / thermal_zone fallback
+//
+// Strategy:
+//  1. Always emit topology (L lines) when available.
+//  2. coretemp: T lines for Core*, P for Package*.
+//  3. k10temp / thermal_zone: single P package reading.
 func readCoreTempCmd() string {
-	return `( 
+	return `(
+    # Topology: logical CPU → physical core id (for HT sibling mapping)
+    for c in /sys/devices/system/cpu/cpu[0-9]*; do
+      [ -f "$c/topology/core_id" ] || continue
+      id=${c##*/cpu}
+      core=$(cat "$c/topology/core_id" 2>/dev/null) || continue
+      echo "L $id $core"
+    done
+    # Intel coretemp
     p=$(grep -xl coretemp /sys/class/hwmon/hwmon*/name 2>/dev/null | head -1)
     if [ -n "$p" ]; then
       d=${p%/*}
-      # Intel coretemp: temp1=Package, temp2=Core0, temp3=Core1, ...
-      # Only read entries labeled "Core N" — skip "Package id N"
-      for f in $(ls $d/temp*_input 2>/dev/null | sort -t'p' -k2 -n); do
+      for f in $(ls $d/temp*_input 2>/dev/null | sort -V); do
         lbl=${f%_input}_label
+        val=$(cat "$f" 2>/dev/null) || continue
         if [ -f "$lbl" ]; then
           label=$(cat "$lbl" 2>/dev/null)
           case "$label" in
-            Core*) cat "$f" 2>/dev/null ;;
+            Core*)
+              num=$(echo "$label" | tr -dc '0-9')
+              [ -n "$num" ] && echo "T $num $val"
+              ;;
+            Package*)
+              echo "P $val"
+              ;;
           esac
         else
-          # No label file: include it (some virtual zones lack labels)
-          cat "$f" 2>/dev/null
+          echo "P $val"
         fi
       done
       exit 0
     fi
+    # AMD k10temp (package)
     p=$(grep -xl k10temp /sys/class/hwmon/hwmon*/name 2>/dev/null | head -1)
     if [ -n "$p" ]; then
       d=${p%/*}
-      for f in $(ls $d/temp*_input 2>/dev/null | sort -t'p' -k2 -n); do cat "$f" 2>/dev/null; done
+      for f in $(ls $d/temp*_input 2>/dev/null | sort -V); do
+        echo "P $(cat "$f" 2>/dev/null)"
+        break
+      done
       exit 0
     fi
-    for z in /sys/class/thermal/thermal_zone*; do cat $z/temp 2>/dev/null || true; done
+    # thermal_zone fallback
+    for z in /sys/class/thermal/thermal_zone*; do
+      t=$(cat "$z/temp" 2>/dev/null) || continue
+      [ -n "$t" ] && echo "P $t" && break
+    done
   )`
 }
 
-// expandCoreTemps maps physical core temperatures to logical cores.
+// mapTempsToLogicalCores builds a per-logical-CPU temperature slice (°C).
+// -1 means no reading. Uses topology (L lines) + labeled core temps when present.
 //
-// Intel CPUs with Hyper-Threading have N physical cores but 2N logical cores.
-// The coretemp driver exposes one temperature per physical core, so the parsed
-// array may be shorter than nproc. For example, an i5-8279U (4C/8T) reports
-// 4 temps for 8 logical cores.
+// Intel HT topology (typical):
 //
-// This function expands the shorter physical-core array to match nCores by
-// duplicating each physical core's temperature for its sibling threads:
+//	logical 0..3 → core_id 0..3, logical 4..7 → core_id 0..3
+//	temps T0..T3 → out [t0,t1,t2,t3,t0,t1,t2,t3]
 //
-//	phyTemps=[t0,t1,t2,t3] + nCores=8 → [t0,t0,t1,t1,t2,t2,t3,t3]
+// The old expandCoreTemps interleaved as [t0,t0,t1,t1,...] which misaligned
+// sibling threads and made the per-core panel look wrong.
+func mapTempsToLogicalCores(snap thermalSnapshot, nCores int) []float64 {
+	if nCores <= 0 {
+		return nil
+	}
+	out := make([]float64, nCores)
+	for i := range out {
+		out[i] = -1
+	}
+
+	// Preferred: topology + labeled core temps
+	if len(snap.coreTemp) > 0 && len(snap.logicalToCore) > 0 {
+		for logCPU := 0; logCPU < nCores; logCPU++ {
+			coreID, ok := snap.logicalToCore[logCPU]
+			if !ok {
+				continue
+			}
+			if t, ok := snap.coreTemp[coreID]; ok && t > 0 {
+				out[logCPU] = t
+			} else if snap.packageTemp > 0 {
+				out[logCPU] = snap.packageTemp
+			}
+		}
+		return out
+	}
+
+	// Labeled core temps without topology — assume sorted core ids and HT second half
+	if len(snap.coreTemp) > 0 {
+		ids := make([]int, 0, len(snap.coreTemp))
+		for id := range snap.coreTemp {
+			ids = append(ids, id)
+		}
+		// sort ascending
+		for i := 0; i < len(ids); i++ {
+			for j := i + 1; j < len(ids); j++ {
+				if ids[j] < ids[i] {
+					ids[i], ids[j] = ids[j], ids[i]
+				}
+			}
+		}
+		phy := make([]float64, len(ids))
+		for i, id := range ids {
+			phy[i] = snap.coreTemp[id]
+		}
+		return expandCoreTempsHT(phy, nCores)
+	}
+
+	// Legacy plain list
+	if len(snap.legacy) > 0 {
+		return expandCoreTempsHT(snap.legacy, nCores)
+	}
+
+	// Package-only: same temp on every logical core
+	if snap.packageTemp > 0 {
+		for i := range out {
+			out[i] = snap.packageTemp
+		}
+	}
+	return out
+}
+
+// expandCoreTempsHT maps N physical-core temps onto M logical CPUs.
+// When M == 2N (classic HT), siblings share the second half:
 //
-// If the temperature count already matches nCores (AMD or non-HT Intel),
-// the array is returned unchanged. If there are more temps than cores, the
-// excess is trimmed. If there are zero temps, an empty array is returned.
-func expandCoreTemps(phyTemps []float64, nCores int) []float64 {
+//	[t0,t1,t2,t3] + 8 → [t0,t1,t2,t3, t0,t1,t2,t3]
+//
+// Not the incorrect adjacent-pair layout [t0,t0,t1,t1,...].
+func expandCoreTempsHT(phyTemps []float64, nCores int) []float64 {
 	nPhys := len(phyTemps)
 	if nPhys == 0 || nCores == 0 {
 		return phyTemps
 	}
-	// Already matches or more temps than cores — return as-is
 	if nPhys >= nCores {
 		return phyTemps[:nCores]
 	}
-	// Expand: each physical core's temp maps to (nCores/nPhys) logical cores
-	ratio := nCores / nPhys
-	out := make([]float64, 0, nCores)
-	for _, t := range phyTemps {
-		for j := 0; j < ratio; j++ {
-			out = append(out, t)
+	out := make([]float64, nCores)
+	if nCores%nPhys == 0 {
+		// e.g. 2× HT: fill sequential blocks of physical order
+		groups := nCores / nPhys
+		for g := 0; g < groups; g++ {
+			for i := 0; i < nPhys; i++ {
+				out[g*nPhys+i] = phyTemps[i]
+			}
 		}
+		return out
 	}
-	// Pad remaining if nCores is not evenly divisible
-	for len(out) < nCores {
-		out = append(out, phyTemps[len(phyTemps)-1])
+	// Uneven: cycle physical temps
+	for i := 0; i < nCores; i++ {
+		out[i] = phyTemps[i%nPhys]
 	}
 	return out
+}
+
+// expandCoreTemps is kept for any external callers; uses HT-aware expansion.
+func expandCoreTemps(phyTemps []float64, nCores int) []float64 {
+	return expandCoreTempsHT(phyTemps, nCores)
 }
 
 // ---------------------------------------------------------------------------
@@ -815,7 +953,7 @@ func (h *Handler) enrichWithSSHDeltas(cli *ssh.Client, resp *dashboardResp) {
 		resp.CPU.Cores = cores
 	}
 	resp.CPU.UsagePct, resp.CPU.PerCoreUsagePct = computeCPUUsage(cpu1, cpu2, cores)
-	resp.CPU.PerCoreTempC = expandCoreTemps(parseThermal(temps), cores)
+	resp.CPU.PerCoreTempC = mapTempsToLogicalCores(parseThermalSnapshot(temps), cores)
 	resp.Network = computeNet(net1, net2, 0.9)
 	resp.ArrayRw = computeDiskRW(disk1, disk2, 0.9)
 

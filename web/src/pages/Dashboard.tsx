@@ -697,11 +697,12 @@ function CoreStatus({
             fillPct >= 90 ? 'bg-destructive' : fillPct >= 70 ? 'bg-warning' : 'bg-success';
           const temp = temps[i];
           const hasTemp = typeof temp === 'number' && temp > 0;
+          const tempDisp = hasTemp ? Math.round(temp) : null;
           const tempColor =
-            hasTemp
-              ? temp >= 80
+            hasTemp && tempDisp !== null
+              ? tempDisp >= 80
                 ? 'text-destructive'
-                : temp >= 65
+                : tempDisp >= 65
                   ? 'text-warning'
                   : 'text-muted-foreground'
               : 'text-muted-foreground';
@@ -719,7 +720,7 @@ function CoreStatus({
                   />
                 </div>
                 <div className={cn('text-[9px] font-mono-data w-8 text-right', tempColor)}>
-                  {hasTemp ? `${temp}°` : '--'}
+                  {tempDisp !== null ? `${tempDisp}°` : '—'}
                 </div>
               </div>
             );
@@ -735,12 +736,12 @@ function CoreStatus({
                   transition={springGentle}
                 />
                 <div className="absolute inset-0 grid place-items-center text-[10px] font-bold font-mono-data tabular-nums">
-                  {typeof u === 'number' ? `${u.toFixed(0)}%` : '--'}
+                  {typeof u === 'number' ? `${u.toFixed(0)}%` : '—'}
                 </div>
               </div>
               <div className="text-[10px] text-muted-foreground/50 font-mono-data">C{i}</div>
               <div className={cn('text-[10px] font-mono-data tabular-nums', tempColor)}>
-                {hasTemp ? `${temp}°C` : '--'}
+                {tempDisp !== null ? `${tempDisp}°C` : '—'}
               </div>
             </div>
           );

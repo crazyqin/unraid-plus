@@ -57,7 +57,7 @@ type arrayStatus struct {
 // Falls back to SSH (state files + df) when GraphQL is not available.
 // HTML scraping code has been removed.
 func (h *Handler) Storage(c *gin.Context) {
-	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	cli, sid, hasSSH, hasAPI := h.prepareServer(c)
 	if sid == "" {
 		return
 	}
@@ -406,9 +406,9 @@ func gqlDiskToDisk(d unraid.GQLDisk) disk {
 		rot = "1"
 	}
 	dk := disk{
-		Name:       d.Name,
+		Name:       d.Device, // physical device for display fallback
 		Device:     d.Device,
-		Status:     strings.ToLower(d.Status),
+		DiskName:   d.Name, // e.g. disk1 / parity / cache
 		Color:      d.Color,
 		Rotational: rot,
 		Transport:  d.Transport,
@@ -455,20 +455,49 @@ func gqlDiskToDisk(d unraid.GQLDisk) disk {
 	if d.FsType != "" {
 		dk.FsType = d.FsType
 	}
-	if dk.Status == "" && d.Color != "" {
-		// Derive status from Unraid color indicator
-		switch {
-		case strings.Contains(d.Color, "green"):
-			dk.Status = "ok"
-		case strings.Contains(d.Color, "yellow"):
-			dk.Status = "warning"
-		case strings.Contains(d.Color, "red"):
-			dk.Status = "critical"
-		default:
-			dk.Status = "unknown"
-		}
-	}
+
+	// Map Unraid DISK_* status + capacity into frontend-friendly ok/warning/critical.
+	dk.Status = normalizeGQLDiskStatus(d.Status, d.Color, dk.UsedBytes, dk.SizeBytes)
 	return dk
+}
+
+// normalizeGQLDiskStatus maps Unraid array disk status strings to the
+// frontend enum: ok | warning | critical | unknown.
+func normalizeGQLDiskStatus(unraidStatus, color string, used, size int64) string {
+	s := strings.ToUpper(strings.TrimSpace(unraidStatus))
+	switch {
+	case strings.Contains(s, "INVALID"), strings.Contains(s, "DSBL"),
+		strings.Contains(s, "DISABLE"), strings.Contains(s, "FAILED"):
+		return "critical"
+	case strings.Contains(s, "EMULATED"), strings.Contains(s, "WRONG"),
+		strings.Contains(s, "ERROR"):
+		return "warning"
+	case strings.Contains(s, "NP"), strings.Contains(s, "MISSING"), s == "":
+		// Fall through to color / capacity
+	case strings.Contains(s, "OK"):
+		if size > 0 {
+			return diskStatus(used, size)
+		}
+		return "ok"
+	}
+
+	cl := strings.ToLower(color)
+	switch {
+	case strings.Contains(cl, "red"):
+		return "critical"
+	case strings.Contains(cl, "yellow"), strings.Contains(cl, "orange"):
+		return "warning"
+	case strings.Contains(cl, "green"):
+		if size > 0 {
+			return diskStatus(used, size)
+		}
+		return "ok"
+	}
+
+	if size > 0 {
+		return diskStatus(used, size)
+	}
+	return "unknown"
 }
 
 // looksLikeRawKB reports whether s is a plain integer (GraphQLBigInt KB value)

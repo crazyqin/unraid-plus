@@ -210,7 +210,7 @@ var parityCheckRe = regexp.MustCompile(`check\s*=\s*([\d.]+)%.*finish=([\d.]+)mi
 // ParityStatus returns parity check progress.
 // v0.9+: GraphQL-first (GetParityStatus query), SSH fallback, API-only mode.
 func (h *Handler) ParityStatus(c *gin.Context) {
-	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	cli, sid, hasSSH, hasAPI := h.prepareServer(c)
 	if sid == "" {
 		return
 	}

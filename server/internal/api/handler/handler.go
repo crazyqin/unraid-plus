@@ -185,6 +185,25 @@ func (h *Handler) resolveServer(c *gin.Context) (cli *ssh.Client, sid string, ha
 	return
 }
 
+// prepareServer is resolveServer plus GraphQL readiness:
+// lazy ProbeGraphQL (connect races) and optional CSRF refresh from SSH var.ini.
+// Use this in every dual-transport data handler (dashboard/storage/docker/vms).
+func (h *Handler) prepareServer(c *gin.Context) (cli *ssh.Client, sid string, hasSSH, hasAPI bool) {
+	cli, sid, hasSSH, hasAPI = h.resolveServer(c)
+	if sid == "" {
+		return
+	}
+	if hasAPI && !h.ur.HasGraphQL(sid) {
+		h.ur.EnsureGraphQL(sid)
+	}
+	if hasAPI && hasSSH && cli != nil && h.ur.CsrfToken(sid) == "" {
+		if tok := readCSRFFromSSH(cli); tok != "" {
+			h.ur.SetCSRFToken(sid, tok)
+		}
+	}
+	return
+}
+
 // autoReconnect attempts to re-establish the WebGUI API session (and
 // optionally SSH) for a server using persisted credentials. Returns true
 // if the API session was successfully restored.

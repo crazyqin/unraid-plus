@@ -39,7 +39,7 @@ type mount struct {
 // v0.10+: GraphQL-first (official Unraid GraphQL API), SSH as fallback.
 // HTML scraping has been completely removed.
 func (h *Handler) ListContainers(c *gin.Context) {
-	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	cli, sid, hasSSH, hasAPI := h.prepareServer(c)
 	if sid == "" {
 		return
 	}
@@ -58,7 +58,7 @@ func (h *Handler) ListContainers(c *gin.Context) {
 			c.JSON(http.StatusOK, containers)
 			return
 		}
-		logger.Debugf("docker graphql list failed for %s, falling back: %v", sid, err)
+		logger.Warnf("docker graphql list failed for %s, falling back: %v", sid, err)
 	}
 
 	// SSH: docker ps gives rich data including icons
@@ -98,29 +98,39 @@ func (h *Handler) listContainersGraphQL(sid string) ([]container, error) {
 
 	containers := make([]container, 0, len(docker.Containers))
 	for _, gc := range docker.Containers {
+		// Frontend uses `status` as the machine keyword (running/exited/...).
+		// GraphQL `state` is RUNNING/EXITED; `status` is human text ("Up 5 days").
+		// Match SSH path: Status = normalized keyword, State = raw engine state.
+		st := normalizeDockerState(gc.State, gc.Status)
 		ct := container{
-			ID:     gc.ID,
+			ID:     gc.ID, // PrefixedID for GraphQL mutations; SSH path strips prefix
 			Image:  gc.Image,
 			State:  strings.ToLower(gc.State),
-			Status: strings.ToLower(gc.Status),
+			Status: st,
 			Ports:  []string{},
 			Mounts: []mount{},
 		}
-		// Names: GraphQL returns an array, docker ps returns "/name"
+		// Names: GraphQL returns an array like ["/FileBrowser"]
 		if len(gc.Names) > 0 {
-			ct.Name = gc.Names[0]
+			ct.Name = strings.TrimPrefix(gc.Names[0], "/")
 		}
-		// Normalize state
-		if ct.State == "" && ct.Status != "" {
-			ct.State = ct.Status
-		}
-		// Parse ports from GraphQL port structs
+		// Parse ports from GraphQL port structs (publicPort may be null → 0)
 		for _, p := range gc.Ports {
 			portStr := ""
+			ptype := strings.ToLower(p.Type)
+			if ptype == "" {
+				ptype = "tcp"
+			}
 			if p.PublicPort > 0 {
-				portStr = fmt.Sprintf("%s:%d->%d/%s", p.IP, p.PublicPort, p.PrivatePort, p.Type)
+				ip := p.IP
+				if ip == "" {
+					ip = "0.0.0.0"
+				}
+				portStr = fmt.Sprintf("%s:%d->%d/%s", ip, p.PublicPort, p.PrivatePort, ptype)
+			} else if p.PrivatePort > 0 {
+				portStr = fmt.Sprintf("%d/%s", p.PrivatePort, ptype)
 			} else {
-				portStr = fmt.Sprintf("%d/%s", p.PrivatePort, p.Type)
+				continue
 			}
 			ct.Ports = append(ct.Ports, portStr)
 		}
@@ -327,7 +337,7 @@ func (h *Handler) listContainersSSH(cli *ssh.Client) []container {
 // ContainerAction starts / stops / restarts / pauses / unpauses a container.
 // v0.10+: GraphQL mutation first, then SSH fallback. HTML scraping removed.
 func (h *Handler) ContainerAction(c *gin.Context) {
-	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	cli, sid, hasSSH, hasAPI := h.prepareServer(c)
 	if sid == "" {
 		return
 	}
@@ -340,7 +350,7 @@ func (h *Handler) ContainerAction(c *gin.Context) {
 		return
 	}
 
-	// GraphQL mutation first (official API)
+	// GraphQL mutation first (official API expects PrefixedID)
 	if hasAPI && h.ur.HasGraphQL(sid) {
 		if ok, via := h.dockerActionGraphQL(c, sid, action, id); ok {
 			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "Action " + action + " sent", "via": via})
@@ -348,9 +358,10 @@ func (h *Handler) ContainerAction(c *gin.Context) {
 		}
 	}
 
-	// SSH fallback
+	// SSH fallback — strip Unraid PrefixedID machine hash if present
 	if hasSSH && cli != nil {
-		if _, err := cli.Run("docker " + action + " " + shellQuote(id)); err != nil {
+		dockerID := unraid.StripPrefixedID(id)
+		if _, err := cli.Run("docker " + action + " " + shellQuote(dockerID)); err != nil {
 			errOut(c, http.StatusInternalServerError, "docker "+action+" failed")
 			return
 		}
@@ -409,6 +420,21 @@ func (h *Handler) dockerActionGraphQL(c *gin.Context, sid, action, containerID s
 // Helper functions
 // ---------------------------------------------------------------------------
 
+// normalizeDockerState maps GraphQL/engine state (+ optional human status)
+// into the frontend keyword: running | exited | paused | restarting | created | dead.
+func normalizeDockerState(state, humanStatus string) string {
+	s := strings.ToLower(strings.TrimSpace(state))
+	switch s {
+	case "running", "exited", "paused", "restarting", "created", "dead", "removing":
+		if s == "removing" {
+			return "dead"
+		}
+		return s
+	}
+	// Fall back to human-readable status ("Up 5 days", "Exited (0) ...")
+	return parseStatusFromStatus(humanStatus)
+}
+
 // parseStatusFromStatus extracts a normalized status keyword from
 // docker's human-readable Status string.
 func parseStatusFromStatus(s string) string {
@@ -424,6 +450,8 @@ func parseStatusFromStatus(s string) string {
 		return "restarting"
 	case strings.HasPrefix(s, "created"):
 		return "created"
+	case strings.Contains(s, "dead"):
+		return "dead"
 	}
 	return "unknown"
 }

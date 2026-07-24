@@ -28,7 +28,7 @@ type vm struct {
 // v0.10+: GraphQL-first (official Unraid GraphQL API), SSH as fallback.
 // HTML scraping has been completely removed.
 func (h *Handler) ListVMs(c *gin.Context) {
-	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	cli, sid, hasSSH, hasAPI := h.prepareServer(c)
 	if sid == "" {
 		return
 	}
@@ -47,7 +47,7 @@ func (h *Handler) ListVMs(c *gin.Context) {
 			c.JSON(http.StatusOK, vms)
 			return
 		}
-		logger.Debugf("vm graphql list failed for %s, falling back: %v", sid, err)
+		logger.Warnf("vm graphql list failed for %s, falling back: %v", sid, err)
 	}
 
 	// SSH fallback
@@ -87,8 +87,16 @@ func (h *Handler) listVMsGraphQL(sid string) ([]vm, error) {
 	vms := make([]vm, 0)
 	for _, gqlVM := range gqlVMs {
 		for _, d := range gqlVM.Domains {
+			// Prefer PrefixedID for GraphQL mutations; fall back to UUID/name for SSH.
+			id := d.ID
+			if id == "" {
+				id = d.UUID
+			}
+			if id == "" {
+				id = d.Name
+			}
 			vms = append(vms, vm{
-				ID:     d.UUID,
+				ID:     id,
 				Name:   d.Name,
 				Status: normalizeVMState(d.State),
 			})
@@ -104,7 +112,7 @@ func (h *Handler) enrichVMsWithSSH(cli *ssh.Client, vms []vm) {
 	for i := range vms {
 		name := vms[i].Name
 		if name == "" {
-			name = vms[i].ID
+			name = unraid.StripPrefixedID(vms[i].ID)
 		}
 		if name == "" {
 			continue
@@ -142,14 +150,14 @@ func (h *Handler) enrichVMsWithSSH(cli *ssh.Client, vms []vm) {
 // VMAction starts / stops / restarts / pauses / resumes a VM.
 // v0.10+: GraphQL mutation first, then SSH fallback. HTML scraping removed.
 func (h *Handler) VMAction(c *gin.Context) {
-	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	cli, sid, hasSSH, hasAPI := h.prepareServer(c)
 	if sid == "" {
 		return
 	}
 	id := c.Param("id")
 	action := c.Param("action")
 
-	// GraphQL mutation first
+	// GraphQL mutation first (expects PrefixedID)
 	if hasAPI && h.ur.HasGraphQL(sid) {
 		if ok, via := h.vmActionGraphQL(sid, action, id); ok {
 			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "Action " + action + " sent", "via": via})
@@ -157,20 +165,21 @@ func (h *Handler) VMAction(c *gin.Context) {
 		}
 	}
 
-	// SSH fallback
+	// SSH fallback — virsh accepts UUID or name; strip PrefixedID machine hash
 	if hasSSH && cli != nil {
+		virshID := unraid.StripPrefixedID(id)
 		var cmd string
 		switch action {
 		case "start":
-			cmd = "virsh start " + shellQuote(id)
+			cmd = "virsh start " + shellQuote(virshID)
 		case "stop":
-			cmd = "virsh destroy " + shellQuote(id)
+			cmd = "virsh destroy " + shellQuote(virshID)
 		case "shutdown":
-			cmd = "virsh shutdown " + shellQuote(id)
+			cmd = "virsh shutdown " + shellQuote(virshID)
 		case "resume":
-			cmd = "virsh resume " + shellQuote(id)
+			cmd = "virsh resume " + shellQuote(virshID)
 		case "suspend":
-			cmd = "virsh suspend " + shellQuote(id)
+			cmd = "virsh suspend " + shellQuote(virshID)
 		default:
 			errOut(c, http.StatusBadRequest, "Unsupported action: "+action)
 			return

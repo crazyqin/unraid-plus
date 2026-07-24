@@ -76,22 +76,9 @@ type rwRate struct {
 // CPU/memory usage metrics. SSH provides: per-core CPU usage with deltas,
 // per-core temps, real-time network/disk throughput rates.
 func (h *Handler) Dashboard(c *gin.Context) {
-	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	cli, sid, hasSSH, hasAPI := h.prepareServer(c)
 	if sid == "" {
 		return
-	}
-
-	// Lazy GraphQL probe: connect/reconnect fire ProbeGraphQL async, so the first
-	// dashboard request may race. EnsureGraphQL runs a one-shot probe if needed.
-	if hasAPI && !h.ur.HasGraphQL(sid) {
-		h.ur.EnsureGraphQL(sid)
-	}
-
-	// Optionally refresh CSRF from SSH var.ini (most reliable source).
-	if hasAPI && hasSSH && cli != nil && h.ur.CsrfToken(sid) == "" {
-		if tok := readCSRFFromSSH(cli); tok != "" {
-			h.ur.SetCSRFToken(sid, tok)
-		}
 	}
 
 	// GraphQL-first: when the official API is available, use it for all

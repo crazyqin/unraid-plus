@@ -1036,12 +1036,59 @@ func ParseDockerQuery(data json.RawMessage) (*GQLDocker, error) {
 }
 
 // ParseVMsQuery parses the "vms" field from a ListVMs response.
+// Official Unraid API returns a single VMs object:
+//
+//	{ "vms": { "id": "...", "domains": [ ... ] } }
+//
+// Older/alternate schemas may return an array; both are accepted.
 func ParseVMsQuery(data json.RawMessage) ([]GQLVMs, error) {
-	var wrapper struct {
+	// Preferred: single object (official schema)
+	var asObject struct {
+		VMs GQLVMs `json:"vms"`
+	}
+	if err := json.Unmarshal(data, &asObject); err == nil {
+		// Treat empty object as valid empty list when domains missing
+		if asObject.VMs.ID != "" || len(asObject.VMs.Domains) > 0 {
+			return []GQLVMs{asObject.VMs}, nil
+		}
+		// Fall through — might be array form or empty object
+		if len(asObject.VMs.Domains) == 0 {
+			// Distinguish empty object {} from wrong shape by probing raw field type
+			var probe map[string]json.RawMessage
+			if json.Unmarshal(data, &probe) == nil {
+				if raw, ok := probe["vms"]; ok {
+					raw = bytes.TrimSpace(raw)
+					if len(raw) > 0 && raw[0] == '{' {
+						return []GQLVMs{asObject.VMs}, nil
+					}
+				}
+			}
+		}
+	}
+
+	// Alternate: array of VMs groups
+	var asArray struct {
 		VMs []GQLVMs `json:"vms"`
 	}
-	if err := json.Unmarshal(data, &wrapper); err != nil {
+	if err := json.Unmarshal(data, &asArray); err != nil {
 		return nil, fmt.Errorf("parse vms: %w", err)
 	}
-	return wrapper.VMs, nil
+	return asArray.VMs, nil
+}
+
+// StripPrefixedID extracts the local id from Unraid PrefixedID values.
+// PrefixedIDs look like "<machineHash>:<localId>" (container sha, VM uuid, etc.).
+// SSH tools (docker/virsh) need the local portion; GraphQL mutations need the full id.
+func StripPrefixedID(id string) string {
+	if id == "" {
+		return id
+	}
+	if i := strings.LastIndex(id, ":"); i >= 0 && i < len(id)-1 {
+		// Only strip if it looks like a machine-hash prefix (long hex before colon)
+		prefix := id[:i]
+		if len(prefix) >= 16 {
+			return id[i+1:]
+		}
+	}
+	return id
 }

@@ -14,13 +14,13 @@ import (
 // Uses Unraid's UPSstatus.php endpoint. Falls back to SSH
 // (apcaccess) on API failure.
 func (h *Handler) UPSStatus(c *gin.Context) {
-	_, sid, ok := h.activeClientWithID(c)
-	if !ok {
+	_, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if !hasSSH && !hasAPI {
 		return
 	}
 
 	// Try Unraid HTTP API first
-	if h.ur.HasSession(sid) {
+	if hasAPI {
 		body, status, err := h.ur.UPSStatus(sid)
 		if err == nil && status == http.StatusOK && len(body) > 0 {
 			// UPSstatus.php returns HTML, try to parse the useful bits
@@ -36,8 +36,21 @@ func (h *Handler) UPSStatus(c *gin.Context) {
 	}
 
 	// SSH fallback: apcaccess
-	cli, ok := h.activeClient(c)
-	if !ok {
+	if !hasSSH {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "ups": nil, "message": "SSH 不可用，无法读取 UPS 信息（WebGUI API 未返回数据）"})
+		return
+	}
+	cli, _ := h.pool.Active()
+	if cli == nil {
+		if h.sm != nil {
+			entry := h.sm.Get(sid)
+			if entry != nil {
+				cli, _ = h.pool.Get(entry.Host, entry.Port)
+			}
+		}
+	}
+	if cli == nil {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "ups": nil, "message": "SSH 连接不可用"})
 		return
 	}
 

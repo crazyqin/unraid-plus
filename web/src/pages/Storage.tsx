@@ -18,6 +18,7 @@ import {
   Thermometer,
   XCircle,
   Usb,
+  Wifi,
   Zap,
   Cable,
 } from 'lucide-react';
@@ -188,6 +189,18 @@ export default function StoragePage() {
 
   return (
     <div className="space-y-5 p-5 md:p-6">
+      {/* Degraded mode banner (API-only, no SSH) */}
+      {data.degraded && (
+        <motion.div
+          className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-600 dark:text-amber-400"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={springGentle}
+        >
+          <Wifi className="h-4 w-4 shrink-0" />
+          <span>{t('storage.degradedNotice')}</span>
+        </motion.div>
+      )}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <motion.div
           className="flex items-center gap-3"

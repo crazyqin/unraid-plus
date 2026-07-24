@@ -14,13 +14,13 @@ import (
 // Uses Unraid's ShareList.php endpoint. Falls back to SSH
 // (ls /mnt/user) on API failure.
 func (h *Handler) ListShares(c *gin.Context) {
-	_, sid, ok := h.activeClientWithID(c)
-	if !ok {
+	_, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if !hasSSH && !hasAPI {
 		return
 	}
 
 	// Try Unraid HTTP API first
-	if h.ur.HasSession(sid) {
+	if hasAPI {
 		body, status, err := h.ur.ShareList(sid)
 		if err == nil && status == http.StatusOK && len(body) > 0 {
 			shares := parseShareList(string(body))
@@ -35,8 +35,21 @@ func (h *Handler) ListShares(c *gin.Context) {
 	}
 
 	// SSH fallback
-	cli, ok := h.activeClient(c)
-	if !ok {
+	if !hasSSH {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "shares": []string{}, "message": "SSH 不可用，无法通过命令行列出共享（WebGUI API 未返回数据）"})
+		return
+	}
+	cli, _ := h.pool.Active()
+	if cli == nil {
+		if h.sm != nil {
+			entry := h.sm.Get(sid)
+			if entry != nil {
+				cli, _ = h.pool.Get(entry.Host, entry.Port)
+			}
+		}
+	}
+	if cli == nil {
+		c.JSON(http.StatusOK, gin.H{"ok": true, "shares": []string{}, "message": "SSH 连接不可用"})
 		return
 	}
 

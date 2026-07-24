@@ -437,3 +437,14 @@ func (c *Client) Base() string { return "" }
 
 // SetCookies is kept for backward compat. Does nothing.
 func (c *Client) SetCookies(cks []*http.Cookie) {}
+
+// ---------------------------------------------------------------------------
+// Generic page fetch (for HTML scraping when no JSON API is available)
+// ---------------------------------------------------------------------------
+
+// FetchPage fetches any WebGUI page and returns the raw HTML body.
+// path should be a relative path like "/Main" or "/Dashboard".
+// Used for HTML scraping fallback when SSH is unavailable.
+func (c *Client) FetchPage(serverID, path string) ([]byte, int, error) {
+	return c.get(serverID, path)
+}

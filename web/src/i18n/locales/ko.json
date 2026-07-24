@@ -132,7 +132,8 @@
     "max": "최대",
     "collapse": "접기",
     "viewAll": "전체 보기",
-    "cannotFetch": "데이터를 가져올 수 없습니다. 백엔드가 Unraid에 연결되어 있는지 확인하세요."
+    "cannotFetch": "데이터를 가져올 수 없습니다. 백엔드가 Unraid에 연결되어 있는지 확인하세요.",
+    "degradedNotice": "SSH를 사용할 수 없습니다 — 일부 데이터는 HTML 스크래핑으로 얻은 것으로 불완전할 수 있습니다"
   },
   "docker": {
     "title": "Docker 컨테이너",
@@ -238,7 +239,8 @@
     "smartOkDetail": "자가진단 통과 · 신뢰성 경고 없음",
     "smartFailDetail": "자가진단 실패 — 디스크 고장 가능. 즉시 백업하세요!",
     "loading": "어레이 정보 로딩 중…",
-    "cannotFetch": "디스크 정보를 가져올 수 없습니다. 백엔드가 Unraid에 연결되어 있는지 확인하세요."
+    "cannotFetch": "디스크 정보를 가져올 수 없습니다. 백엔드가 Unraid에 연결되어 있는지 확인하세요.",
+    "degradedNotice": "SSH를 사용할 수 없습니다 — 일부 데이터는 HTML 스크래핑으로 얻은 것으로 불완전할 수 있습니다"
   },
   "files": {
     "upload": "업로드",

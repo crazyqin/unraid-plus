@@ -64,8 +64,14 @@ func (h *Handler) DockerLogs(c *gin.Context) {
 		follow = false
 	}
 
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, _, hasSSH, _ := h.resolveServer(c)
+	if !hasSSH {
+		// Docker logs requires SSH (docker logs command via WebSocket)
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"ok":          false,
+			"message":     "Docker 日志需要 SSH 连接",
+			"requiresSSH": true,
+		})
 		return
 	}
 

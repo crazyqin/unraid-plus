@@ -31,8 +31,8 @@ var allowedArrayActions = map[string]string{
 }
 
 func (h *Handler) ArrayAction(c *gin.Context) {
-	_, sid, ok := h.activeClientWithID(c)
-	if !ok {
+	_, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if !hasSSH && !hasAPI {
 		return
 	}
 	action := c.Param("action")
@@ -43,7 +43,7 @@ func (h *Handler) ArrayAction(c *gin.Context) {
 	}
 
 	// Try Unraid HTTP API first (ParityControl.php handles array start/stop too)
-	if h.ur.HasSession(sid) {
+	if hasAPI {
 		body, status, err := h.ur.ParityControl(sid, cmd)
 		if err == nil && status >= 200 && status < 300 {
 			c.JSON(http.StatusOK, gin.H{
@@ -60,8 +60,21 @@ func (h *Handler) ArrayAction(c *gin.Context) {
 	}
 
 	// SSH fallback
-	cli, ok := h.activeClient(c)
-	if !ok {
+	if !hasSSH {
+		errOut(c, http.StatusServiceUnavailable, "阵列操作需要 SSH 连接（WebGUI API 不可用）")
+		return
+	}
+	cli, _ := h.pool.Active()
+	if cli == nil {
+		if h.sm != nil {
+			entry := h.sm.Get(sid)
+			if entry != nil {
+				cli, _ = h.pool.Get(entry.Host, entry.Port)
+			}
+		}
+	}
+	if cli == nil {
+		errOut(c, http.StatusServiceUnavailable, "SSH 连接不可用")
 		return
 	}
 
@@ -92,8 +105,8 @@ func (h *Handler) ArrayAction(c *gin.Context) {
 //   - "correcting": start correcting parity check (writes fixes)
 //   - "resume": resume a paused parity check
 func (h *Handler) ParityCheckAction(c *gin.Context) {
-	_, sid, ok := h.activeClientWithID(c)
-	if !ok {
+	_, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if !hasSSH && !hasAPI {
 		return
 	}
 	action := c.Param("action")
@@ -107,7 +120,7 @@ func (h *Handler) ParityCheckAction(c *gin.Context) {
 	}
 
 	// Try Unraid HTTP API first
-	if h.ur.HasSession(sid) {
+	if hasAPI {
 		body, status, err := h.ur.ParityControl(sid, action)
 		if err == nil && status >= 200 && status < 300 {
 			c.JSON(http.StatusOK, gin.H{
@@ -124,8 +137,21 @@ func (h *Handler) ParityCheckAction(c *gin.Context) {
 	}
 
 	// SSH fallback
-	cli, ok := h.activeClient(c)
-	if !ok {
+	if !hasSSH {
+		errOut(c, http.StatusServiceUnavailable, "Parity 操作需要 SSH 连接（WebGUI API 不可用）")
+		return
+	}
+	cli, _ := h.pool.Active()
+	if cli == nil {
+		if h.sm != nil {
+			entry := h.sm.Get(sid)
+			if entry != nil {
+				cli, _ = h.pool.Get(entry.Host, entry.Port)
+			}
+		}
+	}
+	if cli == nil {
+		errOut(c, http.StatusServiceUnavailable, "SSH 连接不可用")
 		return
 	}
 

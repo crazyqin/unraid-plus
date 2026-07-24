@@ -132,7 +132,8 @@
     "max": "Max",
     "collapse": "Collapse",
     "viewAll": "View All",
-    "cannotFetch": "Unable to fetch data. Make sure the backend is connected to Unraid."
+    "cannotFetch": "Unable to fetch data. Make sure the backend is connected to Unraid.",
+    "degradedNotice": "SSH unavailable — some data is from HTML scraping and may be incomplete"
   },
   "docker": {
     "title": "Docker Containers",
@@ -238,7 +239,8 @@
     "smartOkDetail": "Self-test passed · No reliability warnings",
     "smartFailDetail": "Self-test failed — This disk may be failing. Back up data immediately!",
     "loading": "Loading array info…",
-    "cannotFetch": "Unable to fetch disk info. Make sure the backend is connected to Unraid."
+    "cannotFetch": "Unable to fetch disk info. Make sure the backend is connected to Unraid.",
+    "degradedNotice": "SSH unavailable — some data is from HTML scraping and may be incomplete"
   },
   "files": {
     "upload": "Upload",

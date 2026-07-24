@@ -49,8 +49,12 @@ const statsCacheTTL = 3 * time.Second
 // Exit code 1 + empty output usually means the Docker daemon is down or
 // no containers are running — we return an empty array in that case.
 func (h *Handler) DockerStats(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, _, hasSSH, _ := h.resolveServer(c)
+	if !hasSSH {
+		// Docker stats requires SSH (docker stats command). Return empty
+		// array in API-only mode rather than 503 — the frontend can still
+		// render the Docker page, just without per-container resource usage.
+		c.JSON(http.StatusOK, []containerStats{})
 		return
 	}
 

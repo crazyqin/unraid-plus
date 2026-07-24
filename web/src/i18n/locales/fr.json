@@ -132,7 +132,8 @@
     "max": "Max",
     "collapse": "Réduire",
     "viewAll": "Voir tout",
-    "cannotFetch": "Impossible de récupérer les données. Vérifiez que le backend est connecté à Unraid."
+    "cannotFetch": "Impossible de récupérer les données. Vérifiez que le backend est connecté à Unraid.",
+    "degradedNotice": "SSH indisponible — certaines données proviennent de l'analyse HTML et peuvent être incomplètes"
   },
   "docker": {
     "title": "Conteneurs Docker",
@@ -238,7 +239,8 @@
     "smartOkDetail": "Auto-test réussi · Aucune alerte de fiabilité",
     "smartFailDetail": "Auto-test échoué — Ce disque risque de tomber en panne. Sauvegardez vos données immédiatement !",
     "loading": "Chargement des infos de la grappe…",
-    "cannotFetch": "Impossible de récupérer les infos disques. Vérifiez que le backend est connecté à Unraid."
+    "cannotFetch": "Impossible de récupérer les infos disques. Vérifiez que le backend est connecté à Unraid.",
+    "degradedNotice": "SSH indisponible — certaines données proviennent de l'analyse HTML et peuvent être incomplètes"
   },
   "files": {
     "upload": "Téléverser",

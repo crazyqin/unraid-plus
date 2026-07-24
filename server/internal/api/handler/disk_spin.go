@@ -15,8 +15,8 @@ import (
 // Uses Unraid's ToggleState.php endpoint. Falls back to SSH
 // (hdparm -S 0 / hdparm -y) on API failure.
 func (h *Handler) DiskSpin(c *gin.Context) {
-	_, sid, ok := h.activeClientWithID(c)
-	if !ok {
+	_, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if !hasSSH && !hasAPI {
 		return
 	}
 
@@ -38,7 +38,7 @@ func (h *Handler) DiskSpin(c *gin.Context) {
 	}
 
 	// Try Unraid HTTP API first
-	if h.ur.HasSession(sid) {
+	if hasAPI {
 		body, status, err := h.ur.DiskSpin(sid, req.Device, req.Action)
 		if err == nil && status >= 200 && status < 300 {
 			c.JSON(http.StatusOK, gin.H{
@@ -55,8 +55,21 @@ func (h *Handler) DiskSpin(c *gin.Context) {
 	}
 
 	// SSH fallback
-	cli, ok := h.activeClient(c)
-	if !ok {
+	if !hasSSH {
+		errOut(c, http.StatusServiceUnavailable, "磁盘操作需要 SSH 连接（WebGUI API 不可用）")
+		return
+	}
+	cli, _ := h.pool.Active()
+	if cli == nil {
+		if h.sm != nil {
+			entry := h.sm.Get(sid)
+			if entry != nil {
+				cli, _ = h.pool.Get(entry.Host, entry.Port)
+			}
+		}
+	}
+	if cli == nil {
+		errOut(c, http.StatusServiceUnavailable, "SSH 连接不可用")
 		return
 	}
 

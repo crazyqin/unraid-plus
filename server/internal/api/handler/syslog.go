@@ -14,15 +14,15 @@ import (
 // Uses Unraid's WebGUI syslog endpoint. Falls back to SSH
 // (tail /var/log/syslog) on API failure.
 func (h *Handler) Syslog(c *gin.Context) {
-	_, sid, ok := h.activeClientWithID(c)
-	if !ok {
+	_, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if !hasSSH && !hasAPI {
 		return
 	}
 
 	lines := c.DefaultQuery("lines", "200")
 
 	// Try Unraid HTTP API first
-	if h.ur.HasSession(sid) {
+	if hasAPI {
 		body, status, err := h.ur.SystemLog(sid)
 		if err == nil && status == http.StatusOK && len(body) > 0 {
 			logText := string(body)
@@ -39,8 +39,21 @@ func (h *Handler) Syslog(c *gin.Context) {
 	}
 
 	// SSH fallback
-	cli, ok := h.activeClient(c)
-	if !ok {
+	if !hasSSH {
+		errOut(c, http.StatusServiceUnavailable, "读取系统日志需要 SSH 连接（WebGUI API 未返回数据）")
+		return
+	}
+	cli, _ := h.pool.Active()
+	if cli == nil {
+		if h.sm != nil {
+			entry := h.sm.Get(sid)
+			if entry != nil {
+				cli, _ = h.pool.Get(entry.Host, entry.Port)
+			}
+		}
+	}
+	if cli == nil {
+		errOut(c, http.StatusServiceUnavailable, "SSH 连接不可用")
 		return
 	}
 

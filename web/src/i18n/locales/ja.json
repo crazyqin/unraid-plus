@@ -132,7 +132,8 @@
     "max": "最大",
     "collapse": "折りたたむ",
     "viewAll": "すべて表示",
-    "cannotFetch": "データを取得できません。バックエンドがUnraidに接続されているか確認してください。"
+    "cannotFetch": "データを取得できません。バックエンドがUnraidに接続されているか確認してください。",
+    "degradedNotice": "SSH接続が利用できません — 一部データはHTML解析によるもので、不完全な場合があります"
   },
   "docker": {
     "title": "Dockerコンテナ",
@@ -238,7 +239,8 @@
     "smartOkDetail": "自己診断通過 · 信頼性警告なし",
     "smartFailDetail": "自己診断失敗 — ディスク故障の可能性。直ちにバックアップしてください！",
     "loading": "アレイ情報読み込み中…",
-    "cannotFetch": "ディスク情報を取得できません。バックエンドがUnraidに接続されているか確認してください。"
+    "cannotFetch": "ディスク情報を取得できません。バックエンドがUnraidに接続されているか確認してください。",
+    "degradedNotice": "SSH接続が利用できません — 一部データはHTML解析によるもので、不完全な場合があります"
   },
   "files": {
     "upload": "アップロード",

@@ -37,9 +37,13 @@ type mount struct {
 // v0.4+: SSH first (full data: image, ports, uptime, icons), API-only fallback
 // (basic data when SSH unavailable — e.g. API-only mode).
 func (h *Handler) ListContainers(c *gin.Context) {
-	// SSH first — docker ps gives much richer data than HTML parsing
-	cli, _, hasSSH := h.activeClientWithID(c)
+	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if sid == "" {
+		return
+	}
+
 	if hasSSH {
+		// SSH first — docker ps gives much richer data than HTML parsing
 		containers := h.listContainersSSH(cli)
 		for i := range containers {
 			containers[i].Via = "ssh"
@@ -47,8 +51,7 @@ func (h *Handler) ListContainers(c *gin.Context) {
 
 		// Supplement icon URLs from API when available (for containers
 		// without a local icon file, the API HTML may have the label URL)
-		_, sid, hasSid := h.activeClientWithID(c)
-		if hasSid && h.ur.HasSession(sid) {
+		if hasAPI {
 			apiContainers, err := h.listContainersAPI(sid)
 			if err == nil {
 				apiIconMap := map[string]string{}
@@ -75,8 +78,7 @@ func (h *Handler) ListContainers(c *gin.Context) {
 	}
 
 	// API-only fallback (SSH unavailable)
-	_, sid, hasSid := h.activeClientWithID(c)
-	if hasSid && h.ur.HasSession(sid) {
+	if hasAPI {
 		containers, err := h.listContainersAPI(sid)
 		if err == nil {
 			for i := range containers {
@@ -411,8 +413,8 @@ func (h *Handler) listContainersSSH(cli *ssh.Client) []container {
 // ContainerAction starts / stops / restarts / pauses a container.
 // v0.3+: Prefer Unraid HTTP API (Events.php) with SSH fallback.
 func (h *Handler) ContainerAction(c *gin.Context) {
-	_, sid, ok := h.activeClientWithID(c)
-	if !ok {
+	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if sid == "" {
 		return
 	}
 	id := c.Param("id")
@@ -425,7 +427,7 @@ func (h *Handler) ContainerAction(c *gin.Context) {
 	}
 
 	// Try Unraid HTTP API first
-	if h.ur.HasSession(sid) {
+	if hasAPI {
 		resp, err := h.ur.DockerActionOK(sid, action, id)
 		if err == nil && resp != nil && resp.Success {
 			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "api"})
@@ -437,15 +439,16 @@ func (h *Handler) ContainerAction(c *gin.Context) {
 	}
 
 	// SSH fallback
-	cli, ok := h.activeClient(c)
-	if !ok {
+	if hasSSH && cli != nil {
+		if _, err := cli.Run("docker " + action + " " + shellQuote(id)); err != nil {
+			errOut(c, http.StatusInternalServerError, "执行 docker "+action+" 失败")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "ssh"})
 		return
 	}
-	if _, err := cli.Run("docker " + action + " " + shellQuote(id)); err != nil {
-		errOut(c, http.StatusInternalServerError, "执行 docker "+action+" 失败")
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "ssh"})
+
+	errOut(c, http.StatusServiceUnavailable, "Docker 操作不可用（SSH 和 API 均不可用）")
 }
 
 // parseStatusFromStatus extracts a normalized status keyword from

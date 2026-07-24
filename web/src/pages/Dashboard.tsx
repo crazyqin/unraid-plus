@@ -22,6 +22,7 @@ import {
   Network,
   ShieldCheck,
   Thermometer,
+  Wifi,
   Zap,
 } from 'lucide-react';
 import { api } from '@/lib/api';
@@ -173,6 +174,18 @@ export default function DashboardPage() {
           animate={{ opacity: 1, y: 0 }}
         >
           {t('dashboard.cannotFetch')}
+        </motion.div>
+      )}
+
+      {/* Degraded mode banner (API-only, no SSH) */}
+      {data?.degraded && (
+        <motion.div
+          className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-600 dark:text-amber-400"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <Wifi className="h-4 w-4 shrink-0" />
+          <span>{t('dashboard.degradedNotice')}</span>
         </motion.div>
       )}
 

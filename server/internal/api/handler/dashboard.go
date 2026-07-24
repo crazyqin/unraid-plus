@@ -2,12 +2,16 @@ package handler
 
 import (
 	"net/http"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/crazyqin/unraid-plus/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 type dashboardResp struct {
@@ -17,6 +21,8 @@ type dashboardResp struct {
 	ArrayRw   rwRate      `json:"arrayRwBytesPerSec"`
 	Uptime    int64       `json:"uptime"`
 	LoadAvg   [3]float64  `json:"loadAvg"`
+	Degraded  bool        `json:"degraded,omitempty"`  // true when data from HTML scraping (API-only mode)
+	DegradedReason string `json:"degradedReason,omitempty"` // "ssh_unavailable" etc.
 }
 
 type cpuInfo struct {
@@ -52,11 +58,34 @@ type rwRate struct {
 // v0.7+ uses Unraid state files (/usr/local/emhttp/state/var.ini) for
 // server metadata (version, name) when available. Live CPU/mem/net/disk
 // stats still come from /proc/* since those need real-time deltas.
+//
+// v0.7+: When SSH is unavailable but WebGUI API is available, falls back
+// to scraping the Unraid Dashboard/Main page HTML for basic system info.
+// The response includes degraded=true and the frontend can show a "limited
+// data" indicator.
 func (h *Handler) Dashboard(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if sid == "" {
 		return
 	}
+
+	if hasSSH {
+		h.dashboardSSH(c, cli)
+		return
+	}
+
+	// API-only fallback: scrape HTML from Unraid WebGUI
+	if hasAPI {
+		h.dashboardAPI(c, sid)
+		return
+	}
+
+	// Should not reach here (resolveServer returns error if both unavailable)
+	errOut(c, http.StatusServiceUnavailable, "仪表盘不可用")
+}
+
+// dashboardSSH is the full SSH-based dashboard with real-time stats.
+func (h *Handler) dashboardSSH(c *gin.Context, cli *ssh.Client) {
 
 	readStateFiles(cli) // reads var.ini/disks.ini for metadata (best-effort)
 
@@ -494,4 +523,199 @@ func expandCoreTemps(phyTemps []float64, nCores int) []float64 {
 		out = append(out, phyTemps[len(phyTemps)-1])
 	}
 	return out
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard API fallback (HTML scraping from Unraid WebGUI)
+// ---------------------------------------------------------------------------
+
+// dashboardAPI scrapes the Unraid Dashboard/Main page for basic system info
+// when SSH is unavailable. The data is less complete (no real-time CPU/net
+// rates, no per-core temps) but still provides CPU model, memory, uptime,
+// and array state.
+func (h *Handler) dashboardAPI(c *gin.Context, sid string) {
+	// Try fetching the Dashboard page first, fall back to Main
+	body, status, err := h.ur.FetchPage(sid, "/Dashboard")
+	if err != nil || status != 200 {
+		body, status, err = h.ur.FetchPage(sid, "/Main")
+	}
+	if err != nil || status != 200 {
+		logger.Debugf("dashboard API fallback: failed to fetch page: %v (status=%d)", err, status)
+		// Return minimal degraded response — at least the page loads
+		c.JSON(http.StatusOK, dashboardResp{
+			Degraded:       true,
+			DegradedReason: "ssh_unavailable",
+		})
+		return
+	}
+
+	html := string(body)
+	resp := parseDashboardHTML(html)
+	resp.Degraded = true
+	resp.DegradedReason = "ssh_unavailable"
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// Regex patterns for scraping Unraid Dashboard HTML.
+// The Unraid dashboard page embeds system info in various HTML elements.
+// These patterns are best-effort and may vary across Unraid versions.
+var (
+	// CPU model from "CPU:" or "Processor:" label
+	reCPUModel = regexp.MustCompile(`(?i)(?:CPU|Processor)\s*[:：]\s*<[^>]*>([^<]+)<`)
+	// Memory from "Memory:" label (e.g. "17.3 GB / 31.2 GB")
+	reMemoryLabel = regexp.MustCompile(`(?i)Memory\s*[:：]\s*<[^>]*>([^<]+)<`)
+	// Uptime from "Uptime:" label (e.g. "4 days, 16 hours, 20 minutes")
+	reUptimeLabel = regexp.MustCompile(`(?i)Uptime\s*[:：]\s*<[^>]*>([^<]+)<`)
+	// Array state from mdState or similar (e.g. "Started", "Stopped")
+	reArrayState = regexp.MustCompile(`(?i)class=['"][^'"]*array[^'"]*['"][^>]*>([^<]+)<`)
+	// CPU usage from dashboard gauge/percentage (e.g. "1.9%")
+	reCPUUsage = regexp.MustCompile(`(?i)(?:CPU\s+Usage|CPU\s+Load)\s*[:：]\s*<[^>]*>([^<]*%?)<`)
+	// System info block — broader pattern for the info panel
+	reSysInfoBlock = regexp.MustCompile(`(?s)<div[^>]*class=['"][^'"]*sys-info[^'"]*['"][^>]*>(.*?)</div>`)
+)
+
+// parseDashboardHTML extracts system info from the Unraid dashboard HTML.
+// Returns a dashboardResp with whatever data we could extract; fields we
+// couldn't find are left at their zero values.
+func parseDashboardHTML(html string) dashboardResp {
+	resp := dashboardResp{
+		Network: []netInfo{{Iface: "—"}},
+	}
+
+	// Extract CPU model
+	if m := reCPUModel.FindStringSubmatch(html); len(m) > 1 {
+		resp.CPU.ModelName = strings.TrimSpace(m[1])
+	}
+
+	// Extract CPU usage percentage (if available in initial HTML)
+	if m := reCPUUsage.FindStringSubmatch(html); len(m) > 1 {
+		usageStr := strings.TrimSpace(m[1])
+		usageStr = strings.TrimSuffix(usageStr, "%")
+		resp.CPU.UsagePct = atofSafe(usageStr)
+	}
+
+	// Extract memory info (format: "used / total" or "X.X GB / Y.Y GB")
+	if m := reMemoryLabel.FindStringSubmatch(html); len(m) > 1 {
+		memStr := strings.TrimSpace(m[1])
+		resp.Memory = parseMemoryHTMLStr(memStr)
+	}
+
+	// Extract uptime
+	if m := reUptimeLabel.FindStringSubmatch(html); len(m) > 1 {
+		uptimeStr := strings.TrimSpace(m[1])
+		resp.Uptime = parseUptimeHTMLStr(uptimeStr)
+	}
+
+	// Try to extract CPU core count from a "Cores:" label or nproc-like value
+	reCores := regexp.MustCompile(`(?i)(?:Cores|CPU\s*\(s\))\s*[:：]\s*<[^>]*>(\d+)`)
+	if m := reCores.FindStringSubmatch(html); len(m) > 1 {
+		resp.CPU.Cores = atoiSafe(m[1], 1)
+	}
+
+	return resp
+}
+
+// parseMemoryHTMLStr parses memory strings like "17.3 GB / 31.2 GB" or
+// "17.3G / 31.2G" into a memInfo struct.
+func parseMemoryHTMLStr(s string) memInfo {
+	m := memInfo{}
+	parts := strings.Split(s, "/")
+	if len(parts) != 2 {
+		return m
+	}
+	used := parseSizeStr(strings.TrimSpace(parts[0]))
+	total := parseSizeStr(strings.TrimSpace(parts[1]))
+	m.TotalBytes = total
+	m.UsedBytes = used
+	if m.UsedBytes > m.TotalBytes {
+		// The "used" might actually be "available"
+		m.CacheBytes = m.TotalBytes - m.UsedBytes
+		m.UsedBytes = m.TotalBytes - m.CacheBytes
+	}
+	if m.TotalBytes > 0 {
+		m.UsagePct = float64(m.UsedBytes) / float64(m.TotalBytes) * 100
+	}
+	return m
+}
+
+// parseSizeStr converts human-readable sizes like "31.2 GB", "4 GiB",
+// "512 MB" to bytes. Returns 0 on parse error.
+func parseSizeStr(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	var mult int64 = 1
+	switch {
+	case strings.HasSuffix(s, "TiB"), strings.HasSuffix(s, "TB"):
+		if strings.HasSuffix(s, "TiB") {
+			mult = 1 << 40
+			s = strings.TrimSuffix(s, "TiB")
+		} else {
+			mult = 1e12
+			s = strings.TrimSuffix(s, "TB")
+		}
+	case strings.HasSuffix(s, "GiB"), strings.HasSuffix(s, "GB"), strings.HasSuffix(s, "G"):
+		if strings.HasSuffix(s, "GiB") {
+			mult = 1 << 30
+			s = strings.TrimSuffix(s, "GiB")
+		} else if strings.HasSuffix(s, "GB") {
+			mult = 1e9
+			s = strings.TrimSuffix(s, "GB")
+		} else {
+			mult = 1e9
+			s = strings.TrimSuffix(s, "G")
+		}
+	case strings.HasSuffix(s, "MiB"), strings.HasSuffix(s, "MB"), strings.HasSuffix(s, "M"):
+		if strings.HasSuffix(s, "MiB") {
+			mult = 1 << 20
+			s = strings.TrimSuffix(s, "MiB")
+		} else if strings.HasSuffix(s, "MB") {
+			mult = 1e6
+			s = strings.TrimSuffix(s, "MB")
+		} else {
+			mult = 1e6
+			s = strings.TrimSuffix(s, "M")
+		}
+	case strings.HasSuffix(s, "KiB"), strings.HasSuffix(s, "KB"), strings.HasSuffix(s, "K"):
+		if strings.HasSuffix(s, "KiB") {
+			mult = 1 << 10
+			s = strings.TrimSuffix(s, "KiB")
+		} else if strings.HasSuffix(s, "KB") {
+			mult = 1e3
+			s = strings.TrimSuffix(s, "KB")
+		} else {
+			mult = 1e3
+			s = strings.TrimSuffix(s, "K")
+		}
+	}
+	return int64(atofSafe(strings.TrimSpace(s)) * float64(mult))
+}
+
+// parseUptimeHTMLStr parses uptime strings like "4 days, 16 hours, 20 minutes"
+// or "112h 20m" into seconds.
+func parseUptimeHTMLStr(s string) int64 {
+	var total int64
+	// "X days, Y hours, Z minutes" pattern
+	days := regexp.MustCompile(`(\d+)\s*day`).FindStringSubmatch(s)
+	hours := regexp.MustCompile(`(\d+)\s*hour`).FindStringSubmatch(s)
+	mins := regexp.MustCompile(`(\d+)\s*min`).FindStringSubmatch(s)
+	if len(days) > 1 {
+		total += int64(atoiSafe(days[1], 0)) * 86400
+	}
+	if len(hours) > 1 {
+		total += int64(atoiSafe(hours[1], 0)) * 3600
+	}
+	if len(mins) > 1 {
+		total += int64(atoiSafe(mins[1], 0)) * 60
+	}
+	// Also try "112h 20m" compact format
+	if total == 0 {
+		hmRe := regexp.MustCompile(`(\d+)h\s*(\d+)m`)
+		if m := hmRe.FindStringSubmatch(s); len(m) > 2 {
+			total = int64(atoiSafe(m[1], 0))*3600 + int64(atoiSafe(m[2], 0))*60
+		}
+	}
+	return total
 }

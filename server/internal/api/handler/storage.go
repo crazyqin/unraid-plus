@@ -2,11 +2,13 @@ package handler
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/crazyqin/unraid-plus/server/internal/ssh"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 type disk struct {
@@ -41,9 +43,11 @@ type disk struct {
 }
 
 type arrayStatus struct {
-	State     string `json:"state"`
-	Disks     []disk `json:"disks"`
+	State      string `json:"state"`
+	Disks      []disk `json:"disks"`
 	CacheDisks []disk `json:"cacheDisks"`
+	Degraded   bool   `json:"degraded,omitempty"`         // true when data from HTML scraping
+	DegradedReason string `json:"degradedReason,omitempty"` // "ssh_unavailable" etc.
 }
 
 // Storage returns the array + cache disk view. v0.7+ reads Unraid's own
@@ -51,16 +55,30 @@ type arrayStatus struct {
 // SSH — the same data source the Unraid WebUI uses. This replaces the old
 // fragile approach of parsing `df` output and `mdcmd status` format.
 //
-// SMART data still comes from smartctl (cached 30s via smartCache), but the
-// md→physical device mapping now uses the diskName/rdevName pairs from
-// disks.ini (via state files) instead of parsing mdcmd status separately.
-//
-// Per-disk read/write rates still use /proc/diskstats deltas (enrichWithRW).
+// v0.7+: When SSH is unavailable but WebGUI API is available, falls back
+// to scraping the Unraid Main page HTML for basic disk info.
 func (h *Handler) Storage(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if sid == "" {
 		return
 	}
+
+	if hasSSH {
+		h.storageSSH(c, cli, sid)
+		return
+	}
+
+	// API-only fallback: scrape the Unraid Main page HTML
+	if hasAPI {
+		h.storageAPI(c, sid)
+		return
+	}
+
+	errOut(c, http.StatusServiceUnavailable, "存储信息不可用")
+}
+
+// storageSSH is the full SSH-based storage handler.
+func (h *Handler) storageSSH(c *gin.Context, cli *ssh.Client, sid string) {
 
 	// Read all state files in one SSH batch (3 files, 1 SSH call).
 	state, err := readStateFiles(cli)
@@ -98,11 +116,7 @@ func (h *Handler) Storage(c *gin.Context) {
 		}
 	}
 
-	// Enrich with RW rates and SMART data
-	sid := c.Query("serverId")
-	if sid == "" {
-		sid = "_default"
-	}
+	// Enrich with RW rates and SMART data (use sid from function parameter)
 	enrichWithRW(cli, disks, cache)
 	enrichWithSmart(cli, disks, sid)
 	enrichWithSmart(cli, cache, sid)
@@ -327,4 +341,143 @@ func diskStatus(used, size int64) string {
 	default:
 		return "ok"
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Storage API fallback (HTML scraping from Unraid WebGUI Main page)
+// ---------------------------------------------------------------------------
+
+// storageAPI scrapes the Unraid Main page for basic disk info when SSH
+// is unavailable. This is a degraded view — no per-disk RW rates, no SMART
+// data, and disk info depends on the HTML structure of the Unraid version.
+func (h *Handler) storageAPI(c *gin.Context, sid string) {
+	body, status, err := h.ur.FetchPage(sid, "/Main")
+	if err != nil || status != 200 {
+		logger.Debugf("storage API fallback: failed to fetch /Main: %v (status=%d)", err, status)
+		c.JSON(http.StatusOK, arrayStatus{
+			State:          "unknown",
+			Degraded:       true,
+			DegradedReason: "ssh_unavailable",
+		})
+		return
+	}
+
+	html := string(body)
+	state, disks, cache := parseStorageHTML(html)
+
+	c.JSON(http.StatusOK, arrayStatus{
+		State:           state,
+		Disks:           disks,
+		CacheDisks:      cache,
+		Degraded:        true,
+		DegradedReason:  "ssh_unavailable",
+	})
+}
+
+// Regex patterns for scraping Unraid Main page disk table.
+var (
+	// Disk table rows — Unraid renders each disk as a <tr> with specific classes
+	reDiskRow = regexp.MustCompile(`(?s)<tr[^>]*class=['"][^'"]*dash-disk[^'"]*['"][^>]*>(.*?)</tr>`)
+	// Disk name (e.g. "disk1", "parity", "cache")
+	reDiskSlotName = regexp.MustCompile(`<a[^>]*class=['"][^'"]*info-popup[^'"]*['"][^>]*>([^<]+)</a>`)
+	// Device path (e.g. "sdb", "sdc")
+	reDiskDevice = regexp.MustCompile(`<td[^>]*class=['"][^'"]*dev[^'"]*['"][^>]*>([^<]+)</td>`)
+	// Temperature (e.g. "33°C" or "33°" or just "33")
+	reDiskTemp = regexp.MustCompile(`(\d+)\s*°`)
+	// Size values in table cells (e.g. "3.62 TB", "500 GB")
+	reSizeCell = regexp.MustCompile(`(\d+\.?\d*)\s*(TB|GB|MB|KB|TiB|GiB|MiB|KiB)`)
+	// Color/status indicator (Unraid LED class like "green-on", "yellow-on", "red-blink")
+	reColorIndicator = regexp.MustCompile(`class=['"][^'"]*(green-on|yellow-on|red-blink|red-on|grey-off|blue-on)[^'"]*['"]`)
+	// Array state from the status header
+	reArrayStateLabel = regexp.MustCompile(`(?i)class=['"][^'"]*status[^'"]*['"][^>]*>([^<]+)<`)
+)
+
+// parseStorageHTML extracts disk information from the Unraid Main page HTML.
+// Returns (arrayState, arrayDisks, cacheDisks).
+func parseStorageHTML(html string) (string, []disk, []disk) {
+	// Try to extract array state
+	arrayState := "unknown"
+	if m := reArrayStateLabel.FindStringSubmatch(html); len(m) > 1 {
+		stateStr := strings.TrimSpace(strings.ToLower(m[1]))
+		switch {
+		case strings.Contains(stateStr, "started"):
+			arrayState = "started"
+		case strings.Contains(stateStr, "stopped"):
+			arrayState = "stopped"
+		}
+	}
+
+	var arrayDisks, cacheDisks []disk
+
+	// Find disk table rows
+	rows := reDiskRow.FindAllStringSubmatch(html, -1)
+	for _, rowMatch := range rows {
+		rowHTML := rowMatch[1]
+		name := ""
+		device := ""
+		var sizeBytes, usedBytes int64
+		tempC := 0
+		color := ""
+
+		// Extract disk name
+		if m := reDiskSlotName.FindStringSubmatch(rowHTML); len(m) > 1 {
+			name = strings.TrimSpace(m[1])
+		}
+
+		// Extract device
+		if m := reDiskDevice.FindStringSubmatch(rowHTML); len(m) > 1 {
+			device = strings.TrimSpace(m[1])
+		}
+
+		// Extract temperature
+		if m := reDiskTemp.FindStringSubmatch(rowHTML); len(m) > 1 {
+			tempC = atoiSafe(m[1], 0)
+		}
+
+		// Extract color indicator
+		if m := reColorIndicator.FindStringSubmatch(rowHTML); len(m) > 1 {
+			color = m[1]
+		}
+
+		// Extract size values (first = total, try to find used/free from context)
+		sizeMatches := reSizeCell.FindAllStringSubmatch(rowHTML, -1)
+		if len(sizeMatches) > 0 {
+			// First size is typically total
+			sizeBytes = parseSizeStr(sizeMatches[0][0])
+		}
+		if len(sizeMatches) > 1 {
+			// Second size might be used or free depending on Unraid version
+			secondVal := parseSizeStr(sizeMatches[1][0])
+			if secondVal > 0 && secondVal < sizeBytes {
+				usedBytes = sizeBytes - secondVal // likely free
+			}
+		}
+
+		// Determine if this is a cache or array disk
+		d := disk{
+			Name:      name,
+			Device:    device,
+			SizeBytes: sizeBytes,
+			UsedBytes: usedBytes,
+			Color:     color,
+			Status:    diskStatus(usedBytes, sizeBytes),
+		}
+		if tempC > 0 {
+			d.TempC = &tempC
+		}
+
+		nameLower := strings.ToLower(name)
+		switch {
+		case strings.HasPrefix(nameLower, "cache"):
+			cacheDisks = append(cacheDisks, d)
+		case nameLower != "" && nameLower != "parity":
+			arrayDisks = append(arrayDisks, d)
+		case nameLower == "parity":
+			// Parity disk goes into array list with special status
+			d.Status = "ok"
+			arrayDisks = append(arrayDisks, d)
+		}
+	}
+
+	return arrayState, arrayDisks, cacheDisks
 }

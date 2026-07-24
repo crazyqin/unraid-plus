@@ -132,7 +132,8 @@
     "max": "Max",
     "collapse": "Einklappen",
     "viewAll": "Alle anzeigen",
-    "cannotFetch": "Daten können nicht abgerufen werden. Stellen Sie sicher, dass das Backend mit Unraid verbunden ist."
+    "cannotFetch": "Daten können nicht abgerufen werden. Stellen Sie sicher, dass das Backend mit Unraid verbunden ist.",
+    "degradedNotice": "SSH nicht verfügbar — einige Daten stammen aus HTML-Scraping und können unvollständig sein"
   },
   "docker": {
     "title": "Docker-Container",
@@ -238,7 +239,8 @@
     "smartOkDetail": "Selbsttest bestanden · Keine Zuverlässigkeitswarnung",
     "smartFailDetail": "Selbsttest fehlgeschlagen — Diese Festplatte könnte ausfallen. Bitte sofort sichern!",
     "loading": "Array-Infos werden geladen…",
-    "cannotFetch": "Festplatteninfos können nicht abgerufen werden. Stellen Sie sicher, dass das Backend mit Unraid verbunden ist."
+    "cannotFetch": "Festplatteninfos können nicht abgerufen werden. Stellen Sie sicher, dass das Backend mit Unraid verbunden ist.",
+    "degradedNotice": "SSH nicht verfügbar — einige Daten stammen aus HTML-Scraping und können unvollständig sein"
   },
   "files": {
     "upload": "Hochladen",

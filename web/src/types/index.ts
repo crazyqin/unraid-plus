@@ -76,6 +76,10 @@ export interface DashboardSummary {
   arrayRwBytesPerSec: { read: number; write: number };
   uptime: number;
   loadAvg: [number, number, number];
+  /** True when data comes from HTML scraping (API-only mode, no SSH). v0.7+ */
+  degraded?: boolean;
+  /** Reason for degraded mode (e.g. "ssh_unavailable"). v0.7+ */
+  degradedReason?: string;
 }
 
 // Docker
@@ -174,6 +178,10 @@ export interface ArrayStatus {
   state: 'started' | 'stopped' | 'checking';
   disks: DiskInfo[];
   cacheDisks: DiskInfo[];
+  /** True when data comes from HTML scraping (API-only mode, no SSH). v0.7+ */
+  degraded?: boolean;
+  /** Reason for degraded mode (e.g. "ssh_unavailable"). v0.7+ */
+  degradedReason?: string;
 }
 
 /**

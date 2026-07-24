@@ -132,7 +132,8 @@
     "max": "最高",
     "collapse": "收起",
     "viewAll": "查看全部",
-    "cannotFetch": "无法获取数据。请确认后端已连接到 Unraid。"
+    "cannotFetch": "无法获取数据。请确认后端已连接到 Unraid。",
+    "degradedNotice": "SSH 连接不可用，部分数据来自 WebGUI 页面解析，可能不完整"
   },
   "docker": {
     "title": "Docker 容器",
@@ -238,7 +239,8 @@
     "smartOkDetail": "自检通过 · 无可靠性告警",
     "smartFailDetail": "自检未通过 — 该硬盘可能即将故障，请尽快备份数据！",
     "loading": "加载阵列信息…",
-    "cannotFetch": "无法获取磁盘信息。请确认后端已连接到 Unraid。"
+    "cannotFetch": "无法获取磁盘信息。请确认后端已连接到 Unraid。",
+    "degradedNotice": "SSH 连接不可用，部分数据来自 WebGUI 页面解析，可能不完整"
   },
   "files": {
     "upload": "上传",

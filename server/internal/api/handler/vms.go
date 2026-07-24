@@ -26,14 +26,17 @@ type vm struct {
 // ListVMs returns VMs.
 // v0.4+: SSH first (full data from virsh), API-only fallback for VNC port.
 func (h *Handler) ListVMs(c *gin.Context) {
-	// SSH first — virsh gives richer/more reliable data
-	cli, _, hasSSH := h.activeClientWithID(c)
+	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if sid == "" {
+		return
+	}
+
 	if hasSSH {
+		// SSH first — virsh gives richer/more reliable data
 		vms := h.listVMsSSH(cli)
 
 		// Supplement VNC port from API when available (virsh dominfo doesn't include it)
-		_, sid, hasSid := h.activeClientWithID(c)
-		if hasSid && h.ur.HasSession(sid) {
+		if hasAPI {
 			apiVMs, err := h.listVMsAPI(sid)
 			if err == nil {
 				vncMap := map[string]int{}
@@ -60,8 +63,7 @@ func (h *Handler) ListVMs(c *gin.Context) {
 	}
 
 	// API-only fallback (SSH unavailable)
-	_, sid, hasSid := h.activeClientWithID(c)
-	if hasSid && h.ur.HasSession(sid) {
+	if hasAPI {
 		vms, err := h.listVMsAPI(sid)
 		if err == nil {
 			for i := range vms {
@@ -78,8 +80,8 @@ func (h *Handler) ListVMs(c *gin.Context) {
 // VMAction starts / stops / restarts / pauses / resumes a VM.
 // v0.3+: Prefer Unraid HTTP API (VMajax.php) with SSH fallback.
 func (h *Handler) VMAction(c *gin.Context) {
-	_, sid, ok := h.activeClientWithID(c)
-	if !ok {
+	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
+	if sid == "" {
 		return
 	}
 	id := c.Param("id")
@@ -96,7 +98,7 @@ func (h *Handler) VMAction(c *gin.Context) {
 	}
 
 	// Try Unraid HTTP API first
-	if apiAction, ok := apiActionMap[action]; ok && h.ur.HasSession(sid) {
+	if apiAction, ok := apiActionMap[action]; ok && hasAPI {
 		resp, err := h.ur.VMActionOK(sid, apiAction, id)
 		if err == nil && resp != nil && resp.Success {
 			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "api"})
@@ -108,31 +110,32 @@ func (h *Handler) VMAction(c *gin.Context) {
 	}
 
 	// SSH fallback
-	cli, ok := h.activeClient(c)
-	if !ok {
+	if hasSSH && cli != nil {
+		var cmd string
+		switch action {
+		case "start":
+			cmd = "virsh start " + shellQuote(id)
+		case "stop":
+			cmd = "virsh destroy " + shellQuote(id)
+		case "shutdown":
+			cmd = "virsh shutdown " + shellQuote(id)
+		case "resume":
+			cmd = "virsh resume " + shellQuote(id)
+		case "suspend":
+			cmd = "virsh suspend " + shellQuote(id)
+		default:
+			errOut(c, http.StatusBadRequest, "不支持的操作: "+action)
+			return
+		}
+		if _, err := cli.Run(cmd); err != nil {
+			errOut(c, http.StatusInternalServerError, "执行 virsh "+action+" 失败")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "ssh"})
 		return
 	}
-	var cmd string
-	switch action {
-	case "start":
-		cmd = "virsh start " + shellQuote(id)
-	case "stop":
-		cmd = "virsh destroy " + shellQuote(id)
-	case "shutdown":
-		cmd = "virsh shutdown " + shellQuote(id)
-	case "resume":
-		cmd = "virsh resume " + shellQuote(id)
-	case "suspend":
-		cmd = "virsh suspend " + shellQuote(id)
-	default:
-		errOut(c, http.StatusBadRequest, "不支持的操作: "+action)
-		return
-	}
-	if _, err := cli.Run(cmd); err != nil {
-		errOut(c, http.StatusInternalServerError, "执行 virsh "+action+" 失败")
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "ssh"})
+
+	errOut(c, http.StatusServiceUnavailable, "VM 操作不可用（SSH 和 API 均不可用）")
 }
 
 // ---------------------------------------------------------------------------

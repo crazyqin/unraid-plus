@@ -48,9 +48,15 @@ type saveFileReq struct {
 // ListFiles uses SFTP to read the requested directory. We deliberately refuse
 // to traverse above /mnt and /root for safety, matching the obvious "what is
 // the user actually managing" scope.
+// Requires SSH — returns requiresSSH=true in API-only mode.
 func (h *Handler) ListFiles(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, _, hasSSH, _ := h.resolveServer(c)
+	if !hasSSH {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"ok":          false,
+			"message":     "文件浏览需要 SSH 连接",
+			"requiresSSH": true,
+		})
 		return
 	}
 	var req listFilesReq
@@ -98,10 +104,15 @@ func (h *Handler) ListFiles(c *gin.Context) {
 
 // DeleteFiles moves the given paths into Unraid's recycle bin if one is
 // configured (commonly /mnt/user/.RecycleBin), or removes them outright.
-// For v0.x we delete directly — the recycle bin integration is a roadmap item.
+// Requires SSH.
 func (h *Handler) DeleteFiles(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, _, hasSSH, _ := h.resolveServer(c)
+	if !hasSSH {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"ok":          false,
+			"message":     "文件操作需要 SSH 连接",
+			"requiresSSH": true,
+		})
 		return
 	}
 	var req deleteFilesReq
@@ -169,8 +180,13 @@ func isAllowedRoot(p string) bool {
 // bytes contain a NUL byte, we treat it as binary and serve with the detected
 // MIME type; otherwise we serve as text/plain.
 func (h *Handler) PreviewFile(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, _, hasSSH, _ := h.resolveServer(c)
+	if !hasSSH {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"ok":          false,
+			"message":     "文件预览需要 SSH 连接",
+			"requiresSSH": true,
+		})
 		return
 	}
 	p := path.Clean(c.Query("path"))
@@ -241,8 +257,13 @@ func (h *Handler) PreviewFile(c *gin.Context) {
 // change between Stat and read on a live system; chunked transfer encoding
 // handles it transparently.
 func (h *Handler) DownloadFile(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, _, hasSSH, _ := h.resolveServer(c)
+	if !hasSSH {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"ok":          false,
+			"message":     "文件下载需要 SSH 连接",
+			"requiresSSH": true,
+		})
 		return
 	}
 	p := path.Clean(c.Query("path"))
@@ -299,8 +320,13 @@ type renameReq struct {
 // must be under allowed roots. The destination's parent directory must
 // already exist (SFTP Rename doesn't create intermediate dirs).
 func (h *Handler) RenameFile(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, _, hasSSH, _ := h.resolveServer(c)
+	if !hasSSH {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"ok":          false,
+			"message":     "文件操作需要 SSH 连接",
+			"requiresSSH": true,
+		})
 		return
 	}
 	var req renameReq
@@ -339,8 +365,13 @@ type mkdirReq struct {
 
 // MkdirFile creates a directory (including parents) via SFTP MkdirAll.
 func (h *Handler) MkdirFile(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, _, hasSSH, _ := h.resolveServer(c)
+	if !hasSSH {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"ok":          false,
+			"message":     "文件操作需要 SSH 连接",
+			"requiresSSH": true,
+		})
 		return
 	}
 	var req mkdirReq
@@ -377,8 +408,13 @@ func (h *Handler) MkdirFile(c *gin.Context) {
 // don't need to fit in memory. The SFTP client's WriteCloser handles
 // chunked writes over the SSH channel.
 func (h *Handler) UploadFile(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, _, hasSSH, _ := h.resolveServer(c)
+	if !hasSSH {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"ok":          false,
+			"message":     "文件上传需要 SSH 连接",
+			"requiresSSH": true,
+		})
 		return
 	}
 	dir := path.Clean(c.DefaultQuery("dir", "/mnt"))
@@ -474,8 +510,13 @@ func (h *Handler) UploadFile(c *gin.Context) {
 // (configs, logs, scripts) edited in the browser preview pane. Path safety
 // is enforced via isAllowedRoot.
 func (h *Handler) SaveFileContent(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, _, hasSSH, _ := h.resolveServer(c)
+	if !hasSSH {
+		c.JSON(http.StatusServiceUnavailable, gin.H{
+			"ok":          false,
+			"message":     "文件编辑需要 SSH 连接",
+			"requiresSSH": true,
+		})
 		return
 	}
 	var req saveFileReq

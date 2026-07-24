@@ -38,8 +38,13 @@ var vncUpgrader = websocket.Upgrader{
 // v0.4+: Prefer VNC info from VM HTML data (from listVMsAPI) when available.
 // Falls back to `virsh vncdisplay` via SSH.
 func (h *Handler) VNCProxy(c *gin.Context) {
-	cli, ok := h.activeClient(c)
-	if !ok {
+	cli, _, hasSSH, _ := h.resolveServer(c)
+	if !hasSSH {
+		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+			"ok":          false,
+			"message":     "VNC 控制台需要 SSH 连接（用于建立 SSH 隧道）",
+			"requiresSSH": true,
+		})
 		return
 	}
 

@@ -7,6 +7,8 @@
 package handler
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"github.com/crazyqin/unraid-plus/server/internal/config"
@@ -120,6 +122,42 @@ func (h *Handler) hasAPISession(c *gin.Context) bool {
 		return false
 	}
 	return h.ur.HasSession(sid)
+}
+
+// resolveServer returns transport availability for the current request
+// WITHOUT aborting when SSH is unavailable. This is the key helper for
+// dual-transport handlers: it checks both SSH and API session, returning
+// whatever is available so the handler can branch accordingly.
+//
+// Returns (sshClient, serverID, hasSSH, hasAPI). When both transports are
+// false it writes an error and the caller should return immediately.
+func (h *Handler) resolveServer(c *gin.Context) (cli *ssh.Client, sid string, hasSSH, hasAPI bool) {
+	// Get server ID (works without SSH connection)
+	sid, _ = h.getServerID(c)
+	if sid == "" {
+		errOut(c, http.StatusBadRequest, "未指定服务器")
+		return
+	}
+
+	// Try SSH (non-aborting — just check pool, don't abort on failure)
+	if h.sm != nil {
+		entry := h.sm.Get(sid)
+		if entry != nil {
+			if sshCli, err := h.pool.Get(entry.Host, entry.Port); err == nil {
+				cli = sshCli
+				hasSSH = true
+			}
+		}
+	}
+
+	// Check API session
+	hasAPI = h.ur.HasSession(sid)
+
+	if !hasSSH && !hasAPI {
+		errOut(c, http.StatusServiceUnavailable, "服务器不可用（SSH 和 WebGUI 均未连接）")
+		return
+	}
+	return
 }
 
 // errOut writes a uniform {"ok":false,"message":…} error.

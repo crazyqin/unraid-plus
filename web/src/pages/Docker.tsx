@@ -536,11 +536,13 @@ function LogDialog({
   const { t } = useTranslation();
   return (
     <Dialog open={!!container} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-3xl rounded-2xl">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <ScrollText className="h-4 w-4 text-primary" />
-            {t('docker.logTitle')} {container?.name}
+      <DialogContent className="flex max-h-[min(90vh,720px)] w-[min(100vw-2rem,48rem)] max-w-3xl flex-col gap-3 overflow-hidden rounded-2xl">
+        <DialogHeader className="min-w-0 shrink-0 space-y-1.5 text-left">
+          <DialogTitle className="flex min-w-0 items-center gap-2 pr-8">
+            <ScrollText className="h-4 w-4 shrink-0 text-primary" />
+            <span className="truncate">
+              {t('docker.logTitle')} {container?.name}
+            </span>
           </DialogTitle>
         </DialogHeader>
         <LogStream
@@ -636,8 +638,8 @@ function LogStream({
   }, [buffer]);
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-hidden">
+      <div className="flex shrink-0 items-center gap-2 text-[11px] text-muted-foreground">
         <span
           className={cn(
             'h-1.5 w-1.5 rounded-full',
@@ -659,13 +661,13 @@ function LogStream({
               : t('docker.logConnecting')}
       </div>
       {error && (
-        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+        <div className="shrink-0 rounded-xl border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
           {error}
         </div>
       )}
       <pre
         ref={preRef}
-        className="max-h-[50vh] overflow-auto rounded-xl border border-border/40 bg-black/40 p-4 font-mono-data text-[11px] leading-relaxed text-emerald-100/90"
+        className="min-h-[12rem] min-w-0 flex-1 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-border/40 bg-black/40 p-4 font-mono-data text-[11px] leading-relaxed text-emerald-100/90 [overflow-wrap:anywhere]"
       >
         {buffer || (error ? '' : t('docker.logWaiting'))}
       </pre>

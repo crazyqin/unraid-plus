@@ -8,9 +8,10 @@ import { motion } from 'framer-motion';
 import { Plus, RotateCw, TerminalSquare, Trash2, X } from 'lucide-react';
 import { wsUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { springGentle } from '@/lib/motion';
-import { PageHeader, PageShell } from '@/components/layout/PageShell';
+import { PageHeader, PageOrb, PageShell } from '@/components/layout/PageShell';
 
 interface Session {
   id: string;
@@ -156,42 +157,83 @@ export default function TerminalPage() {
   }, []);
 
   const activeSession = sessions.find((s) => s.id === activeId);
+  const aliveCount = sessions.filter((s) => s.alive).length;
 
   return (
-    <PageShell className="flex h-full min-h-0 flex-col !space-y-4">
+    <PageShell className="relative flex h-full min-h-0 flex-col">
+      <PageOrb className="-right-16 -top-16 bg-emerald-500/10" />
+
       <PageHeader
-        eyebrow="Shell"
+        eyebrow={
+          <span className="inline-flex items-center gap-2">
+            <TerminalSquare className="h-3 w-3 text-primary" />
+            Shell
+          </span>
+        }
         title={t('terminal.title')}
-        meta={<span className="text-sm text-muted-foreground">{t('terminal.desc')}</span>}
+        meta={
+          <>
+            <Badge
+              variant={aliveCount > 0 ? 'success' : 'secondary'}
+              className="rounded-full px-2.5 text-[11px] font-semibold tracking-wide"
+            >
+              {aliveCount > 0 ? t('terminal.connected') : t('terminal.disconnected')}
+            </Badge>
+            <Badge variant="secondary" className="rounded-full px-2.5 font-mono-data text-[11px]">
+              {sessions.length} {t('terminal.sessionCount')}
+            </Badge>
+            <span className="text-xs text-muted-foreground">{t('terminal.desc')}</span>
+          </>
+        }
         actions={
-          <Button size="sm" className="h-9 rounded-xl" onClick={openSession}>
-            <Plus className="h-3.5 w-3.5" /> {t('terminal.newSession')}
-          </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {sessions.length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-9 rounded-xl"
+                onClick={() => sessions.forEach((s) => closeSession(s.id))}
+              >
+                <Trash2 className="h-3.5 w-3.5" /> {t('terminal.closeAll')}
+              </Button>
+            )}
+            <Button size="sm" className="h-9 rounded-xl" onClick={openSession}>
+              <Plus className="h-3.5 w-3.5" /> {t('terminal.newSession')}
+            </Button>
+          </div>
         }
       />
 
-      {/* Tabs */}
+      {/* Session tabs */}
       {sessions.length > 0 && (
-        <div className="mb-2 flex items-center gap-1 border-b pb-2">
-          {sessions.map((s) => (
+        <motion.div
+          className="flex flex-wrap items-center gap-2"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={springGentle}
+        >
+          {sessions.map((s, idx) => (
             <button
               key={s.id}
+              type="button"
               onClick={() => setActiveId(s.id)}
               className={cn(
-                'group flex items-center gap-2 rounded-t border-t border-l border-r px-3 py-1.5 text-xs',
+                'group inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs transition-colors',
                 s.id === activeId
-                  ? 'border-border bg-card'
-                  : 'border-transparent text-muted-foreground hover:bg-accent',
+                  ? 'border-primary/40 bg-primary/10 text-foreground shadow-sm'
+                  : 'border-border/50 bg-card/40 text-muted-foreground hover:bg-accent/60 hover:text-foreground',
               )}
             >
-              <TerminalSquare className="h-3.5 w-3.5" />
+              <TerminalSquare className="h-3.5 w-3.5 shrink-0 opacity-80" />
               <span
                 className={cn(
-                  'inline-block h-1.5 w-1.5 rounded-full',
-                  s.alive ? 'bg-success' : 'bg-destructive',
+                  'inline-block h-1.5 w-1.5 shrink-0 rounded-full',
+                  s.alive ? 'bg-emerald-500' : 'bg-destructive',
                 )}
               />
-              {s.id.slice(-4)}
+              <span className="font-mono-data">
+                {t('terminal.session')} {idx + 1}
+              </span>
               {!s.alive && (
                 <span
                   role="button"
@@ -201,9 +243,15 @@ export default function TerminalPage() {
                     e.stopPropagation();
                     reconnectSession(s.id);
                   }}
-                  className="rounded p-0.5 hover:bg-accent"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.stopPropagation();
+                      reconnectSession(s.id);
+                    }
+                  }}
+                  className="rounded-md p-0.5 text-amber-500 hover:bg-accent"
                 >
-                  <RotateCw className="h-3 w-3 text-warning" />
+                  <RotateCw className="h-3 w-3" />
                 </span>
               )}
               <span
@@ -213,56 +261,62 @@ export default function TerminalPage() {
                   e.stopPropagation();
                   closeSession(s.id);
                 }}
-                className="rounded p-0.5 opacity-0 hover:bg-accent group-hover:opacity-100"
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.stopPropagation();
+                    closeSession(s.id);
+                  }
+                }}
+                className="rounded-md p-0.5 opacity-50 transition-opacity hover:bg-accent hover:opacity-100 group-hover:opacity-100"
               >
                 <X className="h-3 w-3" />
               </span>
             </button>
           ))}
-        </div>
+        </motion.div>
       )}
 
       {/* Terminal pane */}
-      <div
-        ref={containerRef}
-        className="flex-1 overflow-hidden rounded-xl border bg-[#0b0b0d] p-2"
-      />
-
-      {/* Reconnect overlay when active session is dead */}
-      {activeSession && !activeSession.alive && (
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div className="flex flex-col items-center gap-3 rounded-xl border bg-card/95 p-6 shadow-lg">
-            <p className="text-sm text-muted-foreground">{t('terminal.disconnected')}</p>
-            <Button size="sm" className="rounded-lg" onClick={() => reconnectSession(activeSession.id)}>
-              <RotateCw className="h-3.5 w-3.5" /> {t('terminal.reconnectBtn')}
+      <div className="card-bento relative min-h-0 flex-1 overflow-hidden p-0">
+        {sessions.length === 0 ? (
+          <div className="flex h-full min-h-[18rem] flex-col items-center justify-center gap-4 text-sm text-muted-foreground">
+            <TerminalSquare className="h-12 w-12 text-muted-foreground/25" />
+            <p>{t('terminal.openFirst')}</p>
+            <Button className="h-9 rounded-xl" onClick={openSession}>
+              <Plus className="h-3.5 w-3.5" /> {t('terminal.newSession')}
             </Button>
           </div>
-        </div>
-      )}
+        ) : (
+          <div
+            ref={containerRef}
+            className="h-full min-h-[18rem] overflow-hidden bg-[#0b0b0d] p-3"
+          />
+        )}
 
-      {sessions.length === 0 && (
-        <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          <Button variant="ghost" className="rounded-lg" onClick={openSession}>
-            <Plus className="h-4 w-4" /> {t('terminal.openFirst')}
-          </Button>
-        </div>
-      )}
-
-      <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
-        <span>
-          {t('terminal.tip')}
-        </span>
-        {sessions.length > 0 && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-9 rounded-xl"
-            onClick={() => sessions.forEach((s) => closeSession(s.id))}
-          >
-            <Trash2 className="h-3.5 w-3.5" /> {t('terminal.closeAll')}
-          </Button>
+        {/* Reconnect overlay when active session is dead */}
+        {activeSession && !activeSession.alive && (
+          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/40 backdrop-blur-sm">
+            <motion.div
+              className="flex flex-col items-center gap-3 rounded-2xl border border-border/50 bg-card/95 p-6 shadow-xl glass"
+              initial={{ opacity: 0, scale: 0.96 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={springGentle}
+            >
+              <TerminalSquare className="h-8 w-8 text-muted-foreground/40" />
+              <p className="text-sm text-muted-foreground">{t('terminal.disconnected')}</p>
+              <Button
+                size="sm"
+                className="h-9 rounded-xl"
+                onClick={() => reconnectSession(activeSession.id)}
+              >
+                <RotateCw className="h-3.5 w-3.5" /> {t('terminal.reconnectBtn')}
+              </Button>
+            </motion.div>
+          </div>
         )}
       </div>
+
+      <p className="text-xs text-muted-foreground/80">{t('terminal.tip')}</p>
     </PageShell>
   );
 }

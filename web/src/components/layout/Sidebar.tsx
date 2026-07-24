@@ -6,8 +6,8 @@ import {
   HardDrive,
   FolderTree,
   TerminalSquare,
-  Cpu,
-  Container,
+  MonitorPlay,
+  Boxes,
   Settings,
   ChevronLeft,
   Plus,
@@ -62,8 +62,8 @@ export default function Sidebar() {
     { to: '/storage', label: t('nav.storage'), icon: HardDrive, hint: t('nav.storageHint') },
     { to: '/files', label: t('nav.files'), icon: FolderTree, hint: t('nav.filesHint'), requiresSSH: true },
     { to: '/terminal', label: t('nav.terminal'), icon: TerminalSquare, hint: t('nav.terminalHint'), requiresSSH: true },
-    { to: '/vms', label: t('nav.vms'), icon: Cpu, hint: t('nav.vmsHint') },
-    { to: '/docker', label: t('nav.docker'), icon: Container, hint: t('nav.dockerHint') },
+    { to: '/vms', label: t('nav.vms'), icon: MonitorPlay, hint: t('nav.vmsHint') },
+    { to: '/docker', label: t('nav.docker'), icon: Boxes, hint: t('nav.dockerHint') },
     { to: '/settings', label: t('nav.settings'), icon: Settings, hint: t('nav.settingsHint') },
   ];
 

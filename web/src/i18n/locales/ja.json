@@ -244,6 +244,10 @@
     "degradedNotice": "SSH接続が利用できません — 一部データはHTML解析によるもので、不完全な場合があります"
   },
   "files": {
+    "title": "ファイル",
+    "itemCount": "項目",
+    "folderCount": "フォルダ",
+    "selectedCount": "選択中",
     "upload": "アップロード",
     "newFolder": "新規フォルダ",
     "delete": "削除",
@@ -288,11 +292,14 @@
     "desc": "ブラウザでUnraidコマンドライン · マルチセッション",
     "newSession": "新規セッション",
     "reconnect": "再接続",
+    "connected": "接続済み",
     "disconnected": "ターミナル切断",
     "reconnectBtn": "再接続",
     "openFirst": "最初のセッションを開く",
     "tip": "セッションはバックエンドSSH経由で転送。切断後は再接続ボタンで復旧。",
     "closeAll": "すべて閉じる",
+    "session": "セッション",
+    "sessionCount": "セッション",
     "wsDisconnected": "[接続切断]",
     "wsError": "[WebSocketエラー — バックエンドターミナルサービス未準備]"
   },

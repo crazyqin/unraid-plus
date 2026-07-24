@@ -244,6 +244,10 @@
     "degradedNotice": "SSH nicht verfügbar — einige Daten stammen aus HTML-Scraping und können unvollständig sein"
   },
   "files": {
+    "title": "Dateien",
+    "itemCount": "Einträge",
+    "folderCount": "Ordner",
+    "selectedCount": "ausgewählt",
     "upload": "Hochladen",
     "newFolder": "Neuer Ordner",
     "delete": "Löschen",
@@ -288,11 +292,14 @@
     "desc": "Unraid-Kommandozeile im Browser · Mehrere Sitzungen",
     "newSession": "Neue Sitzung",
     "reconnect": "Neu verbinden",
+    "connected": "Verbunden",
     "disconnected": "Terminal getrennt",
     "reconnectBtn": "Neu verbinden",
     "openFirst": "Erste Sitzung öffnen",
     "tip": "Sitzungen werden über das Backend-SSH weitergeleitet. Klicken Sie auf Neu verbinden nach Trennung.",
     "closeAll": "Alle schließen",
+    "session": "Sitzung",
+    "sessionCount": "Sitzungen",
     "wsDisconnected": "[Verbindung getrennt]",
     "wsError": "[WebSocket-Fehler — Backend-Terminaldienst nicht bereit]"
   },

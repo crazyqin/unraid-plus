@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { motion } from 'framer-motion';
 import {
   ChevronRight,
   ChevronUp,
@@ -10,6 +11,7 @@ import {
   File as FileIcon,
   Folder,
   FolderPlus,
+  FolderTree,
   Home,
   Loader2,
   Pencil,
@@ -24,6 +26,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
+import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -34,6 +37,8 @@ import {
 import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import { formatBytes, timeAgo, cn } from '@/lib/utils';
 import type { FileEntry, ListFilesResponse } from '@/types';
+import { springGentle } from '@/lib/motion';
+import { PageHeader, PageOrb, PageShell } from '@/components/layout/PageShell';
 
 type SortKey = 'name' | 'sizeBytes' | 'modTime';
 type SortDir = 'asc' | 'desc';
@@ -167,8 +172,13 @@ export default function FilesPage() {
       : <ChevronDown className="h-3 w-3" />;
   };
 
+  const entryCount = sortedEntries.length;
+  const dirCount = sortedEntries.filter((e) => e.isDir).length;
+
   return (
-    <div className="flex h-full min-h-0 flex-col p-5 md:p-8">
+    <PageShell className="flex h-full min-h-0 flex-col">
+      <PageOrb className="-left-16 -top-20 bg-amber-500/10" />
+
       {/* Hidden file input for uploads */}
       <input
         ref={fileInputRef}
@@ -178,114 +188,172 @@ export default function FilesPage() {
         onChange={(e) => e.target.files && upload(e.target.files)}
       />
 
-      {/* Toolbar */}
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-1 text-sm">
-          <button
-            onClick={() => goto(-1)}
-            className="flex items-center rounded px-1.5 py-1 hover:bg-accent"
-          >
-            <Home className="h-4 w-4" />
-          </button>
-          {breadcrumbs.map((seg, i) => (
-            <div key={i} className="flex items-center">
-              <ChevronRight className="h-3 w-3 text-muted-foreground" />
-              <button
-                onClick={() => goto(i)}
-                className="rounded px-1.5 py-1 hover:bg-accent"
+      <PageHeader
+        eyebrow={
+          <span className="inline-flex items-center gap-2">
+            <FolderTree className="h-3 w-3 text-primary" />
+            SFTP
+          </span>
+        }
+        title={t('files.title')}
+        meta={
+          <>
+            <Badge
+              variant="secondary"
+              className="max-w-[min(100%,28rem)] truncate rounded-full px-2.5 font-mono-data text-[11px]"
+              title={path}
+            >
+              {path}
+            </Badge>
+            <Badge variant="outline" className="rounded-full px-2.5 text-[11px]">
+              {entryCount} {t('files.itemCount')}
+              {dirCount > 0 ? ` · ${dirCount} ${t('files.folderCount')}` : ''}
+            </Badge>
+            {selected.size > 0 && (
+              <Badge
+                variant="default"
+                className="rounded-full px-2.5 text-[11px] font-semibold tracking-wide"
               >
-                {seg}
-              </button>
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-lg"
-            disabled={uploadProgress !== null}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {uploadProgress !== null ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Upload className="h-3.5 w-3.5" />
+                {selected.size} {t('files.selectedCount')}
+              </Badge>
             )}
-            {t('files.upload')}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-lg"
-            onClick={() => setMkdirOpen(true)}
-          >
-            <FolderPlus className="h-3.5 w-3.5" /> {t('files.newFolder')}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-lg"
-            disabled={selected.size === 0}
-            onClick={() => setConfirmDelete(true)}
-          >
-            <Trash2 className="h-3.5 w-3.5" /> {t('files.delete')}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-lg"
-            disabled={selected.size !== 1 || selectedEntries[0]?.isDir}
-            onClick={download}
-            title={selected.size === 1 && selectedEntries[0]?.isDir ? t('files.cannotDownloadDir') : ''}
-          >
-            <Download className="h-3.5 w-3.5" /> {t('files.download')}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-lg"
-            disabled={selected.size !== 1}
-            onClick={() => selectedEntries[0] && setRenameTarget(selectedEntries[0])}
-          >
-            <Pencil className="h-3.5 w-3.5" /> {t('files.rename')}
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            className="rounded-lg"
-            disabled={selected.size !== 1 || selectedEntries[0]?.isDir}
-            onClick={() => selectedEntries[0] && setPreviewTarget(selectedEntries[0])}
-          >
-            <Eye className="h-3.5 w-3.5" /> {t('files.preview')}
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 rounded-xl"
+              disabled={uploadProgress !== null}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {uploadProgress !== null ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Upload className="h-3.5 w-3.5" />
+              )}
+              {t('files.upload')}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 rounded-xl"
+              onClick={() => setMkdirOpen(true)}
+            >
+              <FolderPlus className="h-3.5 w-3.5" /> {t('files.newFolder')}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 rounded-xl"
+              disabled={selected.size === 0}
+              onClick={() => setConfirmDelete(true)}
+            >
+              <Trash2 className="h-3.5 w-3.5" /> {t('files.delete')}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 rounded-xl"
+              disabled={selected.size !== 1 || selectedEntries[0]?.isDir}
+              onClick={download}
+              title={
+                selected.size === 1 && selectedEntries[0]?.isDir
+                  ? t('files.cannotDownloadDir')
+                  : ''
+              }
+            >
+              <Download className="h-3.5 w-3.5" /> {t('files.download')}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 rounded-xl"
+              disabled={selected.size !== 1}
+              onClick={() => selectedEntries[0] && setRenameTarget(selectedEntries[0])}
+            >
+              <Pencil className="h-3.5 w-3.5" /> {t('files.rename')}
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-9 rounded-xl"
+              disabled={selected.size !== 1 || selectedEntries[0]?.isDir}
+              onClick={() => selectedEntries[0] && setPreviewTarget(selectedEntries[0])}
+            >
+              <Eye className="h-3.5 w-3.5" /> {t('files.preview')}
+            </Button>
+          </div>
+        }
+      />
 
-      {/* Upload progress bar */}
+      {/* Breadcrumb bar */}
+      <motion.div
+        className="card-bento flex flex-wrap items-center gap-0.5 px-3 py-2.5 text-sm"
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={springGentle}
+      >
+        <button
+          type="button"
+          onClick={() => goto(-1)}
+          className="inline-flex items-center rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          title="/mnt"
+        >
+          <Home className="h-3.5 w-3.5" />
+        </button>
+        {breadcrumbs.map((seg, i) => (
+          <div key={`${seg}-${i}`} className="flex min-w-0 items-center">
+            <ChevronRight className="mx-0.5 h-3 w-3 shrink-0 text-muted-foreground/50" />
+            <button
+              type="button"
+              onClick={() => goto(i)}
+              className={cn(
+                'max-w-[10rem] truncate rounded-lg px-2 py-1 transition-colors hover:bg-accent',
+                i === breadcrumbs.length - 1
+                  ? 'font-medium text-foreground'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {seg}
+            </button>
+          </div>
+        ))}
+      </motion.div>
+
+      {/* Upload progress */}
       {uploadProgress !== null && (
-        <div className="mb-2 flex items-center gap-2 rounded-xl border bg-muted/30 p-2">
-          <span className="text-xs text-muted-foreground">{t('files.uploading')}</span>
+        <motion.div
+          className="flex items-center gap-3 rounded-2xl border border-border/40 bg-card/40 p-3 glass"
+          initial={{ opacity: 0, y: -6 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
+          <span className="shrink-0 text-xs text-muted-foreground">{t('files.uploading')}</span>
           <Progress className="flex-1" value={uploadProgress} />
-          <span className="text-xs tabular-nums text-muted-foreground">{uploadProgress}%</span>
-        </div>
+          <span className="shrink-0 font-mono-data text-xs tabular-nums text-muted-foreground">
+            {uploadProgress}%
+          </span>
+        </motion.div>
       )}
 
-      {/* Upload error toast */}
+      {/* Upload error */}
       {uploadError && (
-        <div className="mb-2 flex items-center justify-between rounded-xl border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
+        <motion.div
+          className="flex items-center justify-between rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive glass"
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
           <span>{uploadError}</span>
-          <button
-            className="text-xs underline"
-            onClick={() => setUploadError(null)}
-          >
+          <button className="text-xs underline" onClick={() => setUploadError(null)}>
             {t('common.close')}
           </button>
-        </div>
+        </motion.div>
       )}
 
+      {/* File table */}
       <div
-        className="card-bento relative flex-1 overflow-hidden"
+        className="card-bento relative min-h-0 flex-1 overflow-hidden"
         onDragOver={(e) => {
           e.preventDefault();
           setDragOver(true);
@@ -297,82 +365,96 @@ export default function FilesPage() {
           if (e.dataTransfer.files.length > 0) upload(e.dataTransfer.files);
         }}
       >
-        <div className="h-full p-0">
-          {isLoading ? (
-            <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" /> {t('files.readingDir')}
-            </div>
-          ) : isError ? (
-            <div className="flex h-full items-center justify-center text-sm text-destructive">
-              {t('files.cannotReadDir')}
-            </div>
-          ) : (
-            <div className="h-full overflow-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 bg-card text-xs text-muted-foreground">
-                  <tr className="border-b">
-                    <th className="px-3 py-2 text-left font-medium">
-                      <button className="group inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('name')}>
-                        {t('files.name')} <SortIcon column="name" />
-                      </button>
-                    </th>
-                    <th className="px-3 py-2 text-right font-medium">
-                      <button className="group inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('sizeBytes')}>
-                        {t('files.size')} <SortIcon column="sizeBytes" />
-                      </button>
-                    </th>
-                    <th className="px-3 py-2 text-right font-medium">
-                      <button className="group inline-flex items-center gap-1 hover:text-foreground" onClick={() => toggleSort('modTime')}>
-                        {t('files.modified')} <SortIcon column="modTime" />
-                      </button>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedEntries.map((e) => (
-                    <tr
-                      key={e.path}
-                      onClick={() => (e.isDir ? enter(e) : toggle(e.path))}
-                      onDoubleClick={() => !e.isDir && setPreviewTarget(e)}
-                      className={cn(
-                        'cursor-pointer border-b border-border/50 hover:bg-accent/50',
-                        selected.has(e.path) && 'bg-primary/10',
-                      )}
+        {isLoading ? (
+          <div className="flex h-full min-h-[16rem] items-center justify-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> {t('files.readingDir')}
+          </div>
+        ) : isError ? (
+          <div className="flex h-full min-h-[16rem] flex-col items-center justify-center gap-3 text-sm text-muted-foreground">
+            <FolderTree className="h-10 w-10 text-muted-foreground/30" />
+            <span className="text-destructive">{t('files.cannotReadDir')}</span>
+          </div>
+        ) : (
+          <div className="h-full min-h-[16rem] overflow-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-[1] bg-card/90 text-xs text-muted-foreground backdrop-blur-md">
+                <tr className="border-b border-border/50">
+                  <th className="px-4 py-3 text-left font-medium">
+                    <button
+                      type="button"
+                      className="group inline-flex items-center gap-1 hover:text-foreground"
+                      onClick={() => toggleSort('name')}
                     >
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-2">
-                          {e.isDir ? (
-                            <Folder className="h-4 w-4 text-amber-500" />
-                          ) : (
-                            <FileIcon className="h-4 w-4 text-muted-foreground" />
-                          )}
-                          <span className="truncate">{e.name}</span>
-                        </div>
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                        {e.isDir ? '—' : formatBytes(e.sizeBytes)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">
-                        {timeAgo(e.modTime)}
-                      </td>
-                    </tr>
-                  ))}
-                  {sortedEntries.length === 0 && (
-                    <tr>
-                      <td colSpan={3} className="px-3 py-8 text-center text-muted-foreground">
+                      {t('files.name')} <SortIcon column="name" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium">
+                    <button
+                      type="button"
+                      className="group inline-flex items-center gap-1 hover:text-foreground"
+                      onClick={() => toggleSort('sizeBytes')}
+                    >
+                      {t('files.size')} <SortIcon column="sizeBytes" />
+                    </button>
+                  </th>
+                  <th className="px-4 py-3 text-right font-medium">
+                    <button
+                      type="button"
+                      className="group inline-flex items-center gap-1 hover:text-foreground"
+                      onClick={() => toggleSort('modTime')}
+                    >
+                      {t('files.modified')} <SortIcon column="modTime" />
+                    </button>
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {sortedEntries.map((e) => (
+                  <tr
+                    key={e.path}
+                    onClick={() => (e.isDir ? enter(e) : toggle(e.path))}
+                    onDoubleClick={() => !e.isDir && setPreviewTarget(e)}
+                    className={cn(
+                      'cursor-pointer border-b border-border/40 transition-colors hover:bg-accent/40',
+                      selected.has(e.path) && 'bg-primary/10 hover:bg-primary/15',
+                    )}
+                  >
+                    <td className="px-4 py-2.5">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        {e.isDir ? (
+                          <Folder className="h-4 w-4 shrink-0 text-amber-500" />
+                        ) : (
+                          <FileIcon className="h-4 w-4 shrink-0 text-muted-foreground" />
+                        )}
+                        <span className="truncate font-medium">{e.name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-2.5 text-right font-mono-data tabular-nums text-muted-foreground">
+                      {e.isDir ? '—' : formatBytes(e.sizeBytes)}
+                    </td>
+                    <td className="px-4 py-2.5 text-right tabular-nums text-muted-foreground">
+                      {timeAgo(e.modTime)}
+                    </td>
+                  </tr>
+                ))}
+                {sortedEntries.length === 0 && (
+                  <tr>
+                    <td colSpan={3} className="px-4 py-16 text-center">
+                      <div className="flex flex-col items-center gap-3 text-sm text-muted-foreground">
+                        <Folder className="h-10 w-10 text-muted-foreground/25" />
                         {t('files.emptyDir')}
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
 
         {/* Drag-and-drop overlay */}
         {dragOver && (
-          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10 backdrop-blur-sm">
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-[inherit] border-2 border-dashed border-primary bg-primary/10 backdrop-blur-sm">
             <div className="flex flex-col items-center gap-2 text-primary">
               <Upload className="h-8 w-8" />
               <span className="text-sm font-medium">{t('files.dropToUpload')}</span>
@@ -405,7 +487,7 @@ export default function FilesPage() {
         onConfirm={del}
         onCancel={() => setConfirmDelete(false)}
       />
-    </div>
+    </PageShell>
   );
 }
 

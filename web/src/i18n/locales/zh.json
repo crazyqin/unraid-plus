@@ -245,6 +245,10 @@
     "degradedNotice": "SSH 连接不可用，部分数据来自 WebGUI 页面解析，可能不完整"
   },
   "files": {
+    "title": "文件",
+    "itemCount": "项",
+    "folderCount": "个文件夹",
+    "selectedCount": "已选",
     "upload": "上传",
     "newFolder": "新建文件夹",
     "delete": "删除",
@@ -289,11 +293,14 @@
     "desc": "浏览器内直接进入 Unraid 命令行 · 支持多会话",
     "newSession": "新会话",
     "reconnect": "重连",
+    "connected": "已连接",
     "disconnected": "终端连接已断开",
     "reconnectBtn": "重新连接",
     "openFirst": "打开第一个会话",
     "tip": "提示：会话通过后端 SSH 通道转发，断线后可点击重连按钮恢复。",
     "closeAll": "关闭全部",
+    "session": "会话",
+    "sessionCount": "个会话",
     "wsDisconnected": "[连接已断开]",
     "wsError": "[WebSocket 错误 — 后端终端服务尚未就绪]"
   },

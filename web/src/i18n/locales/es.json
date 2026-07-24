@@ -244,6 +244,10 @@
     "degradedNotice": "SSH no disponible — algunos datos provienen de scraping HTML y pueden estar incompletos"
   },
   "files": {
+    "title": "Archivos",
+    "itemCount": "elementos",
+    "folderCount": "carpetas",
+    "selectedCount": "seleccionados",
     "upload": "Subir",
     "newFolder": "Nueva carpeta",
     "delete": "Eliminar",
@@ -288,11 +292,14 @@
     "desc": "Línea de comandos Unraid en el navegador · Sesiones múltiples",
     "newSession": "Nueva sesión",
     "reconnect": "Reconectar",
+    "connected": "Conectado",
     "disconnected": "Terminal desconectado",
     "reconnectBtn": "Reconectar",
     "openFirst": "Abrir primera sesión",
     "tip": "Las sesiones se retransmiten vía SSH del backend. Haga clic en reconectar tras una desconexión.",
     "closeAll": "Cerrar todo",
+    "session": "Sesión",
+    "sessionCount": "sesiones",
     "wsDisconnected": "[Desconectado]",
     "wsError": "[Error WebSocket — servicio de terminal del backend no listo]"
   },

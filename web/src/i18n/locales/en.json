@@ -245,6 +245,10 @@
     "degradedNotice": "SSH unavailable — some data is from HTML scraping and may be incomplete"
   },
   "files": {
+    "title": "Files",
+    "itemCount": "items",
+    "folderCount": "folders",
+    "selectedCount": "selected",
     "upload": "Upload",
     "newFolder": "New Folder",
     "delete": "Delete",
@@ -289,11 +293,14 @@
     "desc": "Access Unraid command line directly in browser · Multiple sessions",
     "newSession": "New Session",
     "reconnect": "Reconnect",
+    "connected": "Connected",
     "disconnected": "Terminal disconnected",
     "reconnectBtn": "Reconnect",
     "openFirst": "Open first session",
     "tip": "Sessions are forwarded via backend SSH. Click reconnect after disconnection.",
     "closeAll": "Close All",
+    "session": "Session",
+    "sessionCount": "sessions",
     "wsDisconnected": "[Disconnected]",
     "wsError": "[WebSocket error — backend terminal service not ready]"
   },

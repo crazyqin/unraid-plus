@@ -7,6 +7,7 @@ import {
   Loader2,
   MemoryStick,
   Monitor,
+  MonitorPlay,
   Pause,
   Play,
   Power,
@@ -157,12 +158,12 @@ export default function VmsPage() {
         </motion.div>
       ) : (data ?? []).length === 0 ? (
         <motion.div className="card-bento flex flex-col items-center gap-3 py-16 text-center text-sm text-muted-foreground" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-          <Cpu className="h-10 w-10 text-muted-foreground/30" />
+          <MonitorPlay className="h-10 w-10 text-muted-foreground/30" />
           {t('vms.noVM')}
         </motion.div>
       ) : filtered.length === 0 ? (
         <motion.div className="card-bento flex flex-col items-center gap-3 py-16 text-center text-sm text-muted-foreground" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-          <Cpu className="h-10 w-10 text-muted-foreground/30" />
+          <MonitorPlay className="h-10 w-10 text-muted-foreground/30" />
           {t('vms.noMatch')}
         </motion.div>
       ) : (

@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -27,7 +26,7 @@ type container struct {
 	StartedAt int64    `json:"startedAt,omitempty"`
 	Ports     []string `json:"ports"`
 	Mounts    []mount  `json:"mounts"`
-	Via       string   `json:"via,omitempty"` // "graphql", "api" or "ssh"
+	Via       string   `json:"via,omitempty"` // "graphql" or "ssh"
 }
 
 type mount struct {
@@ -37,8 +36,8 @@ type mount struct {
 }
 
 // ListContainers returns Docker containers.
-// v0.9+: GraphQL-first (official Unraid GraphQL API), SSH for icon enrichment,
-// HTML scraping as last-resort fallback.
+// v0.10+: GraphQL-first (official Unraid GraphQL API), SSH as fallback.
+// HTML scraping has been completely removed.
 func (h *Handler) ListContainers(c *gin.Context) {
 	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
 	if sid == "" {
@@ -70,18 +69,6 @@ func (h *Handler) ListContainers(c *gin.Context) {
 		}
 		c.JSON(http.StatusOK, containers)
 		return
-	}
-
-	// Last resort: HTML scraping via PHP API
-	if hasAPI {
-		containers, err := h.listContainersAPI(sid)
-		if err == nil {
-			for i := range containers {
-				containers[i].Via = "api"
-			}
-			c.JSON(http.StatusOK, containers)
-			return
-		}
 	}
 
 	c.JSON(http.StatusOK, []container{})
@@ -215,193 +202,6 @@ func parseIconOutput(out string) map[string]string {
 }
 
 // ---------------------------------------------------------------------------
-// Docker list via HTTP API (DockerContainers.php HTML parsing) -- fallback
-// ---------------------------------------------------------------------------
-
-// addDockerCtxRe matches addDockerContainerContext() JS calls in the HTML.
-var addDockerCtxRe = regexp.MustCompile(
-	`addDockerContainerContext\(\s*'([^']*)'\s*,` + // 1: name
-		`\s*'([^']*)'\s*,` + // 2: id (short)
-		`\s*'([^']*)'\s*,` + // 3: template path
-		`\s*(\d+)\s*,` + // 4: running (1=running, 0=stopped)
-		`\s*(\d+)\s*,` + // 5: ?
-		`\s*(\d+)\s*,` + // 6: ?
-		`\s*(true|false)\s*,` + // 7: autostart
-		`\s*'([^']*)'\s*,` + // 8: ?
-		`\s*'([^']*)'\s*,` + // 9: ?
-		`\s*'([^']*)'\s*,` + // 10: shell type
-		`\s*'([^']*)'\s*,` + // 11: container hash
-		`\s*'([^']*)'\s*,` + // 12: ?
-		`\s*'([^']*)'\s*,` + // 13: ?
-		`\s*'([^']*)'\s*,` + // 14: ?
-		`\s*'([^']*)'\s*` + // 15: icon URL
-		`.*?\)`)
-
-// dockerStateRe matches the state indicator in the HTML row.
-var dockerStateRe = regexp.MustCompile(`<span\s+class=['"]state['"]\s*>([^<]+)</span>`)
-
-// dockerAppnameRe matches the container name link.
-var dockerAppnameRe = regexp.MustCompile(`<span\s+class=['"]appname\s*['"]\s*><a[^>]*>([^<]+)</a></span>`)
-
-// dockerImageRe matches the image name from the container info div.
-var dockerImageRe = regexp.MustCompile(`(?:来自|from):\s*([^\s<][^<]*)`)
-
-// dockerIconSrcRe matches the icon image source.
-var dockerIconSrcRe = regexp.MustCompile(`<img\s+src=['"]([^'"]+)['"]\s+class=['"]img['"]`)
-
-// listContainersAPI fetches container list from Unraid HTTP API (HTML scraping).
-// This is the last-resort fallback when GraphQL and SSH are both unavailable.
-func (h *Handler) listContainersAPI(sid string) ([]container, error) {
-	body, status, err := h.ur.DockerContainers(sid)
-	if err != nil {
-		return nil, err
-	}
-	if status != 200 {
-		return nil, fmt.Errorf("DockerContainers.php returned HTTP %d", status)
-	}
-
-	html := string(body)
-
-	if !strings.Contains(html, "addDockerContainerContext") {
-		return []container{}, nil
-	}
-
-	ctxMatches := addDockerCtxRe.FindAllStringSubmatch(html, -1)
-	containers := make([]container, 0, len(ctxMatches))
-
-	for _, m := range ctxMatches {
-		name := m[1]
-		id := m[2]
-		state := "exited"
-		statusStr := "exited"
-		if m[4] == "1" {
-			state = "running"
-			statusStr = "running"
-		}
-		iconURL := m[15]
-
-		ct := container{
-			ID:      id,
-			Name:    name,
-			Status:  statusStr,
-			State:   state,
-			IconURL: iconURL,
-			Ports:   []string{},
-			Mounts:  []mount{},
-		}
-		containers = append(containers, ct)
-	}
-
-	// Supplement with HTML row data (image name, state text, icon)
-	rows := parseDockerHTMLRows(html)
-	for i := range containers {
-		if info, ok := rows[containers[i].Name]; ok {
-			if containers[i].Image == "" {
-				containers[i].Image = info.image
-			}
-			if info.state != "" && containers[i].State == "" {
-				containers[i].State = info.state
-				containers[i].Status = info.state
-			}
-			if containers[i].IconURL == "" && info.iconSrc != "" {
-				sess := h.ur.GetSession(sid)
-				if sess != "" {
-					containers[i].IconURL = sess + info.iconSrc
-				}
-			}
-		}
-	}
-
-	return containers, nil
-}
-
-// dockerRowInfo holds parsed data from an HTML table row.
-type dockerRowInfo struct {
-	image   string
-	state   string
-	icon    string
-	iconSrc string
-}
-
-// parseDockerHTMLRows extracts container data from HTML <tr> rows.
-func parseDockerHTMLRows(html string) map[string]*dockerRowInfo {
-	rows := map[string]*dockerRowInfo{}
-
-	appMatches := dockerAppnameRe.FindAllStringSubmatch(html, -1)
-	names := make([]string, 0, len(appMatches))
-	for _, m := range appMatches {
-		name := strings.TrimSpace(m[1])
-		names = append(names, name)
-		if name != "" {
-			rows[name] = &dockerRowInfo{}
-		}
-	}
-
-	stateMatches := dockerStateRe.FindAllStringSubmatch(html, -1)
-	for i, m := range stateMatches {
-		state := strings.TrimSpace(m[1])
-		st := normalizeDockerHTMLState(state)
-		if i < len(names) && names[i] != "" {
-			if rows[names[i]] == nil {
-				rows[names[i]] = &dockerRowInfo{}
-			}
-			rows[names[i]].state = st
-		}
-	}
-
-	imageMatches := dockerImageRe.FindAllStringSubmatch(html, -1)
-	for i, m := range imageMatches {
-		image := strings.TrimSpace(m[1])
-		if image == "" {
-			continue
-		}
-		if i < len(names) && names[i] != "" {
-			if rows[names[i]] == nil {
-				rows[names[i]] = &dockerRowInfo{}
-			}
-			rows[names[i]].image = image
-		}
-	}
-
-	iconMatches := dockerIconSrcRe.FindAllStringSubmatch(html, -1)
-	for i, m := range iconMatches {
-		src := strings.TrimSpace(m[1])
-		if idx := strings.Index(src, "?"); idx >= 0 {
-			src = src[:idx]
-		}
-		if src == "" {
-			continue
-		}
-		if i < len(names) && names[i] != "" {
-			if rows[names[i]] == nil {
-				rows[names[i]] = &dockerRowInfo{}
-			}
-			rows[names[i]].iconSrc = src
-		}
-	}
-
-	return rows
-}
-
-// normalizeDockerHTMLState converts Unraid's localized state text to standard strings.
-func normalizeDockerHTMLState(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	switch {
-	case strings.Contains(s, "started") || strings.Contains(s, "running") || strings.Contains(s, "up"):
-		return "running"
-	case strings.Contains(s, "stopped") || strings.Contains(s, "exited"):
-		return "exited"
-	case strings.Contains(s, "paused"):
-		return "paused"
-	case strings.Contains(s, "created"):
-		return "created"
-	case strings.Contains(s, "restarting"):
-		return "restarting"
-	}
-	return s
-}
-
-// ---------------------------------------------------------------------------
 // Docker list via SSH
 // ---------------------------------------------------------------------------
 
@@ -525,7 +325,7 @@ func (h *Handler) listContainersSSH(cli *ssh.Client) []container {
 // ---------------------------------------------------------------------------
 
 // ContainerAction starts / stops / restarts / pauses / unpauses a container.
-// v0.9+: GraphQL mutation first, then PHP API, then SSH fallback.
+// v0.10+: GraphQL mutation first, then SSH fallback. HTML scraping removed.
 func (h *Handler) ContainerAction(c *gin.Context) {
 	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
 	if sid == "" {
@@ -536,41 +336,29 @@ func (h *Handler) ContainerAction(c *gin.Context) {
 	switch action {
 	case "start", "stop", "restart", "pause", "unpause":
 	default:
-		errOut(c, http.StatusBadRequest, "不支持的操作: "+action)
+		errOut(c, http.StatusBadRequest, "Unsupported action: "+action)
 		return
 	}
 
 	// GraphQL mutation first (official API)
 	if hasAPI && h.ur.HasGraphQL(sid) {
 		if ok, via := h.dockerActionGraphQL(c, sid, action, id); ok {
-			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": via})
+			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "Action " + action + " sent", "via": via})
 			return
-		}
-	}
-
-	// PHP API fallback (Events.php)
-	if hasAPI {
-		resp, err := h.ur.DockerActionOK(sid, action, id)
-		if err == nil && resp != nil && resp.Success {
-			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "api"})
-			return
-		}
-		if err != nil {
-			logger.Debugf("docker api action %s/%s failed, falling back to SSH: %v", action, id, err)
 		}
 	}
 
 	// SSH fallback
 	if hasSSH && cli != nil {
 		if _, err := cli.Run("docker " + action + " " + shellQuote(id)); err != nil {
-			errOut(c, http.StatusInternalServerError, "执行 docker "+action+" 失败")
+			errOut(c, http.StatusInternalServerError, "docker "+action+" failed")
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "ssh"})
+		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "Action " + action + " sent", "via": "ssh"})
 		return
 	}
 
-	errOut(c, http.StatusServiceUnavailable, "Docker 操作不可用（GraphQL/API/SSH 均不可用）")
+	errOut(c, http.StatusServiceUnavailable, "Docker action unavailable (GraphQL/SSH both unavailable)")
 }
 
 // dockerActionGraphQL sends a Docker container action via GraphQL mutation.

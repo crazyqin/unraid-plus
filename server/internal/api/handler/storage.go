@@ -72,7 +72,7 @@ func (h *Handler) Storage(c *gin.Context) {
 		return
 	}
 
-	errOut(c, http.StatusServiceUnavailable, "存储信息不可用：GraphQL API 不可用且 SSH 未连接")
+	errOut(c, http.StatusServiceUnavailable, "Storage unavailable: GraphQL API not available and SSH not connected")
 }
 
 // storageSSH is the full SSH-based storage handler.

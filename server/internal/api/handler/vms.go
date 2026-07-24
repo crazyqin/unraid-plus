@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -23,12 +21,12 @@ type vm struct {
 	MemoryBytes int64  `json:"memoryBytes"`
 	Autostart   bool   `json:"autostart"`
 	VNCPort     int    `json:"vncPort,omitempty"`
-	Via         string `json:"via,omitempty"` // "graphql", "api" or "ssh"
+	Via         string `json:"via,omitempty"` // "graphql" or "ssh"
 }
 
 // ListVMs returns VMs.
-// v0.9+: GraphQL-first (official Unraid GraphQL API), SSH fallback for
-// vCPU/memory details, HTML scraping as last-resort fallback.
+// v0.10+: GraphQL-first (official Unraid GraphQL API), SSH as fallback.
+// HTML scraping has been completely removed.
 func (h *Handler) ListVMs(c *gin.Context) {
 	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
 	if sid == "" {
@@ -55,42 +53,11 @@ func (h *Handler) ListVMs(c *gin.Context) {
 	// SSH fallback
 	if hasSSH && cli != nil {
 		vms := h.listVMsSSH(cli)
-		// Supplement VNC port from API when available
-		if hasAPI {
-			apiVMs, err := h.listVMsAPI(sid)
-			if err == nil {
-				vncMap := map[string]int{}
-				for _, vm := range apiVMs {
-					if vm.VNCPort > 0 {
-						vncMap[vm.Name] = vm.VNCPort
-					}
-				}
-				for i := range vms {
-					if vms[i].VNCPort == 0 {
-						if port, ok := vncMap[vms[i].Name]; ok {
-							vms[i].VNCPort = port
-						}
-					}
-				}
-			}
-		}
 		for i := range vms {
 			vms[i].Via = "ssh"
 		}
 		c.JSON(http.StatusOK, vms)
 		return
-	}
-
-	// Last resort: HTML scraping
-	if hasAPI {
-		vms, err := h.listVMsAPI(sid)
-		if err == nil {
-			for i := range vms {
-				vms[i].Via = "api"
-			}
-			c.JSON(http.StatusOK, vms)
-			return
-		}
 	}
 
 	c.JSON(http.StatusOK, []vm{})
@@ -173,7 +140,7 @@ func (h *Handler) enrichVMsWithSSH(cli *ssh.Client, vms []vm) {
 // ---------------------------------------------------------------------------
 
 // VMAction starts / stops / restarts / pauses / resumes a VM.
-// v0.9+: GraphQL mutation first, then PHP API (VMajax.php), then SSH fallback.
+// v0.10+: GraphQL mutation first, then SSH fallback. HTML scraping removed.
 func (h *Handler) VMAction(c *gin.Context) {
 	cli, sid, hasSSH, hasAPI := h.resolveServer(c)
 	if sid == "" {
@@ -185,28 +152,8 @@ func (h *Handler) VMAction(c *gin.Context) {
 	// GraphQL mutation first
 	if hasAPI && h.ur.HasGraphQL(sid) {
 		if ok, via := h.vmActionGraphQL(sid, action, id); ok {
-			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": via})
+			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "Action " + action + " sent", "via": via})
 			return
-		}
-	}
-
-	// PHP API fallback (VMajax.php)
-	apiActionMap := map[string]string{
-		"start":    "domain-start",
-		"stop":     "domain-destroy",
-		"shutdown": "domain-stop",
-		"resume":   "domain-resume",
-		"suspend":  "domain-pause",
-		"restart":  "domain-restart",
-	}
-	if apiAction, ok := apiActionMap[action]; ok && hasAPI {
-		resp, err := h.ur.VMActionOK(sid, apiAction, id)
-		if err == nil && resp != nil && resp.Success {
-			c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "api"})
-			return
-		}
-		if err != nil {
-			logger.Debugf("vm api action %s/%s failed, falling back to SSH: %v", action, id, err)
 		}
 	}
 
@@ -225,18 +172,18 @@ func (h *Handler) VMAction(c *gin.Context) {
 		case "suspend":
 			cmd = "virsh suspend " + shellQuote(id)
 		default:
-			errOut(c, http.StatusBadRequest, "不支持的操作: "+action)
+			errOut(c, http.StatusBadRequest, "Unsupported action: "+action)
 			return
 		}
 		if _, err := cli.Run(cmd); err != nil {
-			errOut(c, http.StatusInternalServerError, "执行 virsh "+action+" 失败")
+			errOut(c, http.StatusInternalServerError, "virsh "+action+" failed")
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已发送 " + action, "via": "ssh"})
+		c.JSON(http.StatusOK, gin.H{"ok": true, "message": "Action " + action + " sent", "via": "ssh"})
 		return
 	}
 
-	errOut(c, http.StatusServiceUnavailable, "VM 操作不可用（GraphQL/API/SSH 均不可用）")
+	errOut(c, http.StatusServiceUnavailable, "VM action unavailable (GraphQL/SSH both unavailable)")
 }
 
 // vmActionGraphQL sends a VM action via GraphQL mutation.
@@ -284,130 +231,6 @@ func (h *Handler) vmActionGraphQL(sid, action, vmID string) (bool, string) {
 	}
 
 	return false, ""
-}
-
-// ---------------------------------------------------------------------------
-// VM list via HTTP API (VMMachines.php HTML parsing) -- fallback
-// ---------------------------------------------------------------------------
-
-// addVMCtxRe matches addVMContext() JS calls in the HTML.
-var addVMCtxRe = regexp.MustCompile(
-	`addVMContext\(\s*'([^']*)'\s*,` + // 1: name
-		`\s*'([^']*)'\s*,` + // 2: uuid
-		`\s*'([^']*)'\s*,` + // 3: display name
-		`\s*'([^']*)'\s*,` + // 4: state
-		`\s*'([^']*)'\s*,` + // 5: VNC URL
-		`\s*'([^']*)'\s*,` + // 6: VNC type
-		`\s*'([^']*)'\s*,` + // 7: log path
-		`\s*'([^']*)'\s*,` + // 8: emulator
-		`\s*'([^']*)'\s*` + // 9: keyboard mode
-		`.*?\)`)
-
-// vmVcpuRe matches vCPU count from HTML table cell.
-var vmVcpuRe = regexp.MustCompile(`class=['"]vcpu-[^'"]*['"][^>]*>(\d+)`)
-
-// vmAutostartRe matches autostart checkbox.
-var vmAutostartRe = regexp.MustCompile(`class=['"]autostart['"][^>]*uuid=['"]([^'"]+)['"][^>]*checked`)
-
-// vmVNCPortRe matches VNC port info from HTML table cell.
-var vmVNCPortRe = regexp.MustCompile(`VNC:(\d+)`)
-
-// vmWsproxyPortRe matches wsproxy port from VNC URL.
-var vmWsproxyPortRe = regexp.MustCompile(`/wsproxy/(\d+)/`)
-
-// listVMsAPI fetches VM list from Unraid HTTP API (HTML scraping).
-// Last-resort fallback when GraphQL and SSH are both unavailable.
-func (h *Handler) listVMsAPI(sid string) ([]vm, error) {
-	body, status, err := h.ur.VMMachines(sid)
-	if err != nil {
-		return nil, err
-	}
-	if status != 200 {
-		return nil, fmt.Errorf("VMMachines.php returned HTTP %d", status)
-	}
-
-	html := string(body)
-
-	if !strings.Contains(html, "addVMContext") {
-		return []vm{}, nil
-	}
-
-	ctxMatches := addVMCtxRe.FindAllStringSubmatch(html, -1)
-	vms := make([]vm, 0, len(ctxMatches))
-
-	autostartMap := map[string]bool{}
-	for _, m := range vmAutostartRe.FindAllStringSubmatch(html, -1) {
-		autostartMap[m[1]] = true
-	}
-
-	for _, m := range ctxMatches {
-		name := m[1]
-		uuid := m[2]
-		state := m[4]
-		vncURL := m[5]
-
-		v := vm{
-			ID:     uuid,
-			Name:   name,
-			Status: normalizeVMHTMLState(state),
-		}
-
-		if port := vmWsproxyPortRe.FindStringSubmatch(vncURL); len(port) > 1 {
-			v.VNCPort, _ = strconv.Atoi(port[1])
-		}
-
-		v.Autostart = autostartMap[uuid]
-		vms = append(vms, v)
-	}
-
-	// Parse vCPU from HTML rows
-	vcpuMatches := vmVcpuRe.FindAllStringSubmatch(html, -1)
-	for i, m := range vcpuMatches {
-		if i < len(vms) {
-			vms[i].Vcpus = atoiSafe(m[1], 0)
-		}
-	}
-
-	// Parse memory: <td>NG</td> or <td>NM</td>
-	vmMemoryMatches := regexp.MustCompile(`<td>(\d+)(G|M)</td>`).FindAllStringSubmatch(html, -1)
-	vmMemIdx := 0
-	for i := range vms {
-		if vmMemIdx < len(vmMemoryMatches) {
-			val := atoi64Safe(vmMemoryMatches[vmMemIdx][1])
-			unit := vmMemoryMatches[vmMemIdx][2]
-			switch unit {
-			case "G":
-				vms[i].MemoryBytes = val * 1024 * 1024 * 1024
-			case "M":
-				vms[i].MemoryBytes = val * 1024 * 1024
-			}
-			vmMemIdx++
-		}
-	}
-
-	// Parse VNC port from table cells
-	vncPortMatches := vmVNCPortRe.FindAllStringSubmatch(html, -1)
-	for i, m := range vncPortMatches {
-		if i < len(vms) && vms[i].VNCPort == 0 {
-			vms[i].VNCPort, _ = strconv.Atoi(m[1])
-		}
-	}
-
-	return vms, nil
-}
-
-// normalizeVMHTMLState converts Unraid's VM state text to our standard strings.
-func normalizeVMHTMLState(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	switch {
-	case strings.Contains(s, "running"):
-		return "running"
-	case strings.Contains(s, "shut off") || strings.Contains(s, "stopped"):
-		return "shutoff"
-	case strings.Contains(s, "paused") || strings.Contains(s, "pmsuspended"):
-		return "paused"
-	}
-	return "unknown"
 }
 
 // ---------------------------------------------------------------------------

@@ -75,9 +75,16 @@ func (c *Client) GraphQLQueryWithOp(serverID string, query string, variables map
 		}
 	}
 
-	// Also attach x-api-key header if configured
+	// Also attach x-api-key header if configured (bypasses CSRF entirely)
 	if sess.apiKey != "" {
 		req.Header.Set("x-api-key", sess.apiKey)
+	}
+
+	// Send CSRF token header for session-based authentication.
+	// Unraid 7.x requires this for GraphQL requests when using cookie auth.
+	// If x-api-key is set, CSRF is not needed, but sending both is harmless.
+	if sess.csrfToken != "" {
+		req.Header.Set("X-CSRF-Token", sess.csrfToken)
 	}
 
 	transport := makeTransport()
@@ -158,6 +165,16 @@ func (c *Client) ProbeGraphQL(serverID string) bool {
 		}
 	}
 
+	// Attach API key if configured
+	if sess.apiKey != "" {
+		req.Header.Set("x-api-key", sess.apiKey)
+	}
+
+	// Attach CSRF token for session-based auth
+	if sess.csrfToken != "" {
+		req.Header.Set("X-CSRF-Token", sess.csrfToken)
+	}
+
 	resp, err := httpc.Do(req)
 	if err != nil {
 		logger.Debugf("graphql probe %s: %v", gqlURL, err)
@@ -184,6 +201,16 @@ func (c *Client) HasGraphQL(serverID string) bool {
 		return false
 	}
 	return sess.graphqlAvailable
+}
+
+// CsrfToken returns the CSRF token captured during login for the given server.
+// Returns empty string if no session or no token found.
+func (c *Client) CsrfToken(serverID string) string {
+	sess := c.getSession(serverID)
+	if sess == nil {
+		return ""
+	}
+	return sess.csrfToken
 }
 
 // SetAPIKey sets an optional API key for GraphQL authentication.

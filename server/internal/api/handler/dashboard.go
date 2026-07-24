@@ -12,6 +12,7 @@ import (
 
 	"github.com/crazyqin/unraid-plus/server/internal/ssh"
 	"github.com/crazyqin/unraid-plus/server/internal/unraid"
+	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
 
 type dashboardResp struct {
@@ -94,7 +95,7 @@ func (h *Handler) Dashboard(c *gin.Context) {
 		return
 	}
 
-	errOut(c, http.StatusServiceUnavailable, "仪表盘不可用：GraphQL API 不可用且 SSH 未连接")
+	errOut(c, http.StatusServiceUnavailable, "Dashboard unavailable: GraphQL API not available and SSH not connected")
 }
 
 // dashboardSSH is the full SSH-based dashboard with real-time stats.
@@ -567,6 +568,18 @@ func (h *Handler) dashboardGraphQL(c *gin.Context, sid string, cli *ssh.Client, 
 		wg.Done()
 	}()
 	wg.Wait()
+
+	// If both queries failed (e.g. CSRF/auth error), fall back to SSH
+	if infoErr != nil && metricsErr != nil {
+		logger.Warnf("dashboard graphql both queries failed for %s (info: %v, metrics: %v), falling back to SSH", sid, infoErr, metricsErr)
+		if hasSSH {
+			h.dashboardSSH(c, cli)
+			return
+		}
+		// No SSH either -- return whatever partial data we have (likely empty)
+		c.JSON(http.StatusOK, resp)
+		return
+	}
 
 	// Parse system info
 	if infoErr == nil && infoData != nil {

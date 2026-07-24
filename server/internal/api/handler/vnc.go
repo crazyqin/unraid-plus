@@ -31,18 +31,15 @@ var vncUpgrader = websocket.Upgrader{
 // VNCProxy handles a WebSocket connection that bridges to a VNC server on the
 // Unraid host through an SSH tunnel. The VM ID is passed as a query parameter
 // (e.g. /ws/vnc?vm=myvm). The handler:
-//  1. Looks up the VNC display for the VM (API HTML data first, then virsh fallback)
+//  1. Looks up the VNC display for the VM via virsh vncdisplay (SSH)
 //  2. Opens a TCP connection through the SSH tunnel to that VNC address
-//  3. Bridges WebSocket frames ↔ raw TCP bytes (VNC is a binary protocol)
-//
-// v0.4+: Prefer VNC info from VM HTML data (from listVMsAPI) when available.
-// Falls back to `virsh vncdisplay` via SSH.
+//  3. Bridges WebSocket frames <-> raw TCP bytes (VNC is a binary protocol)
 func (h *Handler) VNCProxy(c *gin.Context) {
 	cli, _, hasSSH, _ := h.resolveServer(c)
 	if !hasSSH {
 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
 			"ok":          false,
-			"message":     "VNC 控制台需要 SSH 连接（用于建立 SSH 隧道）",
+			"message":     "VNC requires SSH connection (for SSH tunnel)",
 			"requiresSSH": true,
 		})
 		return
@@ -50,21 +47,21 @@ func (h *Handler) VNCProxy(c *gin.Context) {
 
 	vmName := c.Query("vm")
 	if vmName == "" {
-		errOut(c, http.StatusBadRequest, "缺少 vm 参数")
+		errOut(c, http.StatusBadRequest, "Missing vm parameter")
 		return
 	}
 
-	// Look up VNC address: try API data first, then virsh
+	// Look up VNC address via virsh
 	vncAddr := h.resolveVNCAddress(cli, vmName)
 	if vncAddr == "" {
-		errOut(c, http.StatusNotFound, "无法获取该虚拟机的 VNC 地址（可能未运行或未配置 VNC）")
+		errOut(c, http.StatusNotFound, "Cannot resolve VNC address for this VM (may not be running or VNC not configured)")
 		return
 	}
 
 	// Open SSH-tunneled TCP connection to the VNC port.
 	vncConn, err := cli.DialTCP("tcp", vncAddr)
 	if err != nil {
-		errOut(c, http.StatusBadGateway, "VNC 连接失败: "+err.Error())
+		errOut(c, http.StatusBadGateway, "VNC connection failed: "+err.Error())
 		return
 	}
 	defer vncConn.Close()
@@ -79,10 +76,10 @@ func (h *Handler) VNCProxy(c *gin.Context) {
 
 	logger.Infof("vnc proxy: %s -> %s", vmName, vncAddr)
 
-	// Bridge: VNC TCP → WebSocket
+	// Bridge: VNC TCP -> WebSocket
 	done := make(chan struct{}, 2)
 
-	// TCP → WS
+	// TCP -> WS
 	go func() {
 		defer func() { done <- struct{}{} }()
 		buf := make([]byte, 32768)
@@ -99,7 +96,7 @@ func (h *Handler) VNCProxy(c *gin.Context) {
 		}
 	}()
 
-	// WS → TCP
+	// WS -> TCP
 	go func() {
 		defer func() { done <- struct{}{} }()
 		for {
@@ -122,28 +119,8 @@ func (h *Handler) VNCProxy(c *gin.Context) {
 	ws.SetWriteDeadline(time.Now().Add(500 * time.Millisecond))
 }
 
-// resolveVNCAddress finds the VNC TCP address for a VM.
-// v0.4+: Tries HTTP API VM data first, falls back to virsh vncdisplay via SSH.
+// resolveVNCAddress finds the VNC TCP address for a VM via virsh vncdisplay.
 func (h *Handler) resolveVNCAddress(cli *ssh.Client, vmName string) string {
-	// Try HTTP API: fetch VM list and find VNC port from HTML
-	// This avoids the `virsh vncdisplay` SSH call
-	sid := ""
-	cfg, err := h.pool.ActiveConfig()
-	if err == nil && cfg != nil {
-		sid = serverID(cfg.Host, cfg.Port)
-	}
-	if sid != "" && h.ur.HasSession(sid) {
-		vms, apiErr := h.listVMsAPI(sid)
-		if apiErr == nil {
-			for _, vm := range vms {
-				if vm.Name == vmName && vm.VNCPort > 0 {
-					return "127.0.0.1:" + strconv.Itoa(vm.VNCPort)
-				}
-			}
-		}
-	}
-
-	// SSH fallback: virsh vncdisplay
 	vncOut, err := cli.Run("virsh vncdisplay " + shellQuote(vmName) + " 2>/dev/null")
 	if err != nil || strings.TrimSpace(vncOut) == "" {
 		return ""
@@ -193,27 +170,8 @@ func isDisplayNumber(s string) (int, bool) {
 	return n, true
 }
 
-// VNCInfo returns the VNC address for a VM (if available).
-// v0.4+: Tries API data first, then virsh fallback.
+// VNCInfo returns the VNC address for a VM (if available) via virsh.
 func (h *Handler) VNCInfo(vmName string) string {
-	// Try API data
-	sid := ""
-	cfg, err := h.pool.ActiveConfig()
-	if err == nil && cfg != nil {
-		sid = serverID(cfg.Host, cfg.Port)
-	}
-	if sid != "" && h.ur.HasSession(sid) {
-		vms, apiErr := h.listVMsAPI(sid)
-		if apiErr == nil {
-			for _, vm := range vms {
-				if vm.Name == vmName && vm.VNCPort > 0 {
-					return ":" + strconv.Itoa(vm.VNCPort-5900) // return display number
-				}
-			}
-		}
-	}
-
-	// SSH fallback
 	cli, err := h.pool.Active()
 	if err != nil {
 		return ""
@@ -227,11 +185,10 @@ func (h *Handler) VNCInfo(vmName string) string {
 
 // VNCDialInfo is a lightweight endpoint that returns VNC connection details
 // for a specific VM, so the frontend knows whether VNC is available.
-// v0.4+: Tries API data first, then virsh fallback.
 func (h *Handler) VNCDialInfo(c *gin.Context) {
 	vmName := c.Query("vm")
 	if vmName == "" {
-		errOut(c, http.StatusBadRequest, "缺少 vm 参数")
+		errOut(c, http.StatusBadRequest, "Missing vm parameter")
 		return
 	}
 
@@ -239,36 +196,17 @@ func (h *Handler) VNCDialInfo(c *gin.Context) {
 	available := false
 	via := ""
 
-	// Try API data first
-	sid, hasSid := h.getServerID(c)
-	if hasSid && h.ur.HasSession(sid) {
-		vms, apiErr := h.listVMsAPI(sid)
-		if apiErr == nil {
-			for _, vm := range vms {
-				if vm.Name == vmName && vm.VNCPort > 0 {
-					vncAddr = "127.0.0.1:" + strconv.Itoa(vm.VNCPort)
+	cli, ok := h.activeClient(c)
+	if ok {
+		out, err := cli.Run("virsh vncdisplay " + shellQuote(vmName) + " 2>/dev/null")
+		if err == nil {
+			raw := strings.TrimSpace(out)
+			if raw != "" {
+				parsed := parseVNCDisplay(raw)
+				if parsed != "" {
+					vncAddr = raw
 					available = true
-					via = "api"
-					break
-				}
-			}
-		}
-	}
-
-	// SSH fallback
-	if !available {
-		cli, ok := h.activeClient(c)
-		if ok {
-			out, err := cli.Run("virsh vncdisplay " + shellQuote(vmName) + " 2>/dev/null")
-			if err == nil {
-				raw := strings.TrimSpace(out)
-				if raw != "" {
-					parsed := parseVNCDisplay(raw)
-					if parsed != "" {
-						vncAddr = raw
-						available = true
-						via = "ssh"
-					}
+					via = "ssh"
 				}
 			}
 		}

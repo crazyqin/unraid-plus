@@ -1,19 +1,15 @@
-// Package unraid wraps Unraid's WebGUI HTTP API (PHP AJAX endpoints).
+// Package unraid wraps Unraid's WebGUI HTTP session management and official
+// GraphQL API client.
 //
-// Unraid does NOT expose a formal REST API. The WebGUI uses PHP includes
-// that accept POST parameters and return JSON or HTML. This client logs in
-// to the WebGUI to obtain a session cookie, then calls those endpoints.
+// Authentication flow: POST /login to obtain a PHPSESSID session cookie and
+// csrf_token cookie, then use those cookies for GraphQL API requests.
+// Data priority: GraphQL > SSH. HTML scraping is completely removed.
 //
 // Multi-server: each server gets its own session stored by serverID.
-// Handlers should prefer HTTP API for Docker/VM actions (and new features
-// like disk spin, UPS, parity control) and fall back to SSH on failure.
-// SSH remains the transport for terminal, SFTP, /proc/* reads, and
-// real-time stats.
 package unraid
 
 import (
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,6 +27,7 @@ type serverSession struct {
 	apiBase           string
 	jar               *cookiejar.Jar // per-server cookie jar
 	apiKey            string         // optional x-api-key for GraphQL auth
+	csrfToken         string         // csrf_token cookie value for GraphQL requests
 	graphqlAvailable  bool           // set true after ProbeGraphQL succeeds
 }
 
@@ -134,10 +131,19 @@ func (c *Client) Login(serverID, apiBase, username, password string) error {
 	parsedBase, _ := url.Parse(base)
 	cookies := jar.Cookies(parsedBase)
 
+	// Look for the csrf_token cookie (required for Unraid 7.x GraphQL API)
+	var csrfToken string
+	for _, ck := range cookies {
+		if ck.Name == "csrf_token" {
+			csrfToken = ck.Value
+			break
+		}
+	}
+
 	if len(cookies) == 0 {
 		// Some Unraid versions may return 302 without setting cookies visible
 		// to the jar. If we got redirected to /Dashboard, login likely succeeded
-		// — treat it as success and create a minimal session.
+		// -- treat it as success and create a minimal session.
 		if strings.Contains(finalPath, "Dashboard") || strings.Contains(finalPath, "Main") {
 			logger.Infof("unraid api login redirect without cookies for %s, creating session anyway", serverID)
 		} else {
@@ -151,12 +157,17 @@ func (c *Client) Login(serverID, apiBase, username, password string) error {
 
 	c.mu.Lock()
 	c.sessions[serverID] = &serverSession{
-		apiBase: base,
-		jar:     sessionJar,
+		apiBase:  base,
+		jar:      sessionJar,
+		csrfToken: csrfToken,
 	}
 	c.mu.Unlock()
 
-	logger.Infof("unraid api login success for %s (cookies: %d)", serverID, len(cookies))
+	if csrfToken != "" {
+		logger.Infof("unraid api login success for %s (cookies: %d, csrf_token captured)", serverID, len(cookies))
+	} else {
+		logger.Infof("unraid api login success for %s (cookies: %d, no csrf_token cookie found)", serverID, len(cookies))
+	}
 	return nil
 }
 
@@ -266,94 +277,6 @@ func makeTransport() *http.Transport {
 	return &http.Transport{
 		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Docker API (DockerContainers.php + Events.php)
-// ---------------------------------------------------------------------------
-
-// DockerContainers fetches the Docker containers page HTML.
-// The response is HTML (not JSON) containing container data embedded in
-// addDockerContainerContext() JS calls and table rows.
-func (c *Client) DockerContainers(serverID string) ([]byte, int, error) {
-	return c.get(serverID, "/plugins/dynamix.docker.manager/include/DockerContainers.php")
-}
-
-// DockerAction sends a container action via Events.php.
-// action: start, stop, restart, pause, resume
-// Returns the response body and status code.
-func (c *Client) DockerAction(serverID, action, containerID string) ([]byte, int, error) {
-	form := url.Values{}
-	form.Set("action", action)
-	form.Set("container", containerID)
-	return c.post(serverID, "/plugins/dynamix.docker.manager/include/Events.php", form)
-}
-
-// DockerResponse is the JSON response from Events.php.
-type DockerResponse struct {
-	Success bool   `json:"success"`
-	Error   string `json:"error"`
-}
-
-// DockerActionOK calls DockerAction and returns a parsed response.
-func (c *Client) DockerActionOK(serverID, action, containerID string) (*DockerResponse, error) {
-	body, status, err := c.DockerAction(serverID, action, containerID)
-	if err != nil {
-		return nil, err
-	}
-	var resp DockerResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		// Some endpoints return non-JSON on success
-		if status >= 200 && status < 300 {
-			return &DockerResponse{Success: true}, nil
-		}
-		return nil, fmt.Errorf("docker action %s failed: HTTP %d, body: %s", action, status, string(body))
-	}
-	return &resp, nil
-}
-
-// ---------------------------------------------------------------------------
-// VM API (VMajax.php)
-// ---------------------------------------------------------------------------
-
-// VMMachines fetches the VM list page HTML.
-// The response is HTML (not JSON) containing VM data embedded in
-// addVMContext() JS calls and table rows.
-func (c *Client) VMMachines(serverID string) ([]byte, int, error) {
-	return c.get(serverID, "/plugins/dynamix.vm.manager/include/VMMachines.php")
-}
-
-// VMAction sends a VM action via VMajax.php.
-// action: domain-start, domain-stop, domain-destroy, domain-restart, domain-pause, domain-resume
-// uuid: the VM's UUID
-func (c *Client) VMAction(serverID, action, uuid string) ([]byte, int, error) {
-	form := url.Values{}
-	form.Set("action", action)
-	form.Set("uuid", uuid)
-	return c.post(serverID, "/plugins/dynamix.vm.manager/include/VMajax.php", form)
-}
-
-// VMResponse is the JSON response from VMajax.php.
-type VMResponse struct {
-	Success bool   `json:"success"`
-	State   string `json:"state"`
-	Error   string `json:"error"`
-}
-
-// VMActionOK calls VMAction and returns a parsed response.
-func (c *Client) VMActionOK(serverID, action, uuid string) (*VMResponse, error) {
-	body, status, err := c.VMAction(serverID, action, uuid)
-	if err != nil {
-		return nil, err
-	}
-	var resp VMResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		if status >= 200 && status < 300 {
-			return &VMResponse{Success: true}, nil
-		}
-		return nil, fmt.Errorf("vm action %s failed: HTTP %d, body: %s", action, status, string(body))
-	}
-	return &resp, nil
 }
 
 // ---------------------------------------------------------------------------
@@ -475,25 +398,4 @@ func (c *Client) Base() string { return "" }
 // SetCookies is kept for backward compat. Does nothing.
 func (c *Client) SetCookies(cks []*http.Cookie) {}
 
-// ---------------------------------------------------------------------------
-// Generic page fetch (for HTML scraping when no JSON API is available)
-// ---------------------------------------------------------------------------
 
-// FetchPage fetches any WebGUI page and returns the raw HTML body.
-// path should be a relative path like "/Main" or "/Dashboard".
-// Used for HTML scraping fallback when SSH is unavailable.
-func (c *Client) FetchPage(serverID, path string) ([]byte, int, error) {
-	return c.get(serverID, path)
-}
-
-// FetchEndpoint fetches a Unraid internal AJAX/PHP endpoint and returns
-// the raw response body. Similar to FetchPage but named differently to
-// distinguish between full-page fetches and AJAX endpoint calls.
-func (c *Client) FetchEndpoint(serverID, path string) ([]byte, int, error) {
-	return c.get(serverID, path)
-}
-
-// PostEndpoint posts to a Unraid internal AJAX/PHP endpoint.
-func (c *Client) PostEndpoint(serverID, path string, form url.Values) ([]byte, int, error) {
-	return c.post(serverID, path, form)
-}

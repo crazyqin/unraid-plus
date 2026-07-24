@@ -91,7 +91,7 @@ func (h *Handler) Dashboard(c *gin.Context) {
 	}
 
 	if hasSSH {
-		h.dashboardSSH(c, cli)
+		h.dashboardSSH(c, cli, sid)
 		return
 	}
 
@@ -122,22 +122,20 @@ func readCSRFFromSSH(cli *ssh.Client) string {
 }
 
 // dashboardSSH is the full SSH-based dashboard with real-time stats.
-func (h *Handler) dashboardSSH(c *gin.Context, cli *ssh.Client) {
+func (h *Handler) dashboardSSH(c *gin.Context, cli *ssh.Client, sid string) {
 
 	readStateFiles(cli) // reads var.ini/disks.ini for metadata (best-effort)
 
-	// First snapshot: fire all commands concurrently.
+	// First snapshot: fire all commands concurrently (CPU still needs dual sample).
 	var (
-		cpu1, memInfo, net1, disk1                          string
+		cpu1, memInfo                                   string
 		uptimeStr, loadStr, modelName, coreCountStr, temps string
 	)
 
 	var wg1 sync.WaitGroup
-	wg1.Add(9)
+	wg1.Add(7)
 	go func() { cpu1, _ = cli.Run("cat /proc/stat"); wg1.Done() }()
 	go func() { memInfo, _ = cli.Run("cat /proc/meminfo"); wg1.Done() }()
-	go func() { net1, _ = cli.Run("cat /proc/net/dev"); wg1.Done() }()
-	go func() { disk1, _ = cli.Run("cat /proc/diskstats"); wg1.Done() }()
 	go func() { uptimeStr, _ = cli.Run("cat /proc/uptime"); wg1.Done() }()
 	go func() { loadStr, _ = cli.Run("cat /proc/loadavg"); wg1.Done() }()
 	go func() { modelName, _ = cli.Run("grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //'"); wg1.Done() }()
@@ -145,16 +143,11 @@ func (h *Handler) dashboardSSH(c *gin.Context, cli *ssh.Client) {
 	go func() { temps, _ = cli.Run(readCoreTempCmd()); wg1.Done() }()
 	wg1.Wait()
 
-	time.Sleep(900 * time.Millisecond)
+	// Disk/network rates: prefer inter-request cache (accurate over poll interval).
+	arrayRw, network := sampleIORates(cli, sid)
 
-	// Second snapshot: only the delta-dependent commands.
-	var cpu2, net2, disk2 string
-	var wg2 sync.WaitGroup
-	wg2.Add(3)
-	go func() { cpu2, _ = cli.Run("cat /proc/stat"); wg2.Done() }()
-	go func() { net2, _ = cli.Run("cat /proc/net/dev"); wg2.Done() }()
-	go func() { disk2, _ = cli.Run("cat /proc/diskstats"); wg2.Done() }()
-	wg2.Wait()
+	time.Sleep(400 * time.Millisecond)
+	cpu2, _ := cli.Run("cat /proc/stat")
 
 	nCores := atoiSafe(coreCountStr, 1)
 	resp := dashboardResp{
@@ -163,12 +156,12 @@ func (h *Handler) dashboardSSH(c *gin.Context, cli *ssh.Client) {
 			Cores:        nCores,
 			PerCoreTempC: mapTempsToLogicalCores(parseThermalSnapshot(temps), nCores),
 		},
+		Network: network,
+		ArrayRw: arrayRw,
 	}
 	resp.CPU.UsagePct, resp.CPU.PerCoreUsagePct = computeCPUUsage(cpu1, cpu2, resp.CPU.Cores)
 
 	resp.Memory = parseMeminfo(memInfo)
-	resp.Network = computeNet(net1, net2, 0.9)
-	resp.ArrayRw = computeDiskRW(disk1, disk2, 0.9)
 	resp.Uptime = parseUptime(uptimeStr)
 	resp.LoadAvg = parseLoadAvg(loadStr)
 
@@ -367,13 +360,24 @@ func parseNetDev(s string) map[string]netRow {
 	return out
 }
 
-// computeDiskRW sums all sd/nvme/vd devices' read/write byte deltas.
+// computeDiskRW sums whole-disk (not partition) read/write byte deltas.
+// /proc/diskstats sector counts are always in 512-byte units.
 func computeDiskRW(s1, s2 string, dt float64) rwRate {
 	a := parseDiskstats(s1)
 	b := parseDiskstats(s2)
+	return diskRWFromMaps(a, b, dt)
+}
+
+func diskRWFromMaps(a, b map[string]diskStat, dt float64) rwRate {
+	if dt <= 0 {
+		dt = 1
+	}
 	var rd, wr int64
 	for dev, v2 := range b {
-		v1 := a[dev]
+		v1, ok := a[dev]
+		if !ok {
+			continue
+		}
 		rd += int64(float64(v2.sectorsRead-v1.sectorsRead) * 512 / dt)
 		wr += int64(float64(v2.sectorsWritten-v1.sectorsWritten) * 512 / dt)
 	}
@@ -391,6 +395,100 @@ type diskStat struct {
 	sectorsWritten int64
 }
 
+// ioSnap is a timestamped /proc snapshot used for cross-request rate calc.
+type ioSnap struct {
+	at    time.Time
+	disks map[string]diskStat
+	nets  map[string]netRow
+}
+
+// ioRateCache remembers the previous diskstats/netdev snapshot per server so
+// rates can be computed over the UI poll interval (2–15s) instead of only a
+// short ~0.9s window inside one request. Longer windows catch intermittent I/O
+// that a sub-second sample often reports as zero.
+var ioRateCache = struct {
+	sync.Mutex
+	m map[string]ioSnap
+}{m: map[string]ioSnap{}}
+
+// sampleIORates returns array R/W + network rates for the server.
+// Prefers inter-request deltas (cache hit); falls back to dual sample on first hit.
+func sampleIORates(cli *ssh.Client, serverID string) (rwRate, []netInfo) {
+	diskRaw, _ := cli.Run("cat /proc/diskstats")
+	netRaw, _ := cli.Run("cat /proc/net/dev")
+	now := time.Now()
+	disks := parseDiskstats(diskRaw)
+	nets := parseNetDev(netRaw)
+
+	ioRateCache.Lock()
+	prev, ok := ioRateCache.m[serverID]
+	ioRateCache.m[serverID] = ioSnap{at: now, disks: disks, nets: nets}
+	ioRateCache.Unlock()
+
+	if ok {
+		dt := now.Sub(prev.at).Seconds()
+		// Accept 0.4s–60s windows (covers 1s–15s UI refresh + some jitter)
+		if dt >= 0.4 && dt <= 60 && len(prev.disks) > 0 {
+			rw := diskRWFromMaps(prev.disks, disks, dt)
+			net := netRatesFromMaps(prev.nets, nets, dt)
+			return rw, net
+		}
+	}
+
+	// Cold start / stale cache: dual sample ~0.8s
+	time.Sleep(800 * time.Millisecond)
+	diskRaw2, _ := cli.Run("cat /proc/diskstats")
+	netRaw2, _ := cli.Run("cat /proc/net/dev")
+	now2 := time.Now()
+	disks2 := parseDiskstats(diskRaw2)
+	nets2 := parseNetDev(netRaw2)
+
+	ioRateCache.Lock()
+	ioRateCache.m[serverID] = ioSnap{at: now2, disks: disks2, nets: nets2}
+	ioRateCache.Unlock()
+
+	dt := 0.8
+	if ok {
+		// still use dual-sample window
+	}
+	return diskRWFromMaps(disks, disks2, dt), netRatesFromMaps(nets, nets2, dt)
+}
+
+func netRatesFromMaps(a, b map[string]netRow, dt float64) []netInfo {
+	if dt <= 0 {
+		dt = 1
+	}
+	out := []netInfo{}
+	for name, nb := range b {
+		if name == "lo" {
+			continue
+		}
+		na, ok := a[name]
+		if !ok {
+			continue
+		}
+		rxRate := int64(float64(nb.rxTotal-na.rxTotal) / dt)
+		txRate := int64(float64(nb.txTotal-na.txTotal) / dt)
+		if rxRate < 0 {
+			rxRate = 0
+		}
+		if txRate < 0 {
+			txRate = 0
+		}
+		out = append(out, netInfo{
+			Iface:         name,
+			RxBytesPerSec: rxRate,
+			TxBytesPerSec: txRate,
+			RxTotalBytes:  nb.rxTotal,
+			TxTotalBytes:  nb.txTotal,
+		})
+	}
+	if len(out) == 0 {
+		return []netInfo{{Iface: "-"}}
+	}
+	return out
+}
+
 func parseDiskstats(s string) map[string]diskStat {
 	out := map[string]diskStat{}
 	for _, line := range strings.Split(s, "\n") {
@@ -399,8 +497,9 @@ func parseDiskstats(s string) map[string]diskStat {
 			continue
 		}
 		dev := f[2]
-		// filter to physical-looking devices only
-		if !(strings.HasPrefix(dev, "sd") || strings.HasPrefix(dev, "nvme") || strings.HasPrefix(dev, "vd") || strings.HasPrefix(dev, "md")) {
+		// Whole disks only — summing partitions + parents double-counts I/O
+		// and can make rates look wrong or noisy.
+		if !isWholeDiskName(dev) {
 			continue
 		}
 		out[dev] = diskStat{
@@ -409,6 +508,55 @@ func parseDiskstats(s string) map[string]diskStat {
 		}
 	}
 	return out
+}
+
+// isWholeDiskName reports whether a /proc/diskstats device name is a whole
+// disk (not a partition). Examples that pass: sda, sdb, nvme0n1, md1, vda.
+// Examples that fail: sda1, nvme0n1p1, md1p1, loop0.
+func isWholeDiskName(dev string) bool {
+	if dev == "" {
+		return false
+	}
+	// nvme0n1 yes; nvme0n1p1 / nvme0n1p2 no
+	if strings.HasPrefix(dev, "nvme") {
+		// whole: nvme\d+n\d+
+		for i := 0; i < len(dev); i++ {
+			// crude but reliable: presence of 'p' after nN
+			if i > 0 && dev[i] == 'p' && i+1 < len(dev) && dev[i+1] >= '0' && dev[i+1] <= '9' {
+				return false
+			}
+		}
+		return strings.Contains(dev, "n")
+	}
+	// md1 yes; md1p1 no
+	if strings.HasPrefix(dev, "md") {
+		for i := 2; i < len(dev); i++ {
+			if dev[i] == 'p' {
+				return false
+			}
+		}
+		// require at least one digit
+		for i := 2; i < len(dev); i++ {
+			if dev[i] >= '0' && dev[i] <= '9' {
+				return true
+			}
+		}
+		return false
+	}
+	// mmcblk0 yes; mmcblk0p1 no
+	if strings.HasPrefix(dev, "mmcblk") {
+		return !strings.Contains(dev, "p")
+	}
+	// sda / vda / hda / xvda — whole disk ends with a letter, partitions end with digits
+	if strings.HasPrefix(dev, "sd") || strings.HasPrefix(dev, "vd") ||
+		strings.HasPrefix(dev, "hd") || strings.HasPrefix(dev, "xvd") {
+		if len(dev) < 3 {
+			return false
+		}
+		last := dev[len(dev)-1]
+		return last < '0' || last > '9'
+	}
+	return false
 }
 
 // thermalSnapshot holds labeled core temperatures + optional CPU topology.
@@ -734,7 +882,7 @@ func (h *Handler) dashboardGraphQL(c *gin.Context, sid string, cli *ssh.Client, 
 	if infoErr != nil && metricsErr != nil {
 		logger.Warnf("dashboard graphql both queries failed for %s (info: %v, metrics: %v), falling back to SSH", sid, infoErr, metricsErr)
 		if hasSSH {
-			h.dashboardSSH(c, cli)
+			h.dashboardSSH(c, cli, sid)
 			return
 		}
 		// No SSH either -- return empty shell so UI stays up
@@ -866,12 +1014,12 @@ func (h *Handler) dashboardGraphQL(c *gin.Context, sid string, cli *ssh.Client, 
 	// If SSH is available, always enrich with temps + disk R/W (GraphQL lacks these).
 	// Also overwrites per-core / network with higher-fidelity /proc deltas when present.
 	if hasSSH && cli != nil {
-		h.enrichWithSSHDeltas(cli, &resp)
+		h.enrichWithSSHDeltas(cli, sid, &resp)
 	}
 
 	// If we got neither info nor metrics and no SSH enrichment, try full SSH fallback.
 	if !gotInfo && !gotMetrics && hasSSH && cli != nil && resp.CPU.UsagePct == 0 && resp.Memory.TotalBytes == 0 {
-		h.dashboardSSH(c, cli)
+		h.dashboardSSH(c, cli, sid)
 		return
 	}
 
@@ -921,30 +1069,29 @@ func (h *Handler) fillUsageFromSSH(cli *ssh.Client, resp *dashboardResp) {
 }
 
 // enrichWithSSHDeltas supplements a GraphQL-based dashboard response with
-// real-time delta stats from SSH: per-core CPU usage, per-core temps,
-// network throughput, and array disk throughput. These require two snapshots
-// ~1s apart and can only be computed from /proc/* files via SSH.
-func (h *Handler) enrichWithSSHDeltas(cli *ssh.Client, resp *dashboardResp) {
-	var cpu1, net1, disk1, temps string
+// real-time stats from SSH: per-core CPU usage, per-core temps, network
+// throughput, and array disk throughput.
+func (h *Handler) enrichWithSSHDeltas(cli *ssh.Client, sid string, resp *dashboardResp) {
+	var cpu1, temps string
 	var coreCountStr string
 	var wg sync.WaitGroup
-	wg.Add(5)
+	wg.Add(3)
 	go func() { cpu1, _ = cli.Run("cat /proc/stat"); wg.Done() }()
-	go func() { net1, _ = cli.Run("cat /proc/net/dev"); wg.Done() }()
-	go func() { disk1, _ = cli.Run("cat /proc/diskstats"); wg.Done() }()
 	go func() { temps, _ = cli.Run(readCoreTempCmd()); wg.Done() }()
 	go func() { coreCountStr, _ = cli.Run("nproc"); wg.Done() }()
 	wg.Wait()
 
-	time.Sleep(900 * time.Millisecond)
+	// Array R/W + network from cross-request cache (preferred) or dual sample.
+	arrayRw, network := sampleIORates(cli, sid)
+	resp.ArrayRw = arrayRw
+	// Prefer GraphQL network if it already has real rates; otherwise SSH.
+	if len(resp.Network) == 0 || (len(resp.Network) == 1 && resp.Network[0].Iface == "-") ||
+		(resp.Network[0].RxBytesPerSec == 0 && resp.Network[0].TxBytesPerSec == 0) {
+		resp.Network = network
+	}
 
-	var cpu2, net2, disk2 string
-	var wg2 sync.WaitGroup
-	wg2.Add(3)
-	go func() { cpu2, _ = cli.Run("cat /proc/stat"); wg2.Done() }()
-	go func() { net2, _ = cli.Run("cat /proc/net/dev"); wg2.Done() }()
-	go func() { disk2, _ = cli.Run("cat /proc/diskstats"); wg2.Done() }()
-	wg2.Wait()
+	time.Sleep(400 * time.Millisecond)
+	cpu2, _ := cli.Run("cat /proc/stat")
 
 	// Overwrite CPU usage with per-core data from SSH deltas
 	cores := resp.CPU.Cores
@@ -954,8 +1101,6 @@ func (h *Handler) enrichWithSSHDeltas(cli *ssh.Client, resp *dashboardResp) {
 	}
 	resp.CPU.UsagePct, resp.CPU.PerCoreUsagePct = computeCPUUsage(cpu1, cpu2, cores)
 	resp.CPU.PerCoreTempC = mapTempsToLogicalCores(parseThermalSnapshot(temps), cores)
-	resp.Network = computeNet(net1, net2, 0.9)
-	resp.ArrayRw = computeDiskRW(disk1, disk2, 0.9)
 
 	// Load average (SSH-only)
 	if loadStr, err := cli.Run("cat /proc/loadavg"); err == nil {

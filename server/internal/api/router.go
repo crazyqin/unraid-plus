@@ -93,6 +93,8 @@ func buildRouter(cfg *config.Config, h *handler.Handler) http.Handler {
 
 	// Server management (v0.8+): multi-server persistence
 	api.GET("/servers", h.ListServers)
+	api.GET("/servers/:id", h.GetServer)
+	api.PUT("/servers/:id", h.UpdateServer)
 	api.POST("/servers/:id/reconnect", h.ReconnectServer)
 	api.DELETE("/servers/:id", h.DeleteServer)
 

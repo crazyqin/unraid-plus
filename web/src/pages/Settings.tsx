@@ -1,12 +1,15 @@
 import { useNavigate } from 'react-router-dom';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { motion } from 'framer-motion';
 import {
   Globe,
   KeyRound,
+  Loader2,
   LogOut,
   Monitor,
+  Pencil,
+  Plus,
   RefreshCw,
   Server,
   Shield,
@@ -39,7 +42,11 @@ const LANGUAGES = [
 export default function SettingsPage() {
   const { t } = useTranslation();
   const server = useAuthStore((s) => s.server);
+  const activeServerId = useAuthStore((s) => s.activeServerId);
   const reset = useAuthStore((s) => s.reset);
+  const refreshServers = useAuthStore((s) => s.refreshServers);
+  const selectServer = useAuthStore((s) => s.selectServer);
+  const setConnectionMode = useAuthStore((s) => s.setConnectionMode);
   const uiAuthEnabled = useAuthStore((s) => s.uiAuthEnabled);
   const isUiAuthenticated = useAuthStore((s) => s.isUiAuthenticated);
   const logout = useAuthStore((s) => s.logout);
@@ -47,6 +54,17 @@ export default function SettingsPage() {
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
   const [confirmRotate, setConfirmRotate] = useState(false);
   const [rotateLoading, setRotateLoading] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [saveLoading, setSaveLoading] = useState(false);
+  const [saveMsg, setSaveMsg] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+
+  // Editable connection fields
+  const [formLabel, setFormLabel] = useState('');
+  const [formHost, setFormHost] = useState('');
+  const [formPort, setFormPort] = useState(22);
+  const [formUser, setFormUser] = useState('root');
+  const [formApiBase, setFormApiBase] = useState('');
+  const [formPassword, setFormPassword] = useState('');
 
   const {
     refreshInterval,
@@ -56,6 +74,46 @@ export default function SettingsPage() {
     theme,
     setTheme,
   } = useSettingsStore();
+
+  // Load full server detail (includes apiBase) when editing opens / server changes
+  useEffect(() => {
+    if (!server) return;
+    setFormLabel(server.label || '');
+    setFormHost(server.host || '');
+    setFormPort(server.sshPort || 22);
+    setFormUser(server.user || 'root');
+    setFormApiBase(server.apiBase || `http://${server.host}`);
+    setFormPassword('');
+  }, [server?.id, server?.host, server?.sshPort, server?.user, server?.label, server?.apiBase]);
+
+  useEffect(() => {
+    const id = activeServerId || server?.id;
+    if (!id || !editing) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const detail = await api.get<{
+          id: string;
+          host: string;
+          port: number;
+          user: string;
+          apiBase: string;
+          label: string;
+        }>(`/servers/${encodeURIComponent(id)}`);
+        if (cancelled) return;
+        setFormLabel(detail.label || '');
+        setFormHost(detail.host || '');
+        setFormPort(detail.port || 22);
+        setFormUser(detail.user || 'root');
+        setFormApiBase(detail.apiBase || `http://${detail.host}`);
+      } catch {
+        /* keep local form */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editing, activeServerId, server?.id]);
 
   const disconnect = async () => {
     try {
@@ -77,6 +135,50 @@ export default function SettingsPage() {
     }
   };
 
+  const saveServer = async () => {
+    const id = activeServerId || server?.id;
+    if (!id) return;
+    if (!formHost.trim()) {
+      setSaveMsg({ kind: 'err', text: t('settings.hostPlaceholder') });
+      return;
+    }
+    setSaveLoading(true);
+    setSaveMsg(null);
+    try {
+      const res = await api.put<{
+        ok: boolean;
+        message?: string;
+        serverId?: string;
+        sshAvailable?: boolean;
+        apiAvailable?: boolean;
+      }>(`/servers/${encodeURIComponent(id)}`, {
+        host: formHost.trim(),
+        sshPort: formPort || 22,
+        user: formUser.trim() || 'root',
+        apiBase: formApiBase.trim(),
+        label: formLabel.trim(),
+        password: formPassword,
+        reconnect: true,
+      });
+      setSaveMsg({ kind: 'ok', text: res.message || t('settings.editServerSuccess') });
+      setFormPassword('');
+      setEditing(false);
+      await refreshServers();
+      if (res.serverId) {
+        selectServer(res.serverId);
+      }
+      if (typeof res.sshAvailable === 'boolean' || typeof res.apiAvailable === 'boolean') {
+        setConnectionMode(!!res.sshAvailable, !!res.apiAvailable);
+      }
+      window.setTimeout(() => setSaveMsg(null), 4000);
+    } catch (e) {
+      const msg = e instanceof ApiError ? e.message : t('settings.editServerFailed');
+      setSaveMsg({ kind: 'err', text: msg });
+    } finally {
+      setSaveLoading(false);
+    }
+  };
+
   return (
     <PageShell>
       <PageOrb className="-right-16 -top-10 bg-amber-500/10" />
@@ -95,29 +197,150 @@ export default function SettingsPage() {
         transition={springGentle}
       >
         <div className="space-y-1 border-b border-border/30 px-5 pt-5 pb-4">
-          <div className="flex items-center gap-2 text-base font-semibold tracking-tight">
-            <Server className="h-4 w-4 text-muted-foreground" /> {t('settings.currentConnection')}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2 text-base font-semibold tracking-tight">
+              <Server className="h-4 w-4 text-muted-foreground" /> {t('settings.currentConnection')}
+            </div>
+            {server && !editing && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 rounded-xl"
+                onClick={() => setEditing(true)}
+              >
+                <Pencil className="h-3.5 w-3.5" /> {t('settings.editServer')}
+              </Button>
+            )}
           </div>
           <p className="text-sm text-muted-foreground">{t('settings.currentConnectionDesc')}</p>
         </div>
         <div className="space-y-3 px-5 pb-5 pt-4 text-sm">
-          <Row label={t('settings.nicknameHost')} value={server ? `${server.label} · ${server.host}` : '—'} />
-          <Row label={t('settings.sshPort')} value={server ? String(server.sshPort) : '—'} />
-          <Row label={t('settings.user')} value={server?.user ?? '—'} />
-          <Row
-            label={t('settings.authMode')}
-            value={
-              server ? (
-                <Badge variant={server.authMode === 'key' ? 'success' : 'warning'} className="tracking-wide">
-                  {server.authMode === 'key' ? t('settings.keyFree') : t('settings.passwordMode')}
-                </Badge>
-              ) : (
-                '—'
-              )
-            }
-          />
+          {!editing ? (
+            <>
+              <Row label={t('settings.nicknameHost')} value={server ? `${server.label || '—'} · ${server.host}` : '—'} />
+              <Row label={t('settings.sshPort')} value={server ? String(server.sshPort) : '—'} />
+              <Row label={t('settings.user')} value={server?.user ?? '—'} />
+              <Row
+                label={t('settings.authMode')}
+                value={
+                  server ? (
+                    <Badge variant={server.authMode === 'key' ? 'success' : 'warning'} className="tracking-wide">
+                      {server.authMode === 'key' ? t('settings.keyFree') : t('settings.passwordMode')}
+                    </Badge>
+                  ) : (
+                    '—'
+                  )
+                }
+              />
+            </>
+          ) : (
+            <div className="space-y-4">
+              <Field label={t('settings.label')}>
+                <Input
+                  className="h-10 rounded-xl"
+                  value={formLabel}
+                  onChange={(e) => setFormLabel(e.target.value)}
+                  placeholder={t('settings.labelPlaceholder')}
+                />
+              </Field>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <Field label={t('settings.host')}>
+                  <Input
+                    className="h-10 rounded-xl"
+                    value={formHost}
+                    onChange={(e) => setFormHost(e.target.value)}
+                    placeholder={t('settings.hostPlaceholder')}
+                  />
+                </Field>
+                <Field label={t('settings.sshPort')}>
+                  <Input
+                    className="h-10 rounded-xl"
+                    type="number"
+                    min={1}
+                    max={65535}
+                    value={formPort}
+                    onChange={(e) => setFormPort(Number(e.target.value) || 22)}
+                  />
+                </Field>
+              </div>
+              <Field label={t('settings.user')}>
+                <Input
+                  className="h-10 rounded-xl"
+                  value={formUser}
+                  onChange={(e) => setFormUser(e.target.value)}
+                />
+              </Field>
+              <Field label={t('settings.apiBase')} hint={t('settings.apiBaseHint')}>
+                <Input
+                  className="h-10 rounded-xl"
+                  value={formApiBase}
+                  onChange={(e) => setFormApiBase(e.target.value)}
+                  placeholder={t('settings.apiBasePlaceholder')}
+                />
+              </Field>
+              <Field label={t('settings.rootPassword')} hint={t('settings.rootPasswordHint')}>
+                <Input
+                  className="h-10 rounded-xl"
+                  type="password"
+                  autoComplete="new-password"
+                  value={formPassword}
+                  onChange={(e) => setFormPassword(e.target.value)}
+                  placeholder={t('settings.rootPasswordPlaceholder')}
+                />
+              </Field>
+              <div className="flex flex-wrap gap-2 pt-1">
+                <Button
+                  size="sm"
+                  className="h-9 rounded-xl"
+                  disabled={saveLoading}
+                  onClick={() => void saveServer()}
+                >
+                  {saveLoading ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  )}{' '}
+                  {saveLoading ? t('settings.saving') : t('settings.saveAndReconnect')}
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-9 rounded-xl"
+                  disabled={saveLoading}
+                  onClick={() => {
+                    setEditing(false);
+                    setFormPassword('');
+                    setSaveMsg(null);
+                  }}
+                >
+                  {t('common.cancel')}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {saveMsg && (
+            <div
+              className={
+                saveMsg.kind === 'ok'
+                  ? 'rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-700 dark:text-emerald-400'
+                  : 'rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive'
+              }
+            >
+              {saveMsg.text}
+            </div>
+          )}
+
           <Separator />
           <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 rounded-xl"
+              onClick={() => navigate('/onboarding?mode=add')}
+            >
+              <Plus className="h-3.5 w-3.5" /> {t('settings.addServer')}
+            </Button>
             <Button variant="outline" size="sm" className="h-9 rounded-xl" onClick={() => location.reload()}>
               <RefreshCw className="h-3.5 w-3.5" /> {t('settings.refreshPage')}
             </Button>
@@ -300,9 +523,27 @@ function Row({
   value: React.ReactNode;
 }) {
   return (
-    <div className="flex items-center justify-between">
+    <div className="flex items-center justify-between gap-3">
       <span className="text-muted-foreground">{label}</span>
-      <span>{value}</span>
+      <span className="text-right font-medium">{value}</span>
+    </div>
+  );
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="space-y-1.5">
+      <Label className="text-xs font-medium text-muted-foreground">{label}</Label>
+      {children}
+      {hint && <p className="text-[11px] text-muted-foreground/70">{hint}</p>}
     </div>
   );
 }

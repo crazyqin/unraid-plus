@@ -232,6 +232,77 @@ func (sm *serverManager) Delete(id string) error {
 	return sm.saveLocked()
 }
 
+// UpdateEntry updates fields of an existing server. If host/port change the
+// entry ID changes and key files are renamed. password empty keeps existing.
+// Returns the (possibly new) entry ID.
+func (sm *serverManager) UpdateEntry(id string, host string, port int, user, apiBase, label, password string) (string, error) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	old, ok := sm.entries[id]
+	if !ok {
+		return "", fmt.Errorf("server %s not found", id)
+	}
+
+	if host == "" {
+		host = old.Host
+	}
+	if port <= 0 {
+		port = old.Port
+	}
+	if user == "" {
+		user = old.User
+	}
+	if apiBase == "" {
+		apiBase = old.APIBase
+	}
+	// label may intentionally be cleared — only keep old if not provided via pointer;
+	// here we accept empty label as clear/replace when the caller always sends it.
+
+	newID := serverID(host, port)
+	entry := &serverEntry{
+		ID:          newID,
+		Host:        host,
+		Port:        port,
+		User:        user,
+		AuthMode:    old.AuthMode,
+		APIBase:     apiBase,
+		Label:       label,
+		LastSeen:    time.Now().Format(time.RFC3339),
+		EncPassword: old.EncPassword,
+	}
+
+	// Update password if a new one was supplied
+	if password != "" {
+		entry.AuthMode = "password"
+		enc, err := sm.encryptPassword(password)
+		if err != nil {
+			logger.Warnf("encrypt password for %s failed: %v", newID, err)
+		} else {
+			entry.EncPassword = enc
+		}
+	}
+
+	// Migrate key files when ID changes
+	if newID != id {
+		oldKey := filepath.Join(sm.dir, "keys", id)
+		newKey := filepath.Join(sm.dir, "keys", newID)
+		if data, err := os.ReadFile(oldKey); err == nil {
+			_ = os.MkdirAll(filepath.Join(sm.dir, "keys"), 0o700)
+			_ = os.WriteFile(newKey, data, 0o600)
+			_ = os.Remove(oldKey)
+			_ = os.Remove(oldKey + ".pub")
+		}
+		delete(sm.entries, id)
+	}
+
+	sm.entries[newID] = entry
+	if err := sm.saveLocked(); err != nil {
+		return "", err
+	}
+	return newID, nil
+}
+
 // ConnConfigFor returns an ssh.ConnConfig that can be used to reconnect to a
 // saved server. Returns nil if the server is not found or credentials are
 // unavailable.

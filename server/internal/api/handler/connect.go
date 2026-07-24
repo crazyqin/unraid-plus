@@ -285,6 +285,174 @@ func (h *Handler) DisconnectServer(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"ok": true, "message": "已断开"})
 }
 
+// UpdateServer updates connection settings for a saved server (host, SSH port,
+// user, WebGUI URL, label, password) and optionally reconnects.
+//
+// PUT /api/servers/:id
+// Body: { host?, sshPort?, user?, apiBase?, label?, password?, reconnect? }
+// password empty keeps the stored password. reconnect defaults to true.
+func (h *Handler) UpdateServer(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		errOut(c, http.StatusBadRequest, "缺少服务器 ID")
+		return
+	}
+	if h.sm == nil || h.sm.Get(id) == nil {
+		errOut(c, http.StatusNotFound, "服务器不存在")
+		return
+	}
+
+	var req struct {
+		Host       string `json:"host"`
+		SSHPort    int    `json:"sshPort"`
+		User       string `json:"user"`
+		APIBase    string `json:"apiBase"`
+		Label      string `json:"label"`
+		Password   string `json:"password"`
+		Reconnect  *bool  `json:"reconnect"` // default true
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		errOut(c, http.StatusBadRequest, "请求格式错误: "+err.Error())
+		return
+	}
+
+	old := h.sm.Get(id)
+	host := req.Host
+	if host == "" {
+		host = old.Host
+	}
+	port := req.SSHPort
+	if port <= 0 {
+		port = old.Port
+	}
+	user := req.User
+	if user == "" {
+		user = old.User
+	}
+	apiBase := req.APIBase
+	if apiBase == "" {
+		apiBase = old.APIBase
+	}
+	// Normalize apiBase if user typed bare host
+	if apiBase != "" && !strings.HasPrefix(apiBase, "http://") && !strings.HasPrefix(apiBase, "https://") {
+		apiBase = "http://" + apiBase
+	}
+	label := req.Label
+	if label == "" {
+		label = old.Label
+	}
+
+	// Drop live sessions for the old ID before ID may change
+	_ = h.pool.Forget(old.Host, old.Port)
+	h.ur.RemoveSession(id)
+
+	newID, err := h.sm.UpdateEntry(id, host, port, user, apiBase, label, req.Password)
+	if err != nil {
+		errOut(c, http.StatusInternalServerError, "保存失败: "+err.Error())
+		return
+	}
+
+	doReconnect := true
+	if req.Reconnect != nil {
+		doReconnect = *req.Reconnect
+	}
+
+	resp := connectResp{
+		Ok:       true,
+		ServerID: newID,
+		Message:  "配置已保存",
+	}
+
+	if doReconnect {
+		cfg, cfgErr := h.sm.ConnConfigFor(newID)
+		if cfgErr != nil {
+			resp.Message = "配置已保存，但无法自动重连: " + cfgErr.Error()
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+
+		// WebGUI login
+		apiOK := false
+		if cfg.Password != "" && cfg.APIBase != "" {
+			if err := h.ur.Login(newID, cfg.APIBase, cfg.User, cfg.Password); err != nil {
+				logger.Warnf("update-server WebGUI login failed for %s: %v", newID, err)
+				if strings.HasPrefix(cfg.APIBase, "https://") && strings.Contains(err.Error(), "HTTP response to HTTPS") {
+					httpBase := "http://" + strings.TrimPrefix(cfg.APIBase, "https://")
+					if err2 := h.ur.Login(newID, httpBase, cfg.User, cfg.Password); err2 == nil {
+						apiOK = true
+						cfg.APIBase = httpBase
+						_ = h.sm.Upsert(cfg, cfg.Password)
+					}
+				}
+			} else {
+				apiOK = true
+			}
+		}
+		if apiOK {
+			go func() {
+				if h.ur.ProbeGraphQL(newID) {
+					logger.Infof("GraphQL API detected for %s after update", newID)
+				}
+			}()
+		}
+
+		// SSH
+		_ = h.pool.Forget(cfg.Host, cfg.Port)
+		result, sshErr := h.pool.Connect(cfg)
+		sshOK := sshErr == nil
+		resp.APIAvailable = apiOK
+		resp.SSHAvailable = sshOK
+		if sshOK {
+			resp.HostFingerprint = result.HostFingerprint
+			resp.ServerVersion = result.ServerVersion
+		}
+		switch {
+		case apiOK && sshOK:
+			resp.Message = "配置已保存并重连成功"
+		case apiOK:
+			resp.Message = "配置已保存；WebGUI 可用，SSH 失败 — " + friendlySSHError(sshErr)
+		case sshOK:
+			resp.Message = "配置已保存；SSH 可用，WebGUI 登录失败"
+		default:
+			resp.Message = "配置已保存，但重连失败。请检查地址、端口和密码。"
+			if sshErr != nil {
+				resp.Message += " SSH: " + friendlySSHError(sshErr)
+			}
+		}
+	}
+
+	c.JSON(http.StatusOK, resp)
+}
+
+// GetServer returns a single server entry (for the edit form).
+// GET /api/servers/:id
+func (h *Handler) GetServer(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" || h.sm == nil {
+		errOut(c, http.StatusBadRequest, "缺少服务器 ID")
+		return
+	}
+	e := h.sm.Get(id)
+	if e == nil {
+		errOut(c, http.StatusNotFound, "服务器不存在")
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"id":           e.ID,
+		"host":         e.Host,
+		"port":         e.Port,
+		"user":         e.User,
+		"authMode":     e.AuthMode,
+		"apiBase":      e.APIBase,
+		"label":        e.Label,
+		"lastSeen":     e.LastSeen,
+		"hasPassword":  len(e.EncPassword) > 0,
+		"sshAvailable": h.pool.Connected(e.Host, e.Port),
+		"apiAvailable": h.ur.HasSession(id),
+		"connected":    h.pool.Connected(e.Host, e.Port) || h.ur.HasSession(id),
+	})
+}
+
 // DeleteServer removes a saved server config and disconnects it.
 func (h *Handler) DeleteServer(c *gin.Context) {
 	id := c.Param("id")

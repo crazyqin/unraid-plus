@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/crazyqin/unraid-plus/server/internal/ssh"
 	"github.com/crazyqin/unraid-plus/server/internal/unraid"
 	"github.com/crazyqin/unraid-plus/server/pkg/logger"
@@ -397,31 +398,59 @@ func (h *Handler) storageGraphQL(c *gin.Context, sid string, cli *ssh.Client, ha
 
 // gqlDiskToDisk converts a GraphQL disk response to our disk struct.
 func gqlDiskToDisk(d unraid.GQLDisk) disk {
+	// Official API sizes are in KB for size/fsSize/fsUsed; convert to bytes.
+	const kb = int64(1024)
+	// Frontend expects "0"=SSD, "1"=HDD (matches disks.ini rotational field).
+	rot := "0"
+	if d.Rotational.Bool() {
+		rot = "1"
+	}
 	dk := disk{
 		Name:       d.Name,
 		Device:     d.Device,
 		Status:     strings.ToLower(d.Status),
 		Color:      d.Color,
-		Rotational: d.Rotational,
+		Rotational: rot,
 		Transport:  d.Transport,
 	}
-	if d.Size != "" {
-		dk.SizeBytes = parseGQLDiskSize(d.Size)
+	if s := d.Size.String(); s != "" {
+		// size is (KB) total disk size
+		if v := parseGQLDiskSize(s); v > 0 {
+			// Heuristic: values from GraphQLBigInt are already in KB (large integers).
+			// Human-readable strings like "3.62 TB" are already absolute bytes from parseGQLDiskSize.
+			if looksLikeRawKB(s) {
+				dk.SizeBytes = v * kb
+			} else {
+				dk.SizeBytes = v
+			}
+		}
 	}
-	if d.FsSize != "" {
-		dk.SizeBytes = parseGQLDiskSize(d.FsSize)
+	if s := d.FsSize.String(); s != "" {
+		if v := parseGQLDiskSize(s); v > 0 {
+			if looksLikeRawKB(s) {
+				dk.SizeBytes = v * kb
+			} else {
+				dk.SizeBytes = v
+			}
+		}
 	}
-	if d.FsUsed != "" {
-		dk.UsedBytes = parseGQLDiskSize(d.FsUsed)
+	if s := d.FsUsed.String(); s != "" {
+		if v := parseGQLDiskSize(s); v > 0 {
+			if looksLikeRawKB(s) {
+				dk.UsedBytes = v * kb
+			} else {
+				dk.UsedBytes = v
+			}
+		}
 	}
-	if d.Temp != "" {
-		tempC := atoiSafe(d.Temp, 0)
+	if s := d.Temp.String(); s != "" {
+		tempC := atoiSafe(s, 0)
 		if tempC > 0 {
 			dk.TempC = &tempC
 		}
 	}
-	if d.NumErrors != "" {
-		dk.Errors = atoiSafe(d.NumErrors, 0)
+	if s := d.NumErrors.String(); s != "" {
+		dk.Errors = atoiSafe(s, 0)
 	}
 	if d.FsType != "" {
 		dk.FsType = d.FsType
@@ -440,6 +469,21 @@ func gqlDiskToDisk(d unraid.GQLDisk) disk {
 		}
 	}
 	return dk
+}
+
+// looksLikeRawKB reports whether s is a plain integer (GraphQLBigInt KB value)
+// rather than a human-readable size like "3.62 TB".
+func looksLikeRawKB(s string) bool {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // parseGQLDiskSize parses a disk size string from the GraphQL API.

@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -139,13 +140,34 @@ func (c *Client) GraphQLQueryWithOp(serverID string, query string, variables map
 }
 
 // ProbeGraphQL checks if the Unraid server has the GraphQL API available.
-// Returns true if the /graphql endpoint responds (even with auth errors).
+// Returns true if a simple authenticated query succeeds (or the endpoint
+// responds with a GraphQL body). 404 means no API.
+//
+// On success sets graphqlAvailable=true. On auth failure (401/403) still marks
+// available (endpoint exists) so handlers can attempt queries and fall back.
 func (c *Client) ProbeGraphQL(serverID string) bool {
 	sess := c.getSession(serverID)
 	if sess == nil {
 		return false
 	}
 
+	// If CSRF is still missing, try scraping it once more before probing.
+	if sess.csrfToken == "" && sess.apiKey == "" {
+		if tok := c.scrapeCSRFToken(serverID); tok != "" {
+			c.SetCSRFToken(serverID, tok)
+			sess = c.getSession(serverID)
+		}
+	}
+
+	// Prefer a real authenticated query so we learn if CSRF/session works.
+	data, err := c.GraphQLQuery(serverID, QueryGetOnline, nil)
+	if err == nil && data != nil {
+		sess.graphqlAvailable = true
+		logger.Infof("graphql probe %s: online query OK — API available", sess.apiBase+"/graphql")
+		return true
+	}
+
+	// Fallback: raw HTTP probe to distinguish "no endpoint" from "auth issues".
 	gqlURL := sess.apiBase + "/graphql"
 	transport := makeTransport()
 	httpc := &http.Client{
@@ -157,41 +179,51 @@ func (c *Client) ProbeGraphQL(serverID string) bool {
 	req, _ := http.NewRequest(http.MethodPost, gqlURL, strings.NewReader(`{"query":"{ online }"}`))
 	req.Header.Set("Content-Type", "application/json")
 
-	// Attach session cookies
 	parsedURL, _ := url.Parse(gqlURL)
 	if sess.jar != nil {
 		for _, ck := range sess.jar.Cookies(parsedURL) {
 			req.AddCookie(ck)
 		}
 	}
-
-	// Attach API key if configured
 	if sess.apiKey != "" {
 		req.Header.Set("x-api-key", sess.apiKey)
 	}
-
-	// Attach CSRF token for session-based auth
 	if sess.csrfToken != "" {
 		req.Header.Set("X-CSRF-Token", sess.csrfToken)
 	}
 
-	resp, err := httpc.Do(req)
-	if err != nil {
-		logger.Debugf("graphql probe %s: %v", gqlURL, err)
+	resp, httpErr := httpc.Do(req)
+	if httpErr != nil {
+		logger.Debugf("graphql probe %s: %v", gqlURL, httpErr)
 		return false
 	}
 	defer resp.Body.Close()
-	io.ReadAll(resp.Body)
+	body, _ := io.ReadAll(resp.Body)
 
-	// 403 = sandbox disabled but API exists; 200 = working; 404 = no API
 	if resp.StatusCode == http.StatusNotFound {
 		logger.Debugf("graphql probe %s: 404 - API not available", gqlURL)
 		return false
 	}
 
+	// Endpoint exists (even if auth failed). Mark available so callers try GraphQL
+	// and can fall back to SSH when queries fail.
 	sess.graphqlAvailable = true
-	logger.Infof("graphql probe %s: HTTP %d - API available", gqlURL, resp.StatusCode)
+	logger.Warnf("graphql probe %s: endpoint present (HTTP %d) but online query failed: %v (body: %s)",
+		gqlURL, resp.StatusCode, err, truncateString(string(body), 120))
 	return true
+}
+
+// EnsureGraphQL probes GraphQL if not yet checked for this session.
+// Safe to call on every request; only probes once until session is reset.
+func (c *Client) EnsureGraphQL(serverID string) bool {
+	sess := c.getSession(serverID)
+	if sess == nil {
+		return false
+	}
+	if sess.graphqlAvailable {
+		return true
+	}
+	return c.ProbeGraphQL(serverID)
 }
 
 // HasGraphQL returns whether the GraphQL API has been detected for this server.
@@ -239,10 +271,12 @@ const (
 }`
 
 	// GetSystemInfo returns detailed system information.
+	// Note: os.uptime is a boot-time ISO string (not seconds). cache is JSON object.
+	// Do not request fields whose types we cannot parse into our DTOs.
 	QueryGetSystemInfo = `query GetSystemInfo {
   info {
     os { platform distro release codename kernel arch hostname logofile serial build uptime }
-    cpu { manufacturer brand vendor family model stepping revision voltage speed speedmin speedmax threads cores processors socket cache }
+    cpu { manufacturer brand vendor family model stepping revision voltage speed speedmin speedmax threads cores processors socket }
     memory { layout { bank type clockSpeed formFactor manufacturer partNum serialNum } }
     baseboard { manufacturer model version serial assetTag }
     system { manufacturer model version serial uuid sku }
@@ -251,11 +285,20 @@ const (
   }
 }`
 
-	// GetMetrics returns current CPU and memory usage.
+	// GetMetrics returns current CPU, memory, and network usage.
+	// CpuUtilization includes per-core loads via cpus[]. Memory fields are GraphQLBigInt.
 	QueryGetMetrics = `query GetMetrics {
   metrics {
-    cpu { percentTotal }
+    cpu {
+      percentTotal
+      cpus { percentTotal }
+    }
     memory { total used free available buffcache percentTotal }
+    network {
+      name operstate
+      bytesReceived bytesSent
+      rxSec txSec utilizationPercent
+    }
   }
 }`
 
@@ -443,33 +486,212 @@ const (
 )
 
 // ---------------------------------------------------------------------------
+// Flexible JSON types for official Unraid GraphQL schema quirks
+// ---------------------------------------------------------------------------
+
+// FlexInt64 accepts JSON numbers or strings (GraphQLBigInt may serialize either way).
+type FlexInt64 int64
+
+func (f *FlexInt64) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		*f = 0
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		if s == "" {
+			*f = 0
+			return nil
+		}
+		var n int64
+		if _, err := fmt.Sscan(s, &n); err != nil {
+			return fmt.Errorf("FlexInt64: %w", err)
+		}
+		*f = FlexInt64(n)
+		return nil
+	}
+	var n int64
+	if err := json.Unmarshal(b, &n); err != nil {
+		// JSON numbers beyond int range sometimes arrive as float
+		var fl float64
+		if err2 := json.Unmarshal(b, &fl); err2 != nil {
+			return err
+		}
+		*f = FlexInt64(int64(fl))
+		return nil
+	}
+	*f = FlexInt64(n)
+	return nil
+}
+
+func (f FlexInt64) Int64() int64 { return int64(f) }
+
+// FlexFloat64 accepts JSON numbers or numeric strings.
+type FlexFloat64 float64
+
+func (f *FlexFloat64) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		*f = 0
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		if s == "" {
+			*f = 0
+			return nil
+		}
+		var n float64
+		if _, err := fmt.Sscan(s, &n); err != nil {
+			return fmt.Errorf("FlexFloat64: %w", err)
+		}
+		*f = FlexFloat64(n)
+		return nil
+	}
+	var n float64
+	if err := json.Unmarshal(b, &n); err != nil {
+		return err
+	}
+	*f = FlexFloat64(n)
+	return nil
+}
+
+func (f FlexFloat64) Float64() float64 { return float64(f) }
+
+// FlexString accepts JSON strings or numbers (array disk sizes often arrive as BigInt).
+type FlexString string
+
+func (f *FlexString) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		*f = ""
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		*f = FlexString(s)
+		return nil
+	}
+	// number or bool → stringify
+	*f = FlexString(strings.TrimSpace(string(b)))
+	return nil
+}
+
+func (f FlexString) String() string { return string(f) }
+
+// FlexBool accepts JSON bool or string ("true"/"yes"/"1").
+type FlexBool bool
+
+func (f *FlexBool) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		*f = false
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		s = strings.ToLower(strings.TrimSpace(s))
+		*f = FlexBool(s == "true" || s == "yes" || s == "1")
+		return nil
+	}
+	var v bool
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*f = FlexBool(v)
+	return nil
+}
+
+func (f FlexBool) Bool() bool { return bool(f) }
+
+// FlexUptime accepts Unraid's os.uptime field: either a boot-time ISO string
+// (official API) or a numeric seconds value (older/alternate schemas).
+type FlexUptime struct {
+	Seconds  int64  // uptime in seconds (0 if unknown)
+	BootTime string // original ISO boot time if provided
+}
+
+func (u *FlexUptime) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		u.BootTime = s
+		// Try numeric string first
+		if n, err := strconv.ParseFloat(s, 64); err == nil {
+			u.Seconds = int64(n)
+			return nil
+		}
+		// Boot-time ISO string → seconds since boot
+		for _, layout := range []string{
+			time.RFC3339Nano,
+			time.RFC3339,
+			"2006-01-02T15:04:05.000Z",
+			"2006-01-02T15:04:05Z",
+			"2006-01-02 15:04:05",
+		} {
+			if t, err := time.Parse(layout, s); err == nil {
+				sec := int64(time.Since(t).Seconds())
+				if sec < 0 {
+					sec = 0
+				}
+				u.Seconds = sec
+				return nil
+			}
+		}
+		// Unrecognized string — keep BootTime, leave Seconds=0
+		return nil
+	}
+	var n float64
+	if err := json.Unmarshal(b, &n); err != nil {
+		return err
+	}
+	u.Seconds = int64(n)
+	return nil
+}
+
+// ---------------------------------------------------------------------------
 // Helper types for parsing GraphQL responses
 // ---------------------------------------------------------------------------
 
 // GQLInfo wraps the top-level "info" query response.
 type GQLInfo struct {
-	OS        *GQLOS     `json:"os,omitempty"`
-	CPU       *GQLCPU    `json:"cpu,omitempty"`
-	Memory    *GQLMemory `json:"memory,omitempty"`
+	OS        *GQLOS        `json:"os,omitempty"`
+	CPU       *GQLCPU       `json:"cpu,omitempty"`
+	Memory    *GQLMemory    `json:"memory,omitempty"`
 	Baseboard *GQLBaseboard `json:"baseboard,omitempty"`
-	System    *GQLSystem `json:"system,omitempty"`
-	Versions  *GQLVersions `json:"versions,omitempty"`
-	MachineID string     `json:"machineId,omitempty"`
-	Time      string     `json:"time,omitempty"`
+	System    *GQLSystem    `json:"system,omitempty"`
+	Versions  *GQLVersions  `json:"versions,omitempty"`
+	MachineID string        `json:"machineId,omitempty"`
+	Time      string        `json:"time,omitempty"`
 }
 
 type GQLOS struct {
-	Platform  string `json:"platform,omitempty"`
-	Distro    string `json:"distro,omitempty"`
-	Release   string `json:"release,omitempty"`
-	Codename  string `json:"codename,omitempty"`
-	Kernel    string `json:"kernel,omitempty"`
-	Arch      string `json:"arch,omitempty"`
-	Hostname  string `json:"hostname,omitempty"`
-	Logofile  string `json:"logofile,omitempty"`
-	Serial    string `json:"serial,omitempty"`
-	Build     string `json:"build,omitempty"`
-	Uptime    float64 `json:"uptime,omitempty"`
+	Platform string    `json:"platform,omitempty"`
+	Distro   string    `json:"distro,omitempty"`
+	Release  string    `json:"release,omitempty"`
+	Codename string    `json:"codename,omitempty"`
+	Kernel   string    `json:"kernel,omitempty"`
+	Arch     string    `json:"arch,omitempty"`
+	Hostname string    `json:"hostname,omitempty"`
+	Logofile string    `json:"logofile,omitempty"`
+	Serial   string    `json:"serial,omitempty"`
+	Build    string    `json:"build,omitempty"`
+	// Uptime is a boot-time ISO string in the official Unraid API (not seconds).
+	Uptime FlexUptime `json:"uptime,omitempty"`
 }
 
 type GQLCPU struct {
@@ -485,7 +707,8 @@ type GQLCPU struct {
 	Cores        int     `json:"cores,omitempty"`
 	Processors   int     `json:"processors,omitempty"`
 	Socket       string  `json:"socket,omitempty"`
-	Cache        string  `json:"cache,omitempty"`
+	// Cache is GraphQLJSON (object) in the official schema — ignore raw form.
+	Cache json.RawMessage `json:"cache,omitempty"`
 }
 
 type GQLMemory struct {
@@ -493,13 +716,13 @@ type GQLMemory struct {
 }
 
 type GQLMemoryBank struct {
-	Bank       string `json:"bank,omitempty"`
-	Type       string `json:"type,omitempty"`
-	ClockSpeed string `json:"clockSpeed,omitempty"`
-	FormFactor string `json:"formFactor,omitempty"`
-	Manufacturer string `json:"manufacturer,omitempty"`
-	PartNum    string `json:"partNum,omitempty"`
-	SerialNum  string `json:"serialNum,omitempty"`
+	Bank         string     `json:"bank,omitempty"`
+	Type         string     `json:"type,omitempty"`
+	ClockSpeed   FlexFloat64 `json:"clockSpeed,omitempty"` // official schema: Int (MHz)
+	FormFactor   string     `json:"formFactor,omitempty"`
+	Manufacturer string     `json:"manufacturer,omitempty"`
+	PartNum      string     `json:"partNum,omitempty"`
+	SerialNum    string     `json:"serialNum,omitempty"`
 }
 
 type GQLBaseboard struct {
@@ -543,21 +766,29 @@ type GQLPackageVersions struct {
 
 // GQLMetrics wraps the "metrics" query response.
 type GQLMetrics struct {
-	CPU    *GQLCPUMetrics    `json:"cpu,omitempty"`
-	Memory *GQLMemoryMetrics `json:"memory,omitempty"`
+	CPU     *GQLCPUMetrics     `json:"cpu,omitempty"`
+	Memory  *GQLMemoryMetrics  `json:"memory,omitempty"`
+	Network []GQLNetworkIface  `json:"network,omitempty"`
 }
 
 type GQLCPUMetrics struct {
+	PercentTotal float64       `json:"percentTotal,omitempty"`
+	Cpus         []GQLCPULoad  `json:"cpus,omitempty"`
+}
+
+// GQLCPULoad is per-core load from CpuUtilization.cpus.
+type GQLCPULoad struct {
 	PercentTotal float64 `json:"percentTotal,omitempty"`
 }
 
 type GQLMemoryMetrics struct {
-	Total        int64   `json:"total,omitempty"`
-	Used         int64   `json:"used,omitempty"`
-	Free         int64   `json:"free,omitempty"`
-	Available    int64   `json:"available,omitempty"`
-	BuffCache    int64   `json:"buffcache,omitempty"`
-	PercentTotal float64 `json:"percentTotal,omitempty"`
+	// Official schema uses GraphQLBigInt — may arrive as number or string.
+	Total        FlexInt64 `json:"total,omitempty"`
+	Used         FlexInt64 `json:"used,omitempty"`
+	Free         FlexInt64 `json:"free,omitempty"`
+	Available    FlexInt64 `json:"available,omitempty"`
+	BuffCache    FlexInt64 `json:"buffcache,omitempty"`
+	PercentTotal float64   `json:"percentTotal,omitempty"`
 }
 
 // GQLArray wraps the "array" query response.
@@ -574,39 +805,42 @@ type GQLArray struct {
 
 type GQLCapacity struct {
 	Kilobytes *GQLCapacityValues `json:"kilobytes,omitempty"`
-	Disks     *GQLCapacityValues  `json:"disks,omitempty"`
+	Disks     *GQLCapacityValues `json:"disks,omitempty"`
 }
 
+// Official Capacity fields are GraphQL String; tolerate numbers too.
 type GQLCapacityValues struct {
-	Free  int64 `json:"free,omitempty"`
-	Used  int64 `json:"used,omitempty"`
-	Total int64 `json:"total,omitempty"`
+	Free  FlexString `json:"free,omitempty"`
+	Used  FlexString `json:"used,omitempty"`
+	Total FlexString `json:"total,omitempty"`
 }
 
+// GQLDisk mirrors Unraid ArrayDisk. Many numeric fields are GraphQLBigInt;
+// rotational/exportable are Boolean. Flex* types accept both string and native JSON.
 type GQLDisk struct {
-	ID         string `json:"id,omitempty"`
-	Idx        int    `json:"idx,omitempty"`
-	Name       string `json:"name,omitempty"`
-	Device     string `json:"device,omitempty"`
-	Size       string `json:"size,omitempty"`
-	Status     string `json:"status,omitempty"`
-	Rotational string `json:"rotational,omitempty"`
-	Temp       string `json:"temp,omitempty"`
-	NumReads   string `json:"numReads,omitempty"`
-	NumWrites  string `json:"numWrites,omitempty"`
-	NumErrors  string `json:"numErrors,omitempty"`
-	FsSize     string `json:"fsSize,omitempty"`
-	FsFree     string `json:"fsFree,omitempty"`
-	FsUsed     string `json:"fsUsed,omitempty"`
-	Exportable string `json:"exportable,omitempty"`
-	Type       string `json:"type,omitempty"`
-	Warning    string `json:"warning,omitempty"`
-	Critical   string `json:"critical,omitempty"`
-	FsType     string `json:"fsType,omitempty"`
-	Comment    string `json:"comment,omitempty"`
-	Format     string `json:"format,omitempty"`
-	Transport  string `json:"transport,omitempty"`
-	Color      string `json:"color,omitempty"`
+	ID         string     `json:"id,omitempty"`
+	Idx        int        `json:"idx,omitempty"`
+	Name       string     `json:"name,omitempty"`
+	Device     string     `json:"device,omitempty"`
+	Size       FlexString `json:"size,omitempty"`
+	Status     string     `json:"status,omitempty"`
+	Rotational FlexBool   `json:"rotational,omitempty"`
+	Temp       FlexString `json:"temp,omitempty"`
+	NumReads   FlexString `json:"numReads,omitempty"`
+	NumWrites  FlexString `json:"numWrites,omitempty"`
+	NumErrors  FlexString `json:"numErrors,omitempty"`
+	FsSize     FlexString `json:"fsSize,omitempty"`
+	FsFree     FlexString `json:"fsFree,omitempty"`
+	FsUsed     FlexString `json:"fsUsed,omitempty"`
+	Exportable FlexBool   `json:"exportable,omitempty"`
+	Type       string     `json:"type,omitempty"`
+	Warning    FlexString `json:"warning,omitempty"`
+	Critical   FlexString `json:"critical,omitempty"`
+	FsType     string     `json:"fsType,omitempty"`
+	Comment    string     `json:"comment,omitempty"`
+	Format     string     `json:"format,omitempty"`
+	Transport  string     `json:"transport,omitempty"`
+	Color      string     `json:"color,omitempty"`
 }
 
 type GQLParityCheck struct {
@@ -712,21 +946,21 @@ type GQLService struct {
 
 // GQLNetworkIface wraps a network interface from metrics.
 type GQLNetworkIface struct {
-	ID               string  `json:"id,omitempty"`
-	Name             string  `json:"name,omitempty"`
-	OperState        string  `json:"operstate,omitempty"`
-	BytesReceived    int64   `json:"bytesReceived,omitempty"`
-	BytesSent        int64   `json:"bytesSent,omitempty"`
-	PacketsReceived  int64   `json:"packetsReceived,omitempty"`
-	PacketsSent      int64   `json:"packetsSent,omitempty"`
-	ReceiveErrors    int64   `json:"receiveErrors,omitempty"`
-	TransmitErrors   int64   `json:"transmitErrors,omitempty"`
-	ReceiveDropped   int64   `json:"receiveDropped,omitempty"`
-	TransmitDropped  int64   `json:"transmitDropped,omitempty"`
-	RxSec            float64 `json:"rxSec,omitempty"`
-	TxSec            float64 `json:"txSec,omitempty"`
-	UtilizationPct   float64 `json:"utilizationPercent,omitempty"`
-	LastUpdated      string  `json:"lastUpdated,omitempty"`
+	ID              string    `json:"id,omitempty"`
+	Name            string    `json:"name,omitempty"`
+	OperState       string    `json:"operstate,omitempty"`
+	BytesReceived   FlexInt64 `json:"bytesReceived,omitempty"`
+	BytesSent       FlexInt64 `json:"bytesSent,omitempty"`
+	PacketsReceived FlexInt64 `json:"packetsReceived,omitempty"`
+	PacketsSent     FlexInt64 `json:"packetsSent,omitempty"`
+	ReceiveErrors   FlexInt64 `json:"receiveErrors,omitempty"`
+	TransmitErrors  FlexInt64 `json:"transmitErrors,omitempty"`
+	ReceiveDropped  FlexInt64 `json:"receiveDropped,omitempty"`
+	TransmitDropped FlexInt64 `json:"transmitDropped,omitempty"`
+	RxSec           float64   `json:"rxSec,omitempty"`
+	TxSec           float64   `json:"txSec,omitempty"`
+	UtilizationPct  float64   `json:"utilizationPercent,omitempty"`
+	LastUpdated     string    `json:"lastUpdated,omitempty"`
 }
 
 // ---------------------------------------------------------------------------

@@ -15,12 +15,17 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/crazyqin/unraid-plus/server/pkg/logger"
 )
+
+// csrfTokenRe extracts Unraid's CSRF token from WebGUI HTML/JS.
+// Matches: csrf_token="...", csrf_token: "...", "csrf_token":"...", var csrf_token = "..."
+var csrfTokenRe = regexp.MustCompile(`(?i)csrf_token["'\s:=]+["']([A-Za-z0-9]+)["']`)
 
 // serverSession holds the per-server HTTP session (base URL + cookies).
 type serverSession struct {
@@ -131,10 +136,11 @@ func (c *Client) Login(serverID, apiBase, username, password string) error {
 	parsedBase, _ := url.Parse(base)
 	cookies := jar.Cookies(parsedBase)
 
-	// Look for the csrf_token cookie (required for Unraid 7.x GraphQL API)
+	// Look for csrf_token in cookies (name may vary: csrf_token, unraid_csrf_token, etc.)
 	var csrfToken string
 	for _, ck := range cookies {
-		if ck.Name == "csrf_token" {
+		name := strings.ToLower(ck.Name)
+		if name == "csrf_token" || strings.Contains(name, "csrf") {
 			csrfToken = ck.Value
 			break
 		}
@@ -157,18 +163,70 @@ func (c *Client) Login(serverID, apiBase, username, password string) error {
 
 	c.mu.Lock()
 	c.sessions[serverID] = &serverSession{
-		apiBase:  base,
-		jar:      sessionJar,
+		apiBase:   base,
+		jar:       sessionJar,
 		csrfToken: csrfToken,
 	}
 	c.mu.Unlock()
 
+	// Official GraphQL API validates X-CSRF-Token against emhttp.var.csrfToken.
+	// The token is usually embedded in WebGUI HTML after login, not always a cookie.
+	// Fetch Dashboard and scrape it when cookie capture failed.
+	if csrfToken == "" {
+		if tok := c.scrapeCSRFToken(serverID); tok != "" {
+			csrfToken = tok
+			c.mu.Lock()
+			if sess := c.sessions[serverID]; sess != nil {
+				sess.csrfToken = tok
+			}
+			c.mu.Unlock()
+		}
+	}
+
 	if csrfToken != "" {
 		logger.Infof("unraid api login success for %s (cookies: %d, csrf_token captured)", serverID, len(cookies))
 	} else {
-		logger.Infof("unraid api login success for %s (cookies: %d, no csrf_token cookie found)", serverID, len(cookies))
+		logger.Infof("unraid api login success for %s (cookies: %d, no csrf_token found — GraphQL may need API key)", serverID, len(cookies))
 	}
 	return nil
+}
+
+// scrapeCSRFToken GETs a WebGUI page and extracts csrf_token from HTML/JS.
+// Required for session-cookie GraphQL auth when the token is not in cookies.
+func (c *Client) scrapeCSRFToken(serverID string) string {
+	sess := c.getSession(serverID)
+	if sess == nil {
+		return ""
+	}
+
+	// Prefer Dashboard (post-login landing); fall back to Main / root.
+	for _, path := range []string{"/Dashboard", "/Main", "/"} {
+		body, status, err := c.get(serverID, path)
+		if err != nil || status != http.StatusOK {
+			continue
+		}
+		if m := csrfTokenRe.FindSubmatch(body); len(m) >= 2 {
+			tok := string(m[1])
+			// Reject placeholder / empty tokens from sample templates
+			if tok != "" && tok != "0000000000000000" {
+				logger.Infof("csrf_token scraped from %s for %s", path, serverID)
+				return tok
+			}
+		}
+	}
+	return ""
+}
+
+// SetCSRFToken sets the CSRF token for a server session (e.g. from SSH var.ini).
+func (c *Client) SetCSRFToken(serverID, token string) {
+	if token == "" {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if sess, ok := c.sessions[serverID]; ok {
+		sess.csrfToken = token
+	}
 }
 
 // HasSession returns whether we have a stored WebGUI session for the server.

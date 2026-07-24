@@ -81,6 +81,19 @@ func (h *Handler) Dashboard(c *gin.Context) {
 		return
 	}
 
+	// Lazy GraphQL probe: connect/reconnect fire ProbeGraphQL async, so the first
+	// dashboard request may race. EnsureGraphQL runs a one-shot probe if needed.
+	if hasAPI && !h.ur.HasGraphQL(sid) {
+		h.ur.EnsureGraphQL(sid)
+	}
+
+	// Optionally refresh CSRF from SSH var.ini (most reliable source).
+	if hasAPI && hasSSH && cli != nil && h.ur.CsrfToken(sid) == "" {
+		if tok := readCSRFFromSSH(cli); tok != "" {
+			h.ur.SetCSRFToken(sid, tok)
+		}
+	}
+
 	// GraphQL-first: when the official API is available, use it for all
 	// metadata and metrics. SSH is only needed for real-time delta-based
 	// stats (per-core usage, network/disk throughput) which require two
@@ -96,6 +109,29 @@ func (h *Handler) Dashboard(c *gin.Context) {
 	}
 
 	errOut(c, http.StatusServiceUnavailable, "Dashboard unavailable: GraphQL API not available and SSH not connected")
+}
+
+// readCSRFFromSSH reads csrf_token from Unraid's var.ini via SSH.
+func readCSRFFromSSH(cli *ssh.Client) string {
+	if cli == nil {
+		return ""
+	}
+	// Unraid writes live state under /var/local/emhttp/; flash mirror under /boot/config/ is less current.
+	for _, path := range []string{"/var/local/emhttp/var.ini", "/usr/local/emhttp/state/var.ini"} {
+		out, err := cli.Run("grep -m1 '^csrf_token=' " + shellQuote(path) + " 2>/dev/null")
+		if err != nil || out == "" {
+			continue
+		}
+		// csrf_token="abcd..."
+		line := strings.TrimSpace(out)
+		if i := strings.Index(line, "="); i >= 0 {
+			v := strings.Trim(line[i+1:], "\"' \t\r\n")
+			if v != "" && v != "0000000000000000" {
+				return v
+			}
+		}
+	}
+	return ""
 }
 
 // dashboardSSH is the full SSH-based dashboard with real-time stats.
@@ -545,11 +581,11 @@ func expandCoreTemps(phyTemps []float64, nCores int) []float64 {
 
 // dashboardGraphQL uses the Unraid GraphQL API for system info and metrics.
 // When SSH is also available, it supplements with real-time delta stats
-// (per-core CPU usage, network/disk throughput) that GraphQL can't provide.
+// (per-core temps, array disk throughput) that GraphQL does not expose.
 func (h *Handler) dashboardGraphQL(c *gin.Context, sid string, cli *ssh.Client, hasSSH bool) {
 	resp := dashboardResp{
-		CPU:             cpuInfo{PerCoreUsagePct: []float64{}, PerCoreTempC: []float64{}},
-		Network:         []netInfo{{Iface: "-"}},
+		CPU:     cpuInfo{PerCoreUsagePct: []float64{}, PerCoreTempC: []float64{}},
+		Network: []netInfo{{Iface: "-"}},
 	}
 
 	// Fetch system info + metrics concurrently
@@ -576,33 +612,60 @@ func (h *Handler) dashboardGraphQL(c *gin.Context, sid string, cli *ssh.Client, 
 			h.dashboardSSH(c, cli)
 			return
 		}
-		// No SSH either -- return whatever partial data we have (likely empty)
+		// No SSH either -- return empty shell so UI stays up
 		c.JSON(http.StatusOK, resp)
 		return
 	}
+	if infoErr != nil {
+		logger.Warnf("dashboard graphql info query failed for %s: %v", sid, infoErr)
+	}
+	if metricsErr != nil {
+		logger.Warnf("dashboard graphql metrics query failed for %s: %v", sid, metricsErr)
+	}
+
+	gotInfo, gotMetrics := false, false
 
 	// Parse system info
 	if infoErr == nil && infoData != nil {
 		info, err := unraid.ParseInfoQuery(infoData)
-		if err == nil && info != nil {
+		if err != nil {
+			logger.Warnf("dashboard graphql info parse failed for %s: %v", sid, err)
+		} else if info != nil {
+			gotInfo = true
 			if info.CPU != nil {
 				resp.CPU.ModelName = info.CPU.Brand
 				if info.CPU.Brand == "" {
 					resp.CPU.ModelName = info.CPU.Manufacturer
 				}
-				resp.CPU.Cores = info.CPU.Cores
+				// Prefer threads (logical cores) for per-core charts; fall back to physical cores.
+				resp.CPU.Cores = info.CPU.Threads
 				if resp.CPU.Cores == 0 {
-					resp.CPU.Cores = info.CPU.Threads
+					resp.CPU.Cores = info.CPU.Cores
 				}
 			}
 			if info.OS != nil {
-				resp.Uptime = int64(info.OS.Uptime)
+				// Official API: os.uptime is boot-time ISO string → converted to seconds.
+				resp.Uptime = info.OS.Uptime.Seconds
 			}
-			// Store server meta from GraphQL info
 			resp.ServerMeta = &serverMeta{
-				Name:      func() string { if info.OS != nil { return info.OS.Hostname }; return "" }(),
-				OSVersion: func() string { if info.Versions != nil && info.Versions.Core != nil { return info.Versions.Core.Unraid }; return "" }(),
-				Model:     func() string { if info.System != nil { return info.System.Model }; return "" }(),
+				Name: func() string {
+					if info.OS != nil {
+						return info.OS.Hostname
+					}
+					return ""
+				}(),
+				OSVersion: func() string {
+					if info.Versions != nil && info.Versions.Core != nil {
+						return info.Versions.Core.Unraid
+					}
+					return ""
+				}(),
+				Model: func() string {
+					if info.System != nil {
+						return info.System.Model
+					}
+					return ""
+				}(),
 			}
 		}
 	}
@@ -610,27 +673,126 @@ func (h *Handler) dashboardGraphQL(c *gin.Context, sid string, cli *ssh.Client, 
 	// Parse metrics
 	if metricsErr == nil && metricsData != nil {
 		metrics, err := unraid.ParseMetricsQuery(metricsData)
-		if err == nil && metrics != nil {
+		if err != nil {
+			logger.Warnf("dashboard graphql metrics parse failed for %s: %v", sid, err)
+		} else if metrics != nil {
+			gotMetrics = true
 			if metrics.CPU != nil {
 				resp.CPU.UsagePct = metrics.CPU.PercentTotal
+				if len(metrics.CPU.Cpus) > 0 {
+					per := make([]float64, len(metrics.CPU.Cpus))
+					for i, core := range metrics.CPU.Cpus {
+						per[i] = core.PercentTotal
+					}
+					resp.CPU.PerCoreUsagePct = per
+					if resp.CPU.Cores == 0 {
+						resp.CPU.Cores = len(per)
+					}
+				}
 			}
 			if metrics.Memory != nil {
 				resp.Memory = memInfo{
-					TotalBytes: metrics.Memory.Total,
-					UsedBytes:  metrics.Memory.Used,
-					CacheBytes: metrics.Memory.BuffCache,
+					TotalBytes: metrics.Memory.Total.Int64(),
+					UsedBytes:  metrics.Memory.Used.Int64(),
+					CacheBytes: metrics.Memory.BuffCache.Int64(),
 					UsagePct:   metrics.Memory.PercentTotal,
+				}
+				// If used is 0 but we have total+available, derive used.
+				if resp.Memory.UsedBytes == 0 && resp.Memory.TotalBytes > 0 && metrics.Memory.Available.Int64() > 0 {
+					resp.Memory.UsedBytes = resp.Memory.TotalBytes - metrics.Memory.Available.Int64()
+					if resp.Memory.UsedBytes < 0 {
+						resp.Memory.UsedBytes = 0
+					}
+					if resp.Memory.UsagePct == 0 {
+						resp.Memory.UsagePct = float64(resp.Memory.UsedBytes) / float64(resp.Memory.TotalBytes) * 100
+					}
+				}
+			}
+			// Network throughput from GraphQL (rxSec/txSec already computed server-side)
+			if len(metrics.Network) > 0 {
+				nets := make([]netInfo, 0, len(metrics.Network))
+				for _, n := range metrics.Network {
+					if n.Name == "" || n.Name == "lo" {
+						continue
+					}
+					// Prefer interfaces that are up / have traffic
+					nets = append(nets, netInfo{
+						Iface:         n.Name,
+						RxBytesPerSec: int64(n.RxSec),
+						TxBytesPerSec: int64(n.TxSec),
+						RxTotalBytes:  n.BytesReceived.Int64(),
+						TxTotalBytes:  n.BytesSent.Int64(),
+					})
+				}
+				if len(nets) > 0 {
+					resp.Network = nets
 				}
 			}
 		}
 	}
 
-	// If SSH is available, supplement with real-time delta stats
+	// If metrics failed entirely but SSH is available, fill CPU/mem from SSH.
+	// (Info may have succeeded — still want live usage numbers.)
+	if !gotMetrics && hasSSH && cli != nil {
+		logger.Infof("dashboard graphql metrics missing for %s, filling usage from SSH", sid)
+		h.fillUsageFromSSH(cli, &resp)
+	}
+
+	// If SSH is available, always enrich with temps + disk R/W (GraphQL lacks these).
+	// Also overwrites per-core / network with higher-fidelity /proc deltas when present.
 	if hasSSH && cli != nil {
 		h.enrichWithSSHDeltas(cli, &resp)
 	}
 
+	// If we got neither info nor metrics and no SSH enrichment, try full SSH fallback.
+	if !gotInfo && !gotMetrics && hasSSH && cli != nil && resp.CPU.UsagePct == 0 && resp.Memory.TotalBytes == 0 {
+		h.dashboardSSH(c, cli)
+		return
+	}
+
 	c.JSON(http.StatusOK, resp)
+}
+
+// fillUsageFromSSH populates CPU usage and memory from a single SSH snapshot
+// (no 1s delta sleep). Used when GraphQL metrics fail but SSH works.
+func (h *Handler) fillUsageFromSSH(cli *ssh.Client, resp *dashboardResp) {
+	var cpu1, memStr, loadStr string
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() { cpu1, _ = cli.Run("cat /proc/stat"); wg.Done() }()
+	go func() { memStr, _ = cli.Run("cat /proc/meminfo"); wg.Done() }()
+	go func() { loadStr, _ = cli.Run("cat /proc/loadavg"); wg.Done() }()
+	wg.Wait()
+
+	time.Sleep(400 * time.Millisecond)
+	cpu2, _ := cli.Run("cat /proc/stat")
+
+	cores := resp.CPU.Cores
+	if cores == 0 {
+		if nproc, err := cli.Run("nproc"); err == nil {
+			cores = atoiSafe(nproc, 1)
+			resp.CPU.Cores = cores
+		} else {
+			cores = 1
+		}
+	}
+	resp.CPU.UsagePct, resp.CPU.PerCoreUsagePct = computeCPUUsage(cpu1, cpu2, cores)
+	if memStr != "" {
+		resp.Memory = parseMeminfo(memStr)
+	}
+	if loadStr != "" {
+		resp.LoadAvg = parseLoadAvg(loadStr)
+	}
+	if resp.CPU.ModelName == "" {
+		if model, err := cli.Run("grep -m1 'model name' /proc/cpuinfo | cut -d: -f2 | sed 's/^ //'"); err == nil {
+			resp.CPU.ModelName = strings.TrimSpace(model)
+		}
+	}
+	if resp.Uptime == 0 {
+		if up, err := cli.Run("cat /proc/uptime"); err == nil {
+			resp.Uptime = parseUptime(up)
+		}
+	}
 }
 
 // enrichWithSSHDeltas supplements a GraphQL-based dashboard response with
@@ -641,7 +803,7 @@ func (h *Handler) enrichWithSSHDeltas(cli *ssh.Client, resp *dashboardResp) {
 	var cpu1, net1, disk1, temps string
 	var coreCountStr string
 	var wg sync.WaitGroup
-	wg.Add(4)
+	wg.Add(5)
 	go func() { cpu1, _ = cli.Run("cat /proc/stat"); wg.Done() }()
 	go func() { net1, _ = cli.Run("cat /proc/net/dev"); wg.Done() }()
 	go func() { disk1, _ = cli.Run("cat /proc/diskstats"); wg.Done() }()
@@ -663,6 +825,7 @@ func (h *Handler) enrichWithSSHDeltas(cli *ssh.Client, resp *dashboardResp) {
 	cores := resp.CPU.Cores
 	if cores == 0 {
 		cores = atoiSafe(coreCountStr, 1)
+		resp.CPU.Cores = cores
 	}
 	resp.CPU.UsagePct, resp.CPU.PerCoreUsagePct = computeCPUUsage(cpu1, cpu2, cores)
 	resp.CPU.PerCoreTempC = expandCoreTemps(parseThermal(temps), cores)

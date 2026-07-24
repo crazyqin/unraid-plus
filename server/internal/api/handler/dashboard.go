@@ -543,6 +543,7 @@ func (h *Handler) dashboardAPI(c *gin.Context, sid string) {
 		logger.Debugf("dashboard API fallback: failed to fetch page: %v (status=%d)", err, status)
 		// Return minimal degraded response — at least the page loads
 		c.JSON(http.StatusOK, dashboardResp{
+			Network:        []netInfo{{Iface: "—"}},
 			Degraded:       true,
 			DegradedReason: "ssh_unavailable",
 		})
@@ -580,7 +581,11 @@ var (
 // couldn't find are left at their zero values.
 func parseDashboardHTML(html string) dashboardResp {
 	resp := dashboardResp{
-		Network: []netInfo{{Iface: "—"}},
+		Network:         []netInfo{{Iface: "—"}},
+		CPU: cpuInfo{
+			PerCoreUsagePct: []float64{},
+			PerCoreTempC:    []float64{},
+		},
 	}
 
 	// Extract CPU model

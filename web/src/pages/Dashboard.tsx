@@ -89,16 +89,18 @@ export default function DashboardPage() {
   const [history, setHistory] = useState<Sample[]>([]);
   useEffect(() => {
     if (!data) return;
+    const net0 = (data.network && data.network[0]) ?? { rxBytesPerSec: 0, txBytesPerSec: 0 };
+    const rw = data.arrayRwBytesPerSec ?? { read: 0, write: 0 };
     setHistory((prev) => {
       const next = [
         ...prev,
         {
           t: Date.now(),
-          cpu: data.cpu.usagePct,
-          rx: data.network[0]?.rxBytesPerSec ?? 0,
-          tx: data.network[0]?.txBytesPerSec ?? 0,
-          read: data.arrayRwBytesPerSec.read,
-          write: data.arrayRwBytesPerSec.write,
+          cpu: data.cpu?.usagePct ?? 0,
+          rx: net0.rxBytesPerSec,
+          tx: net0.txBytesPerSec,
+          read: rw.read,
+          write: rw.write,
         },
       ];
       return next.slice(-maxSamples);
@@ -147,7 +149,7 @@ export default function DashboardPage() {
           {data && (
             <Badge variant="secondary" className="text-[10px] font-mono-data px-2.5 py-1">
               <Gauge className="mr-1 h-3 w-3" />
-              {t('dashboard.load')} {data.loadAvg[0].toFixed(2)} / {data.loadAvg[1].toFixed(2)} / {data.loadAvg[2].toFixed(2)}
+              {t('dashboard.load')} {(data.loadAvg?.[0] ?? 0).toFixed(2)} / {(data.loadAvg?.[1] ?? 0).toFixed(2)} / {(data.loadAvg?.[2] ?? 0).toFixed(2)}
             </Badge>
           )}
           {data && (
@@ -212,12 +214,12 @@ export default function DashboardPage() {
           accent="text-sky-500"
           accentGlow="from-sky-500/20"
           value={
-            data
+            data?.memory
               ? `${formatBytes(data.memory.usedBytes)} / ${formatBytes(data.memory.totalBytes)}`
               : '—'
           }
-          subtitle={data ? formatPct(data.memory.usagePct) : ''}
-          progress={data?.memory.usagePct}
+          subtitle={data?.memory ? formatPct(data.memory.usagePct) : ''}
+          progress={data?.memory?.usagePct}
         />
         <StatCard
           title={t('dashboard.network')}
@@ -226,13 +228,13 @@ export default function DashboardPage() {
           accent="text-emerald-500"
           accentGlow="from-emerald-500/20"
           value={
-            data
-              ? `${formatRate(data.network[0]?.rxBytesPerSec ?? 0)} ↓ ${formatRate(
-                  data.network[0]?.txBytesPerSec ?? 0,
+            data?.network?.[0]
+              ? `${formatRate(data.network[0].rxBytesPerSec)} ↓ ${formatRate(
+                  data.network[0].txBytesPerSec,
                 )} ↑`
               : '—'
           }
-          subtitle={data?.network[0]?.iface ?? ''}
+          subtitle={data?.network?.[0]?.iface ?? ''}
         />
         <StatCard
           title={t('dashboard.arrayRW')}
@@ -241,7 +243,7 @@ export default function DashboardPage() {
           accent="text-violet-500"
           accentGlow="from-violet-500/20"
           value={
-            data
+            data?.arrayRwBytesPerSec
               ? `${formatRate(data.arrayRwBytesPerSec.read)} / ${formatRate(
                   data.arrayRwBytesPerSec.write,
                 )}`
@@ -346,8 +348,10 @@ function ArrayStatusSummary() {
 
   if (!storage) return null;
 
-  const totalDisks = storage.disks.length + storage.cacheDisks.length;
-  const problemDisks = [...storage.disks, ...storage.cacheDisks].filter(
+  const disks = storage.disks ?? [];
+  const cacheDisks = storage.cacheDisks ?? [];
+  const totalDisks = disks.length + cacheDisks.length;
+  const problemDisks = [...disks, ...cacheDisks].filter(
     (d) => d.status === 'warning' || d.status === 'critical',
   ).length;
 

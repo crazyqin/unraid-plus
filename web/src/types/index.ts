@@ -72,10 +72,10 @@ export interface NetworkInfo {
 export interface DashboardSummary {
   cpu: CpuInfo;
   memory: MemoryInfo;
-  network: NetworkInfo[];
-  arrayRwBytesPerSec: { read: number; write: number };
+  network?: NetworkInfo[];
+  arrayRwBytesPerSec?: { read: number; write: number };
   uptime: number;
-  loadAvg: [number, number, number];
+  loadAvg?: [number, number, number];
   /** True when data comes from HTML scraping (API-only mode, no SSH). v0.7+ */
   degraded?: boolean;
   /** Reason for degraded mode (e.g. "ssh_unavailable"). v0.7+ */
@@ -175,9 +175,9 @@ export interface DiskInfo {
 }
 
 export interface ArrayStatus {
-  state: 'started' | 'stopped' | 'checking';
-  disks: DiskInfo[];
-  cacheDisks: DiskInfo[];
+  state: 'started' | 'stopped' | 'checking' | 'unknown';
+  disks?: DiskInfo[];
+  cacheDisks?: DiskInfo[];
   /** True when data comes from HTML scraping (API-only mode, no SSH). v0.7+ */
   degraded?: boolean;
   /** Reason for degraded mode (e.g. "ssh_unavailable"). v0.7+ */

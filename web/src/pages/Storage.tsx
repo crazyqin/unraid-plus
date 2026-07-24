@@ -184,8 +184,8 @@ export default function StoragePage() {
     );
   }
 
-  const totalDisks = data.disks.length + data.cacheDisks.length;
-  const healthyDisks = [...data.disks, ...data.cacheDisks].filter(d => d.status === 'ok').length;
+  const totalDisks = (data.disks?.length ?? 0) + (data.cacheDisks?.length ?? 0);
+  const healthyDisks = [...(data.disks ?? []), ...(data.cacheDisks ?? [])].filter(d => d.status === 'ok').length;
 
   return (
     <div className="space-y-5 p-5 md:p-6">
@@ -352,8 +352,8 @@ export default function StoragePage() {
         </div>
       )}
 
-      <DiskGroup title={t('storage.arrayDisks')} disks={data.disks} />
-      <DiskGroup title={t('storage.cachePool')} disks={data.cacheDisks} />
+      <DiskGroup title={t('storage.arrayDisks')} disks={data.disks ?? []} />
+      <DiskGroup title={t('storage.cachePool')} disks={data.cacheDisks ?? []} />
 
       <ConfirmDialog
         open={confirmStopArray}

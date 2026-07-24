@@ -356,6 +356,8 @@ func (h *Handler) storageAPI(c *gin.Context, sid string) {
 		logger.Debugf("storage API fallback: failed to fetch /Main: %v (status=%d)", err, status)
 		c.JSON(http.StatusOK, arrayStatus{
 			State:          "unknown",
+			Disks:          []disk{},
+			CacheDisks:     []disk{},
 			Degraded:       true,
 			DegradedReason: "ssh_unavailable",
 		})

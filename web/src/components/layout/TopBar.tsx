@@ -79,7 +79,8 @@ export default function TopBar() {
         )}
       </AnimatePresence>
 
-    <header className="flex h-14 items-center justify-between border-b border-border/40 bg-card/30 backdrop-blur-2xl px-5">
+    {/* z-50: dropdowns (theme/lang) must paint above main content (e.g. dashboard charts) */}
+    <header className="relative z-50 flex h-14 shrink-0 items-center justify-between border-b border-border/40 bg-card/80 backdrop-blur-2xl px-5">
       <div className="flex items-center gap-3">
         {/* Online status pill */}
         <motion.div

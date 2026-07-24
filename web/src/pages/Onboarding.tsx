@@ -124,7 +124,11 @@ export default function OnboardingPage() {
       label: label || host || apiBase,
       id: result?.serverId,
     };
-    configure(cfg);
+    // Apply real transport flags immediately — never default to dual channel.
+    configure(cfg, {
+      sshAvailable: !!result?.sshAvailable,
+      apiAvailable: !!result?.apiAvailable,
+    });
     setOnboardingDone(true);
     useAuthStore.getState().refreshServers();
     navigate('/', { replace: true });

@@ -251,7 +251,7 @@
   }
   body {
     @apply bg-background text-foreground;
-    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-family: 'Instrument Sans', system-ui, -apple-system, sans-serif;
     font-feature-settings: 'rlig' 1, 'calt' 1, 'tnum' 1, 'ss01' 1, 'ss03' 1;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
@@ -269,26 +269,29 @@
    ═══════════════════════════════════════════════════════════════════════ */
 
 @layer utilities {
-  /* Display — hero metrics & numbers */
+  /* Display — editorial / experimental type (Space Grotesk) */
   .text-display-xl {
-    font-size: clamp(3rem, 8vw, 6rem);
-    font-weight: 800;
-    line-height: 0.9;
-    letter-spacing: -0.04em;
+    font-family: 'Space Grotesk', 'Instrument Sans', system-ui, sans-serif;
+    font-size: clamp(3.25rem, 9vw, 7rem);
+    font-weight: 700;
+    line-height: 0.86;
+    letter-spacing: -0.055em;
     font-feature-settings: 'tnum' 1, 'ss01' 1;
   }
   .text-display-lg {
-    font-size: clamp(2.25rem, 5vw, 4rem);
-    font-weight: 800;
-    line-height: 0.95;
-    letter-spacing: -0.03em;
+    font-family: 'Space Grotesk', 'Instrument Sans', system-ui, sans-serif;
+    font-size: clamp(2.5rem, 5.5vw, 4.5rem);
+    font-weight: 700;
+    line-height: 0.92;
+    letter-spacing: -0.04em;
     font-feature-settings: 'tnum' 1;
   }
   .text-display-md {
-    font-size: clamp(1.5rem, 3vw, 2.5rem);
-    font-weight: 700;
-    line-height: 1;
-    letter-spacing: -0.02em;
+    font-family: 'Space Grotesk', 'Instrument Sans', system-ui, sans-serif;
+    font-size: clamp(1.65rem, 3.2vw, 2.75rem);
+    font-weight: 600;
+    line-height: 0.98;
+    letter-spacing: -0.03em;
     font-feature-settings: 'tnum' 1;
   }
 
@@ -297,6 +300,25 @@
     font-family: 'Space Mono', ui-monospace, 'Cascadia Code', monospace;
     font-feature-settings: 'tnum' 1;
     letter-spacing: -0.02em;
+  }
+
+  /* Kinetic gradient text */
+  .text-gradient-kinetic {
+    background: linear-gradient(
+      120deg,
+      hsl(var(--foreground)) 0%,
+      hsl(var(--primary)) 45%,
+      hsl(var(--foreground)) 90%
+    );
+    background-size: 200% auto;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: gradient-shift 8s ease infinite;
+  }
+  @keyframes gradient-shift {
+    0%, 100% { background-position: 0% center; }
+    50% { background-position: 100% center; }
   }
 }
 
@@ -359,16 +381,40 @@
     @apply rounded-2xl border border-border/40 bg-card/60 backdrop-blur-2xl;
     box-shadow: 0 0 0 1px rgba(255,255,255,0.03) inset,
                 0 2px 4px rgba(0,0,0,0.05);
-    transition: transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
-                box-shadow 0.4s cubic-bezier(0.22, 1, 0.36, 1),
-                border-color 0.3s ease;
+    transition: transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+                box-shadow 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+                border-color 0.35s ease;
   }
   .card-bento:hover {
-    transform: translateY(-1px);
-    border-color: hsl(var(--glow-color) / 0.2);
-    box-shadow: 0 0 0 1px rgba(255,255,255,0.05) inset,
-                0 8px 32px rgba(0,0,0,0.15),
-                0 0 40px hsl(var(--glow-color) / 0.06);
+    transform: translateY(-2px);
+    border-color: hsl(var(--glow-color) / 0.28);
+    box-shadow: 0 0 0 1px rgba(255,255,255,0.06) inset,
+                0 12px 40px rgba(0,0,0,0.18),
+                0 0 48px hsl(var(--glow-color) / 0.08);
+  }
+
+  /* Immersive mesh canvas behind main content */
+  .mesh-canvas {
+    position: relative;
+    isolation: isolate;
+  }
+  .mesh-canvas::before {
+    content: '';
+    position: absolute;
+    inset: -20% -10% auto -10%;
+    height: 55vh;
+    z-index: -1;
+    pointer-events: none;
+    background:
+      radial-gradient(ellipse 60% 50% at 15% 20%, hsl(var(--primary) / 0.14), transparent 55%),
+      radial-gradient(ellipse 50% 40% at 85% 10%, hsl(var(--ind-violet) / 0.1), transparent 50%),
+      radial-gradient(ellipse 40% 35% at 50% 0%, hsl(var(--ind-sky) / 0.08), transparent 45%);
+    filter: blur(8px);
+    animation: mesh-drift 18s ease-in-out infinite alternate;
+  }
+  @keyframes mesh-drift {
+    from { transform: translate3d(0, 0, 0) scale(1); }
+    to { transform: translate3d(2%, 3%, 0) scale(1.05); }
   }
 }
 

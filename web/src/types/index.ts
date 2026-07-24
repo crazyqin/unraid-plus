@@ -85,6 +85,8 @@ export interface DashboardSummary {
 // Docker
 export interface DockerContainer {
   id: string;
+  /** Local docker id without Unraid machine-hash prefix (for stats matching). */
+  shortId?: string;
   name: string;
   image: string;
   /** base64-encoded container icon PNG from Unraid Docker plugin. */
@@ -93,10 +95,16 @@ export interface DockerContainer {
   iconUrl?: string;
   status: 'running' | 'exited' | 'paused' | 'restarting' | 'created' | 'dead';
   state: string;
+  /** Human-readable status e.g. "Up 5 days (healthy)". */
+  statusText?: string;
   createdAt: number;
   startedAt?: number;
   ports: string[];
   mounts: { source: string; destination: string; mode: string }[];
+  autoStart?: boolean;
+  networkMode?: string;
+  command?: string;
+  via?: string;
 }
 
 /** Per-container resource usage (mirrors docker_stats.go containerStats). */

@@ -333,10 +333,19 @@ const (
   }
 }`
 
-	// ListDockerContainers returns all Docker containers.
+	// ListDockerContainers returns all Docker containers with ports/mounts/labels.
+	// Note: mounts is GraphQL JSON (raw docker inspect shape), not a typed object.
+	// created is a unix timestamp (number).
 	QueryListDockerContainers = `query ListDockerContainers {
   docker {
-    containers { id names image state status autoStart }
+    containers {
+      id names image imageId state status autoStart
+      command created
+      ports { ip privatePort publicPort type }
+      mounts
+      labels
+      hostConfig { networkMode }
+    }
   }
 }`
 
@@ -860,19 +869,60 @@ type GQLDocker struct {
 }
 
 type GQLContainer struct {
-	ID        string   `json:"id,omitempty"`
-	Names     []string `json:"names,omitempty"`
-	Image     string   `json:"image,omitempty"`
-	ImageID   string   `json:"imageId,omitempty"`
-	State     string   `json:"state,omitempty"`
-	Status    string   `json:"status,omitempty"`
-	AutoStart bool     `json:"autoStart,omitempty"`
-	Command   string   `json:"command,omitempty"`
-	Created   string   `json:"created,omitempty"`
-	Ports     []GQLPort `json:"ports,omitempty"`
-	Mounts    []GQLMount `json:"mounts,omitempty"`
-	Labels    map[string]string `json:"labels,omitempty"`
-	HostConfig *GQLHostConfig `json:"hostConfig,omitempty"`
+	ID         string            `json:"id,omitempty"`
+	Names      []string          `json:"names,omitempty"`
+	Image      string            `json:"image,omitempty"`
+	ImageID    string            `json:"imageId,omitempty"`
+	State      string            `json:"state,omitempty"`
+	Status     string            `json:"status,omitempty"`
+	AutoStart  bool              `json:"autoStart,omitempty"`
+	Command    string            `json:"command,omitempty"`
+	Created    FlexInt64         `json:"created,omitempty"` // unix seconds
+	Ports      []GQLPort         `json:"ports,omitempty"`
+	// Mounts is official GraphQL JSON — raw docker inspect mount objects.
+	Mounts     json.RawMessage   `json:"mounts,omitempty"`
+	Labels     map[string]string `json:"labels,omitempty"`
+	HostConfig *GQLHostConfig    `json:"hostConfig,omitempty"`
+}
+
+// ParseDockerMounts converts GraphQL mounts JSON into simple mount pairs.
+func ParseDockerMounts(raw json.RawMessage) []struct{ Source, Destination, Mode string } {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil
+	}
+	// Official shape: [{ "Type","Source","Destination","Mode", ... }]
+	var typed []struct {
+		Source      string `json:"Source"`
+		Destination string `json:"Destination"`
+		Mode        string `json:"Mode"`
+		// lowercase fallbacks
+		SourceL      string `json:"source"`
+		DestinationL string `json:"destination"`
+		ModeL        string `json:"mode"`
+	}
+	if err := json.Unmarshal(raw, &typed); err != nil {
+		return nil
+	}
+	out := make([]struct{ Source, Destination, Mode string }, 0, len(typed))
+	for _, m := range typed {
+		src := m.Source
+		if src == "" {
+			src = m.SourceL
+		}
+		dst := m.Destination
+		if dst == "" {
+			dst = m.DestinationL
+		}
+		mode := m.Mode
+		if mode == "" {
+			mode = m.ModeL
+		}
+		if src == "" && dst == "" {
+			continue
+		}
+		out = append(out, struct{ Source, Destination, Mode string }{src, dst, mode})
+	}
+	return out
 }
 
 type GQLPort struct {

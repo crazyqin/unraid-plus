@@ -101,16 +101,17 @@ export default function Sidebar() {
 
   return (
     <motion.aside
-      className="flex h-full flex-col border-r border-border/50 bg-card/60 backdrop-blur-xl"
-      animate={{ width: collapsed ? 68 : 240 }}
+      className="relative z-10 flex h-full flex-col border-r border-border/40 bg-card/50 backdrop-blur-2xl"
+      animate={{ width: collapsed ? 68 : 248 }}
       transition={springGentle}
     >
       {/* Logo */}
       <div className="flex h-16 items-center gap-3 border-b border-border/40 px-4">
         <motion.div
-          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary/90 to-primary text-primary-foreground font-bold text-sm shadow-lg shadow-primary/20"
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary via-primary to-orange-600 text-sm font-bold text-primary-foreground shadow-lg shadow-primary/30"
+          whileHover={{ scale: 1.06, rotate: -3 }}
+          whileTap={{ scale: 0.94 }}
+          transition={springSnappy}
         >
           U+
         </motion.div>
@@ -156,7 +157,13 @@ export default function Sidebar() {
                 <Plus className="h-3.5 w-3.5" />
               </motion.button>
             </div>
-            {servers.map((s) => (
+            {servers.map((s) => {
+              const online = !!(s.connected || s.sshAvailable || s.apiAvailable);
+              const mode =
+                s.sshAvailable && s.apiAvailable ? t('connection.dual') :
+                s.apiAvailable ? t('connection.api') :
+                s.sshAvailable ? t('connection.ssh') : t('connection.disconnected');
+              return (
               <motion.div
                 key={s.id}
                 className={cn(
@@ -169,8 +176,12 @@ export default function Sidebar() {
                 whileHover={{ x: 2 }}
                 whileTap={{ scale: 0.98 }}
               >
-                {s.connected ? (
-                  <Wifi className="h-3 w-3 shrink-0 text-emerald-500" />
+                {online ? (
+                  <Wifi className={cn(
+                    'h-3 w-3 shrink-0',
+                    s.sshAvailable && s.apiAvailable ? 'text-emerald-500' :
+                    s.apiAvailable ? 'text-amber-500' : 'text-sky-500',
+                  )} />
                 ) : (
                   <WifiOff className="h-3 w-3 shrink-0 text-muted-foreground/50" />
                 )}
@@ -179,12 +190,12 @@ export default function Sidebar() {
                     {s.label || s.host}
                   </div>
                   <div className="truncate text-[10px] text-muted-foreground/60">
-                    {s.host}:{s.port}
+                    {mode}
                   </div>
                 </div>
                 {/* Action buttons (shown on hover) */}
                 <div className="hidden gap-0.5 group-hover:flex">
-                  {!s.connected && (
+                  {!online && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -208,7 +219,7 @@ export default function Sidebar() {
                   </button>
                 </div>
               </motion.div>
-            ))}
+            );})}
             {servers.length === 0 && (
               <div className="px-2 py-3 text-center text-[10px] text-muted-foreground/60">
                 {t('sidebar.noServer')}

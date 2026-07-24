@@ -1,18 +1,23 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import {
   Boxes,
+  Cable,
   Cpu,
+  FolderOpen,
   Loader2,
   MemoryStick,
+  Network,
   Pause,
   Play,
+  Power,
   RotateCw,
   ScrollText,
-  Square,
   Search,
+  Square,
+  Zap,
 } from 'lucide-react';
 import { api, ApiError, wsUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -33,6 +38,7 @@ import {
   staggerContainer,
   fadeUpVariants,
   springGentle,
+  springSnappy,
 } from '@/lib/motion';
 
 const STATUS_VARIANT: Record<DockerContainer['status'], 'success' | 'secondary' | 'warning' | 'destructive'> = {
@@ -45,21 +51,12 @@ const STATUS_VARIANT: Record<DockerContainer['status'], 'success' | 'secondary' 
 };
 
 const STATUS_BORDER: Record<string, string> = {
-  running: 'border-l-emerald-500/60',
-  exited: 'border-l-border',
-  paused: 'border-l-amber-500/60',
-  restarting: 'border-l-amber-500/60',
-  created: 'border-l-border',
+  running: 'border-l-emerald-500/70',
+  exited: 'border-l-border/60',
+  paused: 'border-l-amber-500/70',
+  restarting: 'border-l-amber-500/70',
+  created: 'border-l-border/60',
   dead: 'border-l-red-500/70',
-};
-
-const STATUS_BG: Record<string, string> = {
-  running: '',
-  exited: '',
-  paused: 'bg-amber-500/5',
-  restarting: 'bg-amber-500/5',
-  created: '',
-  dead: 'bg-red-500/5',
 };
 
 function Highlight({ text, query }: { text: string; query: string }) {
@@ -69,12 +66,29 @@ function Highlight({ text, query }: { text: string; query: string }) {
   return (
     <>
       {text.slice(0, idx)}
-      <mark className="rounded-sm bg-yellow-300/80 px-0.5 text-inherit">
+      <mark className="rounded-sm bg-primary/25 px-0.5 text-inherit">
         {text.slice(idx, idx + query.length)}
       </mark>
       {text.slice(idx + query.length)}
     </>
   );
+}
+
+/** Match docker stats (short docker id / name) against GraphQL PrefixedID entries. */
+function findStats(stats: ContainerStats[] | undefined, c: DockerContainer): ContainerStats | undefined {
+  if (!stats?.length) return undefined;
+  const short = (c.shortId || c.id.split(':').pop() || c.id).toLowerCase();
+  const name = c.name.toLowerCase();
+  return stats.find((s) => {
+    const sid = (s.id || '').toLowerCase();
+    const sname = (s.name || '').replace(/^\//, '').toLowerCase();
+    return (
+      sid === short ||
+      short.startsWith(sid) ||
+      sid.startsWith(short.slice(0, 12)) ||
+      sname === name
+    );
+  });
 }
 
 export default function DockerPage() {
@@ -104,9 +118,6 @@ export default function DockerPage() {
     refetchInterval: refresh || false,
   });
 
-  const statsMap = new Map<string, ContainerStats>();
-  (statsData ?? []).forEach((s) => statsMap.set(s.id, s));
-
   const [actionError, setActionError] = useState<string | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [confirmAction, setConfirmAction] = useState<{ id: string; action: 'stop' | 'restart'; name: string } | null>(null);
@@ -131,16 +142,32 @@ export default function DockerPage() {
     }
   };
 
-  const containers = (data ?? []).filter((c) =>
-    c.name.toLowerCase().includes(filter.toLowerCase()),
+  const containers = useMemo(
+    () =>
+      (data ?? []).filter((c) => {
+        const q = filter.toLowerCase();
+        if (!q) return true;
+        return (
+          c.name.toLowerCase().includes(q) ||
+          c.image.toLowerCase().includes(q) ||
+          (c.networkMode ?? '').toLowerCase().includes(q) ||
+          (c.ports ?? []).some((p) => p.toLowerCase().includes(q))
+        );
+      }),
+    [data, filter],
   );
+
   const running = (data ?? []).filter((c) => c.status === 'running').length;
+  const autoStartCount = (data ?? []).filter((c) => c.autoStart).length;
 
   return (
-    <div className="space-y-5 p-5 md:p-6">
+    <div className="relative space-y-6 p-5 md:p-8">
+      {/* Ambient orb */}
+      <div className="pointer-events-none absolute -right-20 -top-20 h-72 w-72 rounded-full bg-primary/10 blur-3xl" />
+
       {actionError && (
         <motion.div
-          className="flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+          className="flex items-center justify-between rounded-2xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive glass"
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
         >
@@ -151,29 +178,44 @@ export default function DockerPage() {
         </motion.div>
       )}
 
-      {/* Header */}
+      {/* Editorial header */}
       <motion.div
-        className="flex flex-wrap items-end justify-between gap-4"
-        initial={{ opacity: 0, y: 12 }}
+        className="flex flex-wrap items-end justify-between gap-6"
+        initial={{ opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
         transition={springGentle}
       >
-        <div>
-          <h1 className="text-display-md text-foreground">{t('docker.title')}</h1>
-          <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+        <div className="min-w-0">
+          <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-[0.28em] text-muted-foreground/70">
+            <Boxes className="h-3 w-3 text-primary" />
+            Containers
+          </div>
+          <h1 className="text-display-md tracking-tight text-foreground">
+            {t('docker.title')}
+          </h1>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
             <Badge
               variant={running > 0 ? 'success' : 'secondary'}
-              className="text-[10px] font-semibold tracking-wide px-2.5"
+              className="rounded-full px-2.5 text-[10px] font-semibold tracking-wide"
             >
-              {running > 0 ? t('docker.running') : t('docker.idle')}
+              <Power className="mr-1 h-3 w-3" />
+              {running} {t('docker.running')}
             </Badge>
-            <span className="text-xs">{running} / {data?.length ?? 0} {t('docker.containerCount')}</span>
+            <Badge variant="secondary" className="rounded-full px-2.5 text-[10px] font-mono-data">
+              {(data?.length ?? 0)} {t('docker.containerCount')}
+            </Badge>
+            {autoStartCount > 0 && (
+              <Badge variant="outline" className="rounded-full px-2.5 text-[10px]">
+                <Zap className="mr-1 h-3 w-3" />
+                {autoStartCount} auto
+              </Badge>
+            )}
           </div>
         </div>
-        <div className="relative w-48 shrink-0">
-          <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
+        <div className="relative w-full max-w-xs shrink-0">
+          <Search className="absolute left-3.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
           <Input
-            className="h-9 pl-9 text-sm rounded-xl border-border/50 bg-card/50 backdrop-blur-sm"
+            className="h-11 rounded-2xl border-border/40 bg-card/40 pl-10 text-sm backdrop-blur-xl"
             placeholder={t('docker.searchPlaceholder')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
@@ -187,11 +229,11 @@ export default function DockerPage() {
         </div>
       ) : containers.length === 0 ? (
         <motion.div
-          className="card-bento flex flex-col items-center gap-3 py-16 text-center text-sm text-muted-foreground"
+          className="card-bento flex flex-col items-center gap-3 py-20 text-center text-sm text-muted-foreground"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
         >
-          <Boxes className="h-10 w-10 text-muted-foreground/30" />
+          <Boxes className="h-12 w-12 text-muted-foreground/25" />
           {t('docker.noMatch')}
         </motion.div>
       ) : (
@@ -201,104 +243,232 @@ export default function DockerPage() {
           initial="hidden"
           animate="visible"
         >
-          {containers.map((c) => (
-            <motion.div
-              key={c.id}
-              className={cn(
-                'card-bento flex flex-col border-l-2 overflow-hidden',
-                STATUS_BORDER[c.status] ?? 'border-l-border',
-                STATUS_BG[c.status],
-              )}
-              variants={fadeUpVariants}
-              whileHover={{ y: -2 }}
-              transition={springGentle}
-            >
-              <div className="px-5 pt-5 pb-3">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-start gap-3 min-w-0">
-                    {c.icon || c.iconUrl ? (
-                      <img
-                        src={c.icon || c.iconUrl}
-                        alt={c.name}
-                        className="h-9 w-9 shrink-0 rounded-lg bg-white/90 object-contain p-0.5 dark:bg-white/80"
-                        onError={(e) => {
-                          const img = e.currentTarget;
-                          if (img.src === c.iconUrl) {
-                            img.style.display = 'none';
-                          }
-                        }}
-                      />
-                    ) : (
-                      <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-primary/10 text-primary">
-                        <Boxes className="h-4 w-4" />
-                      </div>
-                    )}
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-semibold">
-                        <Highlight text={c.name} query={filter} />
-                      </div>
-                      <div className="truncate text-[11px] text-muted-foreground/70">
-                        <Highlight text={truncate(c.image, 38)} query={filter} />
+          {containers.map((c) => {
+            const stats = findStats(statsData, c);
+            return (
+              <motion.div
+                key={c.id}
+                className={cn(
+                  'card-bento group relative flex flex-col overflow-hidden border-l-[3px]',
+                  STATUS_BORDER[c.status] ?? 'border-l-border',
+                )}
+                variants={fadeUpVariants}
+                whileHover={{ y: -4 }}
+                transition={springSnappy}
+              >
+                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-primary/5 via-transparent to-transparent opacity-0 transition-opacity duration-500 group-hover:opacity-100" />
+
+                <div className="relative px-5 pt-5 pb-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      {c.icon || c.iconUrl ? (
+                        <img
+                          src={c.icon || c.iconUrl}
+                          alt=""
+                          className="h-11 w-11 shrink-0 rounded-xl bg-white/90 object-contain p-1 shadow-sm dark:bg-white/85"
+                          onError={(e) => {
+                            e.currentTarget.style.display = 'none';
+                          }}
+                        />
+                      ) : (
+                        <div className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-primary/10 text-primary">
+                          <Boxes className="h-5 w-5" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <div className="truncate text-[15px] font-semibold tracking-tight">
+                          <Highlight text={c.name} query={filter} />
+                        </div>
+                        <div className="mt-0.5 truncate font-mono-data text-[11px] text-muted-foreground/70">
+                          <Highlight text={truncate(c.image, 42)} query={filter} />
+                        </div>
+                        {c.statusText && (
+                          <div className="mt-1 truncate text-[11px] text-muted-foreground/55">
+                            {c.statusText}
+                          </div>
+                        )}
                       </div>
                     </div>
+                    <Badge
+                      variant={STATUS_VARIANT[c.status]}
+                      className="shrink-0 rounded-full px-2 py-0.5 text-[9px] font-semibold uppercase tracking-wider"
+                    >
+                      {STATUS_LABEL[c.status] ?? c.status}
+                    </Badge>
                   </div>
-                  <Badge variant={STATUS_VARIANT[c.status]} className="text-[9px] px-1.5 py-0 leading-none shrink-0 font-semibold tracking-wide">{STATUS_LABEL[c.status] ?? c.status}</Badge>
-                </div>
-              </div>
-              <div className="flex-1 flex flex-col gap-3 px-5 pb-4">
-                <div className="flex flex-wrap gap-1">
-                  {(c.ports ?? []).slice(0, 3).map((p) => (
-                    <Badge key={p} variant="outline" className="font-mono text-[9px] px-1.5 py-0 leading-none">
-                      {p}
-                    </Badge>
-                  ))}
-                  {c.ports.length > 3 && (
-                    <Badge variant="outline" className="text-[9px] px-1.5 py-0 leading-none">
-                      +{c.ports.length - 3}
-                    </Badge>
-                  )}
                 </div>
 
-                {c.status === 'running' && statsMap.get(c.id) && (
-                  <ContainerStatsBar stats={statsMap.get(c.id)!} />
-                )}
+                <div className="relative flex flex-1 flex-col gap-3 px-5 pb-4">
+                  {/* Meta chips */}
+                  <div className="flex flex-wrap gap-1.5">
+                    {c.autoStart && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                        <Zap className="h-2.5 w-2.5" />
+                        auto
+                      </span>
+                    )}
+                    {c.networkMode && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-sky-500/10 px-1.5 py-0.5 text-[10px] font-mono-data text-sky-600 dark:text-sky-400">
+                        <Network className="h-2.5 w-2.5" />
+                        {c.networkMode}
+                      </span>
+                    )}
+                    {(c.mounts?.length ?? 0) > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[10px] text-violet-600 dark:text-violet-400">
+                        <FolderOpen className="h-2.5 w-2.5" />
+                        {c.mounts.length} vol
+                      </span>
+                    )}
+                    {(c.ports?.length ?? 0) > 0 && (
+                      <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600 dark:text-emerald-400">
+                        <Cable className="h-2.5 w-2.5" />
+                        {c.ports.length} port
+                      </span>
+                    )}
+                  </div>
 
-                <div className="text-[11px] text-muted-foreground/50">
-                  {t('docker.startedAt')} {c.startedAt ? timeAgo(c.startedAt) : '--'}
+                  {/* Ports */}
+                  {(c.ports?.length ?? 0) > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {c.ports.slice(0, 4).map((p) => (
+                        <Badge
+                          key={p}
+                          variant="outline"
+                          className="rounded-md px-1.5 py-0 font-mono-data text-[9px] leading-none"
+                        >
+                          {p}
+                        </Badge>
+                      ))}
+                      {c.ports.length > 4 && (
+                        <Badge variant="outline" className="rounded-md px-1.5 py-0 text-[9px]">
+                          +{c.ports.length - 4}
+                        </Badge>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Mounts preview */}
+                  {(c.mounts?.length ?? 0) > 0 && (
+                    <div className="space-y-1 rounded-xl border border-border/40 bg-background/40 p-2.5">
+                      {c.mounts.slice(0, 2).map((m) => (
+                        <div
+                          key={`${m.source}->${m.destination}`}
+                          className="truncate font-mono-data text-[10px] text-muted-foreground/80"
+                          title={`${m.source} → ${m.destination}`}
+                        >
+                          <span className="text-foreground/70">{truncate(m.source, 28)}</span>
+                          <span className="mx-1 text-muted-foreground/40">→</span>
+                          <span>{m.destination}</span>
+                        </div>
+                      ))}
+                      {c.mounts.length > 2 && (
+                        <div className="text-[10px] text-muted-foreground/50">
+                          +{c.mounts.length - 2} more
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {c.status === 'running' && stats && <ContainerStatsBar stats={stats} />}
+
+                  <div className="text-[11px] text-muted-foreground/50">
+                    {t('docker.startedAt')}{' '}
+                    <span className="font-mono-data text-muted-foreground/80">
+                      {c.startedAt
+                        ? timeAgo(c.startedAt)
+                        : c.createdAt
+                          ? timeAgo(c.createdAt)
+                          : '—'}
+                    </span>
+                    {c.via && (
+                      <span className="ml-2 rounded bg-muted/50 px-1 py-0.5 text-[9px] uppercase tracking-wider">
+                        {c.via}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="mt-auto flex flex-wrap gap-2 pt-1">
+                    {c.status !== 'running' && (
+                      <Button
+                        size="sm"
+                        variant="success"
+                        onClick={() => act(c.id, 'start')}
+                        disabled={pendingAction !== null}
+                        className="h-8 rounded-xl"
+                      >
+                        {pendingAction === `${c.id}:start` ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Play className="h-3.5 w-3.5" />
+                        )}{' '}
+                        {t('docker.start')}
+                      </Button>
+                    )}
+                    {c.status === 'running' && (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => act(c.id, 'stop')}
+                        disabled={pendingAction !== null}
+                        className="h-8 rounded-xl"
+                      >
+                        {pendingAction === `${c.id}:stop` ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Square className="h-3.5 w-3.5" />
+                        )}{' '}
+                        {t('docker.stop')}
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => act(c.id, 'restart')}
+                      disabled={pendingAction !== null}
+                      className="h-8 rounded-xl"
+                    >
+                      {pendingAction === `${c.id}:restart` ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <RotateCw className="h-3.5 w-3.5" />
+                      )}{' '}
+                      {t('docker.restart')}
+                    </Button>
+                    {c.status === 'running' && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => act(c.id, 'pause')}
+                        disabled={pendingAction !== null}
+                        className="h-8 rounded-xl"
+                      >
+                        <Pause className="h-3.5 w-3.5" /> {t('docker.pause')}
+                      </Button>
+                    )}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setLogsFor(c)}
+                      disabled={pendingAction !== null}
+                      className="h-8 rounded-xl"
+                    >
+                      <ScrollText className="h-3.5 w-3.5" /> {t('docker.logs')}
+                    </Button>
+                  </div>
                 </div>
-                <div className="mt-auto flex flex-wrap gap-2 pt-1">
-                  {c.status !== 'running' && (
-                    <Button size="sm" variant="success" onClick={() => act(c.id, 'start')} disabled={pendingAction !== null} className="rounded-lg h-8">
-                      {pendingAction === `${c.id}:start` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} {t('docker.start')}
-                    </Button>
-                  )}
-                  {c.status === 'running' && (
-                    <Button size="sm" variant="destructive" onClick={() => act(c.id, 'stop')} disabled={pendingAction !== null} className="rounded-lg h-8">
-                      {pendingAction === `${c.id}:stop` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />} {t('docker.stop')}
-                    </Button>
-                  )}
-                  <Button size="sm" variant="outline" onClick={() => act(c.id, 'restart')} disabled={pendingAction !== null} className="rounded-lg h-8">
-                    {pendingAction === `${c.id}:restart` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />} {t('docker.restart')}
-                  </Button>
-                  {c.status === 'running' && (
-                    <Button size="sm" variant="ghost" onClick={() => act(c.id, 'pause')} disabled={pendingAction !== null} className="rounded-lg h-8">
-                      <Pause className="h-3.5 w-3.5" /> {t('docker.pause')}
-                    </Button>
-                  )}
-                  <Button size="sm" variant="ghost" onClick={() => setLogsFor(c)} disabled={pendingAction !== null} className="rounded-lg h-8">
-                    <ScrollText className="h-3.5 w-3.5" /> {t('docker.logs')}
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </motion.div>
       )}
 
       <ConfirmDialog
         open={!!confirmAction}
         title={confirmAction?.action === 'stop' ? t('docker.confirmStop') : t('docker.confirmRestart')}
-        description={t('docker.confirmStopDesc', { action: confirmAction?.action === 'stop' ? t('docker.stop') : t('docker.restart'), name: confirmAction?.name ?? '' })}
+        description={t('docker.confirmStopDesc', {
+          action: confirmAction?.action === 'stop' ? t('docker.stop') : t('docker.restart'),
+          name: confirmAction?.name ?? '',
+        })}
         confirmText={confirmAction?.action === 'stop' ? t('docker.stop') : t('docker.restart')}
         variant="destructive"
         onConfirm={() => confirmAction && act(confirmAction.id, confirmAction.action)}
@@ -310,43 +480,44 @@ export default function DockerPage() {
   );
 }
 
-/* ── Container Stats Bar ── */
 function ContainerStatsBar({ stats }: { stats: ContainerStats }) {
-  const memPct = stats.memLimitBytes > 0
-    ? (stats.memUsageBytes / stats.memLimitBytes) * 100
-    : 0;
+  const memPct =
+    stats.memLimitBytes > 0 ? (stats.memUsageBytes / stats.memLimitBytes) * 100 : stats.memPct || 0;
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-1.5 rounded-xl border border-border/30 bg-background/30 p-2.5">
       <div className="flex items-center gap-1.5">
-        <span className="inline-flex items-center gap-1 rounded-md bg-orange-500/10 px-1.5 py-0.5 text-[10px] font-mono-data tabular-nums text-ind-orange">
+        <span className="inline-flex items-center gap-1 rounded-md bg-orange-500/10 px-1.5 py-0.5 font-mono-data text-[10px] tabular-nums text-ind-orange">
           <Cpu className="h-2.5 w-2.5" />
           {stats.cpuPct.toFixed(1)}%
         </span>
-        <span className={cn(
-          'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[10px] font-mono-data tabular-nums',
-          memPct > 90
-            ? 'bg-red-500/10 text-ind-red'
-            : memPct > 75
-              ? 'bg-amber-500/10 text-ind-amber'
-              : 'bg-sky-500/10 text-ind-sky',
-        )}>
+        <span
+          className={cn(
+            'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 font-mono-data text-[10px] tabular-nums',
+            memPct > 90
+              ? 'bg-red-500/10 text-ind-red'
+              : memPct > 75
+                ? 'bg-amber-500/10 text-ind-amber'
+                : 'bg-sky-500/10 text-ind-sky',
+          )}
+        >
           <MemoryStick className="h-2.5 w-2.5" />
-          {formatBytes(stats.memUsageBytes)}/{formatBytes(stats.memLimitBytes)}
+          {formatBytes(stats.memUsageBytes)}
+          {stats.memLimitBytes > 0 ? `/${formatBytes(stats.memLimitBytes)}` : ''}
         </span>
       </div>
       <Progress
         className="h-1"
-        value={memPct}
+        value={Math.min(100, memPct)}
         indicatorClassName={
           memPct > 90 ? 'bg-destructive' : memPct > 75 ? 'bg-warning' : 'bg-primary'
         }
       />
       <div className="flex items-center gap-1.5">
-        <span className="inline-flex items-center gap-0.5 rounded-md bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono-data tabular-nums text-ind-emerald">
+        <span className="inline-flex items-center gap-0.5 rounded-md bg-emerald-500/10 px-1.5 py-0.5 font-mono-data text-[10px] tabular-nums text-ind-emerald">
           ↓ {formatBytes(stats.netRxBytes)}
         </span>
-        <span className="inline-flex items-center gap-0.5 rounded-md bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono-data tabular-nums text-ind-amber">
+        <span className="inline-flex items-center gap-0.5 rounded-md bg-amber-500/10 px-1.5 py-0.5 font-mono-data text-[10px] tabular-nums text-ind-amber">
           ↑ {formatBytes(stats.netTxBytes)}
         </span>
         <span className="ml-auto text-[10px] tabular-nums text-muted-foreground/50">
@@ -357,7 +528,6 @@ function ContainerStatsBar({ stats }: { stats: ContainerStats }) {
   );
 }
 
-/* ── Log Dialog ── */
 function LogDialog({
   container,
   onClose,
@@ -370,7 +540,10 @@ function LogDialog({
     <Dialog open={!!container} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl rounded-2xl">
         <DialogHeader>
-          <DialogTitle>{t('docker.logTitle')} {container?.name}</DialogTitle>
+          <DialogTitle className="flex items-center gap-2">
+            <ScrollText className="h-4 w-4 text-primary" />
+            {t('docker.logTitle')} {container?.name}
+          </DialogTitle>
         </DialogHeader>
         <LogStream containerId={container?.id} />
       </DialogContent>
@@ -415,7 +588,9 @@ function LogStream({ containerId }: { containerId?: string }) {
       });
     };
 
-    return () => { ws.close(); };
+    return () => {
+      ws.close();
+    };
   }, [containerId]);
 
   useEffect(() => {
@@ -427,20 +602,20 @@ function LogStream({ containerId }: { containerId?: string }) {
 
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+      <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
         <span
           className={cn(
-            'h-2 w-2 rounded-full',
-            connected ? 'bg-success' : ended ? 'bg-muted-foreground' : 'bg-warning',
+            'h-1.5 w-1.5 rounded-full',
+            connected ? 'bg-emerald-500' : ended ? 'bg-muted-foreground' : 'bg-amber-500',
           )}
         />
-        {connected ? t('docker.logConnected') : ended ? t('docker.logEnded') : t('docker.logConnecting')}
+        {connected ? t('common.online') : ended ? t('common.offline') : t('common.loading')}
       </div>
       <pre
         ref={preRef}
-        className="h-80 overflow-auto whitespace-pre-wrap break-all rounded-xl bg-black/80 p-4 font-mono text-xs leading-relaxed text-green-400"
+        className="max-h-[50vh] overflow-auto rounded-xl border border-border/40 bg-black/40 p-4 font-mono-data text-[11px] leading-relaxed text-emerald-100/90"
       >
-        {buffer || (ended ? t('docker.logEmpty') : t('docker.logWaiting'))}
+        {buffer || t('docker.logWaiting')}
       </pre>
     </div>
   );

@@ -246,6 +246,8 @@ func (h *Handler) ListServers(c *gin.Context) {
 	out := make([]serverInfo, 0, len(entries))
 	for _, e := range entries {
 		sid := e.ID
+		sshOK := h.pool.Connected(e.Host, e.Port)
+		apiOK := h.ur.HasSession(sid)
 		out = append(out, serverInfo{
 			ID:           sid,
 			Host:         e.Host,
@@ -253,9 +255,10 @@ func (h *Handler) ListServers(c *gin.Context) {
 			User:         e.User,
 			AuthMode:     e.AuthMode,
 			Label:        e.Label,
-			Connected:    h.pool.Connected(e.Host, e.Port),
-			SSHAvailable: h.pool.Connected(e.Host, e.Port),
-			APIAvailable: h.ur.HasSession(sid),
+			// Connected if either transport works (API-only is still "online")
+			Connected:    sshOK || apiOK,
+			SSHAvailable: sshOK,
+			APIAvailable: apiOK,
 			LastSeen:     e.LastSeen,
 		})
 	}

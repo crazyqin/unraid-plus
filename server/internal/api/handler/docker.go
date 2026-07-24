@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -15,18 +16,23 @@ import (
 )
 
 type container struct {
-	ID        string   `json:"id"`
-	Name      string   `json:"name"`
-	Image     string   `json:"image"`
-	Icon      string   `json:"icon,omitempty"`   // base64-encoded PNG from Unraid state dir
-	IconURL   string   `json:"iconUrl,omitempty"` // icon URL from Docker label (fallback for client-side)
-	Status    string   `json:"status"`
-	State     string   `json:"state"`
-	CreatedAt int64    `json:"createdAt"`
-	StartedAt int64    `json:"startedAt,omitempty"`
-	Ports     []string `json:"ports"`
-	Mounts    []mount  `json:"mounts"`
-	Via       string   `json:"via,omitempty"` // "graphql" or "ssh"
+	ID          string   `json:"id"`
+	ShortID     string   `json:"shortId,omitempty"` // docker local id (no machine prefix) for stats match
+	Name        string   `json:"name"`
+	Image       string   `json:"image"`
+	Icon        string   `json:"icon,omitempty"`    // base64-encoded PNG from Unraid state dir
+	IconURL     string   `json:"iconUrl,omitempty"` // icon URL from Docker label
+	Status      string   `json:"status"`           // machine keyword: running|exited|...
+	State       string   `json:"state"`            // raw engine state
+	StatusText  string   `json:"statusText,omitempty"` // human "Up 5 days (healthy)"
+	CreatedAt   int64    `json:"createdAt"`
+	StartedAt   int64    `json:"startedAt,omitempty"`
+	Ports       []string `json:"ports"`
+	Mounts      []mount  `json:"mounts"`
+	AutoStart   bool     `json:"autoStart,omitempty"`
+	NetworkMode string   `json:"networkMode,omitempty"`
+	Command     string   `json:"command,omitempty"`
+	Via         string   `json:"via,omitempty"` // "graphql" or "ssh"
 }
 
 type mount struct {
@@ -48,9 +54,10 @@ func (h *Handler) ListContainers(c *gin.Context) {
 	if hasAPI && h.ur.HasGraphQL(sid) {
 		containers, err := h.listContainersGraphQL(sid)
 		if err == nil && containers != nil {
-			// Enrich with icons from SSH when available
+			// Enrich with icons + inspect details from SSH when available
 			if hasSSH && cli != nil {
 				h.enrichContainerIcons(cli, containers)
+				h.enrichContainersFromSSH(cli, containers)
 			}
 			for i := range containers {
 				containers[i].Via = "graphql"
@@ -100,15 +107,26 @@ func (h *Handler) listContainersGraphQL(sid string) ([]container, error) {
 	for _, gc := range docker.Containers {
 		// Frontend uses `status` as the machine keyword (running/exited/...).
 		// GraphQL `state` is RUNNING/EXITED; `status` is human text ("Up 5 days").
-		// Match SSH path: Status = normalized keyword, State = raw engine state.
 		st := normalizeDockerState(gc.State, gc.Status)
+		localID := unraid.StripPrefixedID(gc.ID)
 		ct := container{
-			ID:     gc.ID, // PrefixedID for GraphQL mutations; SSH path strips prefix
-			Image:  gc.Image,
-			State:  strings.ToLower(gc.State),
-			Status: st,
-			Ports:  []string{},
-			Mounts: []mount{},
+			ID:         gc.ID, // PrefixedID for GraphQL mutations
+			ShortID:    localID,
+			Image:      gc.Image,
+			State:      strings.ToLower(gc.State),
+			Status:     st,
+			StatusText: gc.Status,
+			AutoStart:  gc.AutoStart,
+			Command:    gc.Command,
+			Ports:      []string{},
+			Mounts:     []mount{},
+		}
+		if gc.HostConfig != nil {
+			ct.NetworkMode = gc.HostConfig.NetworkMode
+		}
+		// created is unix seconds from official API
+		if ts := gc.Created.Int64(); ts > 0 {
+			ct.CreatedAt = ts
 		}
 		// Names: GraphQL returns an array like ["/FileBrowser"]
 		if len(gc.Names) > 0 {
@@ -116,17 +134,17 @@ func (h *Handler) listContainersGraphQL(sid string) ([]container, error) {
 		}
 		// Parse ports from GraphQL port structs (publicPort may be null → 0)
 		for _, p := range gc.Ports {
-			portStr := ""
 			ptype := strings.ToLower(p.Type)
 			if ptype == "" {
 				ptype = "tcp"
 			}
+			var portStr string
 			if p.PublicPort > 0 {
 				ip := p.IP
 				if ip == "" {
 					ip = "0.0.0.0"
 				}
-				portStr = fmt.Sprintf("%s:%d->%d/%s", ip, p.PublicPort, p.PrivatePort, ptype)
+				portStr = fmt.Sprintf("%s:%d→%d/%s", ip, p.PublicPort, p.PrivatePort, ptype)
 			} else if p.PrivatePort > 0 {
 				portStr = fmt.Sprintf("%d/%s", p.PrivatePort, ptype)
 			} else {
@@ -134,8 +152,8 @@ func (h *Handler) listContainersGraphQL(sid string) ([]container, error) {
 			}
 			ct.Ports = append(ct.Ports, portStr)
 		}
-		// Parse mounts from GraphQL mount structs
-		for _, m := range gc.Mounts {
+		// Mounts are raw JSON from official API
+		for _, m := range unraid.ParseDockerMounts(gc.Mounts) {
 			ct.Mounts = append(ct.Mounts, mount{
 				Source:      m.Source,
 				Destination: m.Destination,
@@ -152,6 +170,33 @@ func (h *Handler) listContainersGraphQL(sid string) ([]container, error) {
 	}
 
 	return containers, nil
+}
+
+// parseDockerCreated parses GraphQL created field (ISO datetime or unix seconds).
+func parseDockerCreated(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+		// seconds or milliseconds
+		if n > 1e12 {
+			return n / 1000
+		}
+		return n
+	}
+	for _, layout := range []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05.000Z",
+		"2006-01-02 15:04:05 -0700 MST",
+		"2006-01-02 15:04:05",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.Unix()
+		}
+	}
+	return 0
 }
 
 // enrichContainerIcons supplements GraphQL-fetched containers with base64-encoded
@@ -187,6 +232,127 @@ func (h *Handler) enrichContainerIcons(cli *ssh.Client, containers []container) 
 			containers[i].Icon = "data:image/png;base64," + b64
 		}
 	}
+}
+
+// enrichContainersFromSSH fills gaps GraphQL leaves (startedAt, empty ports via
+// docker inspect, network mode) using a single batch inspect when possible.
+func (h *Handler) enrichContainersFromSSH(cli *ssh.Client, containers []container) {
+	if cli == nil || len(containers) == 0 {
+		return
+	}
+	// Build id list (local docker ids)
+	ids := make([]string, 0, len(containers))
+	indexByLocal := map[string]int{}
+	for i, ct := range containers {
+		lid := ct.ShortID
+		if lid == "" {
+			lid = unraid.StripPrefixedID(ct.ID)
+		}
+		if lid == "" {
+			continue
+		}
+		// Use first 12 chars if full sha (docker accepts short ids)
+		if len(lid) > 12 {
+			lid = lid[:12]
+		}
+		ids = append(ids, lid)
+		indexByLocal[lid] = i
+		// also map full short id
+		indexByLocal[unraid.StripPrefixedID(ct.ID)] = i
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	// Batch inspect: Name|Created|StartedAt|NetworkMode|PortsJSON
+	cmd := `docker inspect --format '{{.Id}}|{{.Name}}|{{.Created}}|{{if .State.StartedAt}}{{.State.StartedAt}}{{end}}|{{.HostConfig.NetworkMode}}|{{json .NetworkSettings.Ports}}' ` +
+		strings.Join(ids, " ") + ` 2>/dev/null`
+	out, err := cli.Run(cmd)
+	if err != nil || strings.TrimSpace(out) == "" {
+		return
+	}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		parts := strings.SplitN(line, "|", 6)
+		if len(parts) < 5 {
+			continue
+		}
+		fullID := strings.TrimSpace(parts[0])
+		name := strings.TrimPrefix(strings.TrimSpace(parts[1]), "/")
+		created := strings.TrimSpace(parts[2])
+		started := strings.TrimSpace(parts[3])
+		netMode := strings.TrimSpace(parts[4])
+		portsJSON := ""
+		if len(parts) >= 6 {
+			portsJSON = strings.TrimSpace(parts[5])
+		}
+
+		// Find matching container by local id prefix or name
+		idx := -1
+		for i, ct := range containers {
+			local := unraid.StripPrefixedID(ct.ID)
+			if local != "" && (strings.HasPrefix(fullID, local) || strings.HasPrefix(local, fullID[:min(12, len(fullID))])) {
+				idx = i
+				break
+			}
+			if ct.Name == name {
+				idx = i
+				break
+			}
+		}
+		if idx < 0 {
+			continue
+		}
+		if containers[idx].CreatedAt == 0 {
+			if ts := parseDockerCreated(created); ts > 0 {
+				containers[idx].CreatedAt = ts
+			}
+		}
+		if ts := parseDockerCreated(started); ts > 0 {
+			containers[idx].StartedAt = ts
+		}
+		if containers[idx].NetworkMode == "" && netMode != "" {
+			containers[idx].NetworkMode = netMode
+		}
+		// Fill ports if GraphQL returned none
+		if len(containers[idx].Ports) == 0 && portsJSON != "" && portsJSON != "null" && portsJSON != "{}" {
+			containers[idx].Ports = parseInspectPorts(portsJSON)
+		}
+	}
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// parseInspectPorts parses docker inspect NetworkSettings.Ports JSON into
+// human port binding strings.
+func parseInspectPorts(raw string) []string {
+	// format: {"80/tcp":[{"HostIp":"0.0.0.0","HostPort":"8004"}], ...}
+	var m map[string][]struct {
+		HostIP   string `json:"HostIp"`
+		HostPort string `json:"HostPort"`
+	}
+	if json.Unmarshal([]byte(raw), &m) != nil {
+		return nil
+	}
+	out := []string{}
+	for priv, binds := range m {
+		if len(binds) == 0 {
+			out = append(out, priv)
+			continue
+		}
+		for _, b := range binds {
+			ip := b.HostIP
+			if ip == "" {
+				ip = "0.0.0.0"
+			}
+			out = append(out, fmt.Sprintf("%s:%s→%s", ip, b.HostPort, priv))
+		}
+	}
+	return out
 }
 
 // parseIconOutput parses "ICON:name:base64data" lines from the batch icon read.
@@ -254,14 +420,16 @@ func (h *Handler) listContainersSSH(cli *ssh.Client) []container {
 		}
 		cName := strings.TrimPrefix(ps.Names, "/")
 		containers = append(containers, container{
-			ID:        ps.ID,
-			Name:      ps.Names,
-			Image:     ps.Image,
-			Status:    st,
-			State:     ps.State,
-			CreatedAt: parseDockerTime(ps.CreatedAt),
-			StartedAt: parseDockerTime(ps.CreatedAt),
-			Ports:     splitPorts(ps.Ports),
+			ID:         ps.ID,
+			ShortID:    ps.ID,
+			Name:       cName,
+			Image:      ps.Image,
+			Status:     st,
+			State:      ps.State,
+			StatusText: ps.Status,
+			CreatedAt:  parseDockerTime(ps.CreatedAt),
+			StartedAt:  parseDockerTime(ps.CreatedAt),
+			Ports:      splitPorts(ps.Ports),
 		})
 		iconInfos = append(iconInfos, iconInfo{name: cName})
 	}

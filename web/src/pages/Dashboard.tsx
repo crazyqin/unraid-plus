@@ -75,8 +75,8 @@ export default function DashboardPage() {
 
   const modeLabel =
     sshAvailable && apiAvailable ? t('connection.dual') :
-    apiAvailable ? t('connection.api') :
-    sshAvailable ? t('connection.ssh') : '';
+    apiAvailable && !sshAvailable ? t('connection.api') :
+    sshAvailable && !apiAvailable ? t('connection.ssh') : '';
   const { data, isLoading, isError } = useQuery({
     queryKey: ['dashboard'],
     queryFn: () => api.get<DashboardSummary>('/dashboard'),
@@ -109,15 +109,18 @@ export default function DashboardPage() {
 
   return (
     <div className="p-5 md:p-6 space-y-5">
-      {/* Hero header */}
+      {/* Hero header — editorial canvas */}
       <motion.div
         className="flex flex-wrap items-end justify-between gap-4"
-        initial={{ opacity: 0, y: 12 }}
+        initial={{ opacity: 0, y: 18 }}
         animate={{ opacity: 1, y: 0 }}
         transition={springGentle}
       >
         <div>
-          <h1 className="text-display-md text-foreground">{t('dashboard.title')}</h1>
+          <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.3em] text-muted-foreground/65">
+            System telemetry
+          </div>
+          <h1 className="text-display-md text-gradient-kinetic">{t('dashboard.title')}</h1>
           <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             {data && (
               <Badge variant="success" className="text-[10px] font-semibold tracking-wide px-2.5">

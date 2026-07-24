@@ -31,15 +31,16 @@ export default function TopBar() {
   const theme = useSettingsStore((s) => s.theme);
   const setTheme = useSettingsStore((s) => s.setTheme);
 
-  // Derive connection mode label and style
+  // Derive connection mode — never show dual unless BOTH flags are true.
   const modeLabel =
     sshAvailable && apiAvailable ? t('connection.dual') :
-    apiAvailable ? 'API' :
-    sshAvailable ? 'SSH' : t('connection.disconnected');
+    apiAvailable && !sshAvailable ? t('connection.api') :
+    sshAvailable && !apiAvailable ? t('connection.ssh') :
+    t('connection.disconnected');
   const modeStyle =
     sshAvailable && apiAvailable ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400' :
-    apiAvailable ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400' :
-    sshAvailable ? 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400' :
+    apiAvailable && !sshAvailable ? 'border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400' :
+    sshAvailable && !apiAvailable ? 'border-sky-500/40 bg-sky-500/10 text-sky-600 dark:text-sky-400' :
     'border-muted-foreground/40 bg-muted text-muted-foreground';
 
   const [themeOpen, setThemeOpen] = useState(false);
@@ -134,9 +135,9 @@ export default function TopBar() {
             </div>
           </TooltipTrigger>
           <TooltipContent>
-            {modeLabel === t('connection.dual') ? t('connection.dualTip') :
-             modeLabel === 'API' ? t('connection.apiTip') :
-             modeLabel === 'SSH' ? t('connection.sshTip') :
+            {sshAvailable && apiAvailable ? t('connection.dualTip') :
+             apiAvailable && !sshAvailable ? t('connection.apiTip') :
+             sshAvailable && !apiAvailable ? t('connection.sshTip') :
              t('connection.notConnected')}
           </TooltipContent>
         </Tooltip>

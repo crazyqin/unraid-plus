@@ -26,10 +26,17 @@ export default function App() {
 
   const { t } = useTranslation();
 
-  // Probe auth status + servers on boot.
+  // Probe auth status + servers on boot, then keep transport flags fresh.
+  const refreshServers = useAuthStore((s) => s.refreshServers);
   useEffect(() => {
     checkAuth();
   }, [checkAuth]);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void refreshServers();
+    }, 15000);
+    return () => window.clearInterval(id);
+  }, [refreshServers]);
 
   // Apply collapsed-sidebar class to <html> so Tailwind can react to it.
   const collapsed = useSettingsStore((s) => s.sidebarCollapsed);

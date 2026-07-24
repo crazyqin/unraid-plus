@@ -14,7 +14,7 @@ interface AuthState {
   /** Currently active server ID (for multi-server). */
   activeServerId: string | null;
 
-  // v0.3.1+: Connection mode tracking
+  // Connection mode — default FALSE so we never flash "dual" before probe.
   /** Whether the active server has SSH available (terminal + SFTP). */
   sshAvailable: boolean;
   /** Whether the active server has WebGUI API session active. */
@@ -27,7 +27,8 @@ interface AuthState {
 
   setServer: (s: ServerConfig | null) => void;
   setStatus: (status: ServerStatus) => void;
-  configure: (s: ServerConfig) => void;
+  setConnectionMode: (ssh: boolean, api: boolean) => void;
+  configure: (s: ServerConfig, mode?: { sshAvailable?: boolean; apiAvailable?: boolean }) => void;
   setServers: (servers: ServerInfo[]) => void;
   setActiveServerId: (id: string | null) => void;
   reset: () => void;
@@ -42,13 +43,18 @@ interface AuthState {
   logout: () => Promise<void>;
 }
 
+function isServerOnline(s: ServerInfo): boolean {
+  return !!(s.connected || s.sshAvailable || s.apiAvailable);
+}
+
 export const useAuthStore = create<AuthState>((set, get) => ({
   server: null,
   isConfigured: false,
   servers: [],
   activeServerId: null,
-  sshAvailable: true, // default true for backward compat
-  apiAvailable: true,
+  // Must start false — true defaults caused false "dual channel" until manual select.
+  sshAvailable: false,
+  apiAvailable: false,
 
   uiAuthEnabled: false,
   isUiAuthenticated: true,
@@ -59,8 +65,15 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set((state) =>
       state.server ? { server: { ...state.server, status } } : state,
     ),
-  configure: (s) => {
-    set({ server: s, isConfigured: true, activeServerId: s.id ?? null });
+  setConnectionMode: (ssh, api) => set({ sshAvailable: ssh, apiAvailable: api }),
+  configure: (s, mode) => {
+    set({
+      server: s,
+      isConfigured: true,
+      activeServerId: s.id ?? null,
+      sshAvailable: mode?.sshAvailable ?? false,
+      apiAvailable: mode?.apiAvailable ?? false,
+    });
     if (s.id) setActiveServerId(s.id);
   },
   setServers: (servers) => set({ servers }),
@@ -74,8 +87,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       uiAuthEnabled: false,
       isUiAuthenticated: true,
       authChecked: false,
-      sshAvailable: true,
-      apiAvailable: true,
+      sshAvailable: false,
+      apiAvailable: false,
     }),
 
   checkAuth: async () => {
@@ -103,15 +116,14 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       const servers = res.servers || [];
       set({ servers });
 
-      // If there's an active connection, set the server config
-      const connected = servers.find((s) => s.connected);
       const currentActiveId = get().activeServerId;
+      const online = servers.find((s) => isServerOnline(s));
 
-      if (connected && !currentActiveId) {
-        // Auto-select the first connected server on boot
-        get().selectServer(connected.id);
+      if (!currentActiveId && online) {
+        // Auto-select first online server (API-only or SSH or dual)
+        get().selectServer(online.id);
       } else if (currentActiveId) {
-        // Refresh the selected server's connected status
+        // Refresh the selected server's connected status + transport flags
         const current = servers.find((s) => s.id === currentActiveId);
         if (current) {
           set({
@@ -120,12 +132,12 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               sshPort: current.port,
               user: current.user,
               authMode: (current.authMode === 'key' ? 'key' : 'password') as 'password' | 'key',
-              status: current.connected ? 'connected' : 'disconnected',
+              status: isServerOnline(current) ? 'connected' : 'disconnected',
               label: current.label || current.host,
               id: current.id,
             },
-            sshAvailable: current.sshAvailable,
-            apiAvailable: current.apiAvailable,
+            sshAvailable: !!current.sshAvailable,
+            apiAvailable: !!current.apiAvailable,
           });
           setActiveServerId(currentActiveId);
         }
@@ -141,6 +153,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
   },
 
   selectServer: (id: string) => {
+    if (!id) {
+      set({
+        activeServerId: null,
+        server: null,
+        sshAvailable: false,
+        apiAvailable: false,
+      });
+      setActiveServerId(null);
+      return;
+    }
     const servers = get().servers;
     const info = servers.find((s) => s.id === id);
     if (!info) return;
@@ -152,13 +174,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         sshPort: info.port,
         user: info.user,
         authMode: (info.authMode === 'key' ? 'key' : 'password') as 'password' | 'key',
-        status: info.connected ? 'connected' : 'disconnected',
+        status: isServerOnline(info) ? 'connected' : 'disconnected',
         label: info.label || info.host,
         id: info.id,
       },
       isConfigured: true,
-      sshAvailable: info.sshAvailable,
-      apiAvailable: info.apiAvailable,
+      sshAvailable: !!info.sshAvailable,
+      apiAvailable: !!info.apiAvailable,
     });
     // Sync server ID to API client for data requests
     setActiveServerId(id);

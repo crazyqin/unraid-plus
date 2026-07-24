@@ -146,7 +146,7 @@ export default function TopBar() {
 
       <div className="flex items-center gap-1">
         {/* Language quick switch */}
-        <div className="relative">
+        <div className="relative z-50">
           <Tooltip>
             <TooltipTrigger asChild>
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
@@ -154,7 +154,7 @@ export default function TopBar() {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 rounded-xl"
-                  onClick={() => setLangOpen((v) => !v)}
+                  onClick={() => { setLangOpen((v) => !v); setThemeOpen(false); }}
                   title={t('settings.language')}
                 >
                   <Globe className="h-4 w-4" />
@@ -167,9 +167,9 @@ export default function TopBar() {
           <AnimatePresence>
             {langOpen && (
               <>
-                <div className="fixed inset-0 z-40" onClick={() => setLangOpen(false)} />
+                <div className="fixed inset-0 z-[60]" onClick={() => setLangOpen(false)} />
                 <motion.div
-                  className="absolute right-0 top-full z-50 mt-2 w-36 rounded-xl border border-border/50 bg-card/95 backdrop-blur-2xl p-1.5 shadow-2xl"
+                  className="absolute right-0 top-full z-[70] mt-2 w-36 rounded-xl border border-border/50 bg-card/95 backdrop-blur-2xl p-1.5 shadow-2xl"
                   initial={{ opacity: 0, y: -8, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -4, scale: 0.97 }}
@@ -198,7 +198,7 @@ export default function TopBar() {
         </div>
 
         {/* Theme quick switch */}
-        <div className="relative">
+        <div className="relative z-50">
           <Tooltip>
             <TooltipTrigger asChild>
               <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
@@ -206,7 +206,7 @@ export default function TopBar() {
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 rounded-xl"
-                  onClick={() => setThemeOpen((v) => !v)}
+                  onClick={() => { setThemeOpen((v) => !v); setLangOpen(false); }}
                   title={t('topbar.switchTheme')}
                 >
                   {theme === 'daylight' ? (
@@ -223,9 +223,9 @@ export default function TopBar() {
           <AnimatePresence>
             {themeOpen && (
               <>
-                <div className="fixed inset-0 z-40" onClick={() => setThemeOpen(false)} />
+                <div className="fixed inset-0 z-[60]" onClick={() => setThemeOpen(false)} />
                 <motion.div
-                  className="absolute right-0 top-full z-50 mt-2 w-56 rounded-xl border border-border/50 bg-card/95 backdrop-blur-2xl p-2 shadow-2xl"
+                  className="absolute right-0 top-full z-[70] mt-2 w-56 rounded-xl border border-border/50 bg-card/95 backdrop-blur-2xl p-2 shadow-2xl"
                   initial={{ opacity: 0, y: -8, scale: 0.95 }}
                   animate={{ opacity: 1, y: 0, scale: 1 }}
                   exit={{ opacity: 0, y: -4, scale: 0.97 }}

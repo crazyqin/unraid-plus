@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
 import {
   ArrowLeft,
   ArrowRight,
@@ -20,12 +21,12 @@ import { api, ApiError } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { useAuthStore } from '@/stores/auth';
 import { useSettingsStore } from '@/stores/settings';
 import { useOnboardingStore } from '@/stores/onboarding';
+import { springGentle } from '@/lib/motion';
 import type { ConnectResult, ServerConfig } from '@/types';
 
 type Skill = 'novice' | 'intermediate' | 'expert';
@@ -133,7 +134,7 @@ export default function OnboardingPage() {
       {/* Header */}
       <header className="flex items-center justify-between border-b px-6 py-4">
         <div className="flex items-center gap-3">
-          <div className="grid h-9 w-9 place-items-center rounded-md bg-primary text-primary-foreground font-bold">
+          <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary text-primary-foreground font-bold">
             U+
           </div>
           <div className="leading-tight">
@@ -144,7 +145,7 @@ export default function OnboardingPage() {
           </div>
         </div>
         {hasServers && (
-          <Button variant="ghost" size="sm" onClick={handleCancel}>
+          <Button variant="ghost" size="sm" className="rounded-lg" onClick={handleCancel}>
             <ArrowLeft className="h-4 w-4" /> {t('common.cancel')}
           </Button>
         )}
@@ -262,9 +263,14 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
     { icon: Sparkles, title: t('onboarding.feature4Title'), desc: t('onboarding.feature4Desc') },
   ];
   return (
-    <div className="animate-fade-in space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springGentle}
+      className="space-y-6"
+    >
       <div>
-        <h1 className="text-2xl font-semibold">{t('onboarding.welcomeTitle')}</h1>
+        <h1 className="text-display-md text-foreground">{t('onboarding.welcomeTitle')}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {t('onboarding.welcomeDesc1')}
           {t('onboarding.welcomeDesc2')}
@@ -272,26 +278,26 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
       </div>
       <div className="grid gap-3 sm:grid-cols-2">
         {features.map((f) => (
-          <Card key={f.title}>
-            <CardContent className="flex items-start gap-3 p-4">
-              <div className="grid h-9 w-9 place-items-center rounded-md bg-primary/10 text-primary">
+          <div key={f.title} className="card-bento">
+            <div className="flex items-start gap-3 p-4">
+              <div className="grid h-9 w-9 place-items-center rounded-xl bg-primary/10 text-primary">
                 <f.icon className="h-4 w-4" />
               </div>
               <div>
                 <div className="text-sm font-medium">{f.title}</div>
                 <div className="text-xs text-muted-foreground">{f.desc}</div>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+          </div>
         ))}
       </div>
       <div className="flex justify-end">
-        <Button onClick={onNext} size="lg">
+        <Button onClick={onNext} size="lg" className="rounded-lg">
           {t('onboarding.start')}
           <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -325,9 +331,14 @@ function SkillStep({
     },
   ];
   return (
-    <div className="animate-fade-in space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springGentle}
+      className="space-y-6"
+    >
       <div>
-        <h1 className="text-2xl font-semibold">{t('onboarding.familiarityTitle')}</h1>
+        <h1 className="text-display-md text-foreground">{t('onboarding.familiarityTitle')}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {t('onboarding.familiarityDesc')}
         </p>
@@ -362,14 +373,14 @@ function SkillStep({
         ))}
       </div>
       <div className="flex justify-between">
-        <Button variant="ghost" onClick={onPrev}>
+        <Button variant="ghost" className="rounded-lg" onClick={onPrev}>
           <ArrowLeft className="h-4 w-4" /> {t('common.back')}
         </Button>
-        <Button onClick={onNext}>
+        <Button className="rounded-lg" onClick={onNext}>
           {t('common.next')} <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -415,16 +426,21 @@ function ConnectStep(props: {
   };
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springGentle}
+      className="space-y-6"
+    >
       <div>
-        <h1 className="text-2xl font-semibold">{t('onboarding.connectTitle')}</h1>
+        <h1 className="text-display-md text-foreground">{t('onboarding.connectTitle')}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {t('onboarding.connectDesc')}
         </p>
       </div>
 
-      <Card>
-        <CardContent className="space-y-4 p-6">
+      <div className="card-bento">
+        <div className="space-y-5 p-6">
           <Field
             label={t('onboarding.serverAddress')}
             hint={t('onboarding.serverAddressHint')}
@@ -471,7 +487,7 @@ function ConnectStep(props: {
           </button>
 
           {props.showAdvanced && (
-            <div className="space-y-4 rounded-lg border border-dashed p-4">
+            <div className="space-y-5 rounded-xl border border-dashed p-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <Field
                   label={t('onboarding.sshPort')}
@@ -547,6 +563,7 @@ function ConnectStep(props: {
                       <Button
                         variant="outline"
                         size="sm"
+                        className="rounded-lg"
                         onClick={() => fileRef.current?.click()}
                       >
                         <Upload className="mr-1 h-3 w-3" /> {t('onboarding.selectFile')}
@@ -566,7 +583,7 @@ function ConnectStep(props: {
                     </div>
                   </Field>
                   <textarea
-                    className="w-full rounded-md border bg-muted/30 p-2 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary"
+                    className="w-full rounded-xl border bg-muted/30 p-2 font-mono-data text-xs focus:outline-none focus:ring-1 focus:ring-primary"
                     rows={4}
                     placeholder="-----BEGIN OPENSSH PRIVATE KEY-----&#10;...&#10;-----END OPENSSH PRIVATE KEY-----"
                     value={props.privateKey}
@@ -580,26 +597,26 @@ function ConnectStep(props: {
             </div>
           )}
 
-          <div className="flex items-center gap-2 rounded-md border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
+          <div className="flex items-center gap-2 rounded-xl border border-primary/20 bg-primary/5 p-3 text-xs text-muted-foreground">
             <ShieldCheck className="h-4 w-4 shrink-0 text-primary" />
             <span>
               {t('onboarding.securityNote')}
             </span>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {props.error && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+        <div className="rounded-xl border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
           {props.error}
         </div>
       )}
 
       <div className="flex justify-between">
-        <Button variant="ghost" onClick={props.onPrev}>
+        <Button variant="ghost" className="rounded-lg" onClick={props.onPrev}>
           <ArrowLeft className="h-4 w-4" /> {t('common.back')}
         </Button>
-        <Button onClick={props.onConnect} disabled={props.connecting}>
+        <Button className="rounded-lg" onClick={props.onConnect} disabled={props.connecting}>
           {props.connecting ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" /> {t('onboarding.connecting')}
@@ -611,7 +628,7 @@ function ConnectStep(props: {
           )}
         </Button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -644,16 +661,21 @@ function VerifyStep({
   }
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springGentle}
+      className="space-y-6"
+    >
       <div>
-        <h1 className="text-2xl font-semibold">{t('onboarding.connectionVerify')}</h1>
+        <h1 className="text-display-md text-foreground">{t('onboarding.connectionVerify')}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {t('onboarding.verifyDesc')}
         </p>
       </div>
 
-      <Card>
-        <CardContent className="space-y-4 p-6">
+      <div className="card-bento">
+        <div className="space-y-5 p-6">
           <div className="flex items-center gap-3">
             <CheckCircle2 className="h-8 w-8 text-success" />
             <div>
@@ -664,18 +686,19 @@ function VerifyStep({
             </div>
           </div>
 
-          <div className="rounded-md bg-muted/40 p-3 text-sm space-y-2">
+          <div className="rounded-xl bg-muted/40 p-3 text-sm space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">{t('onboarding.connectionMode')}</span>
               <Badge
                 variant="secondary"
-                className={
+                className={cn(
+                  'tracking-wide',
                   sshAvailable && apiAvailable
                     ? 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30'
                     : apiAvailable
                       ? 'bg-amber-500/15 text-amber-600 border-amber-500/30'
                       : 'bg-muted text-muted-foreground'
-                }
+                )}
               >
                 {modeLabel}
               </Badge>
@@ -686,13 +709,13 @@ function VerifyStep({
               <>
                 <div className="flex items-center justify-between pt-1">
                   <span className="text-muted-foreground">{t('onboarding.serverFingerprint')}</span>
-                  <Badge variant="secondary" className="font-mono text-[10px]">
+                  <Badge variant="secondary" className="font-mono-data text-[10px] tracking-wide">
                     {result?.hostFingerprint ?? 'N/A'}
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">{t('onboarding.unraidVersion')}</span>
-                  <span className="font-mono text-xs">
+                  <span className="font-mono-data text-xs">
                     {result?.serverVersion ?? 'unknown'}
                   </span>
                 </div>
@@ -701,7 +724,7 @@ function VerifyStep({
           </div>
 
           {!sshAvailable && apiAvailable && (
-            <div className="flex items-center gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+            <div className="flex items-center gap-2 rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
               <Terminal className="h-4 w-4 shrink-0" />
               <span>
                 {t('onboarding.sshNotConnected')}
@@ -712,18 +735,18 @@ function VerifyStep({
           <p className="text-xs text-muted-foreground">
             {t('onboarding.fingerprintNote')}
           </p>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       <div className="flex justify-between">
-        <Button variant="ghost" onClick={onPrev}>
+        <Button variant="ghost" className="rounded-lg" onClick={onPrev}>
           <ArrowLeft className="h-4 w-4" /> {t('common.back')}
         </Button>
-        <Button onClick={onNext}>
+        <Button className="rounded-lg" onClick={onNext}>
           {t('onboarding.confirmCorrect')} <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
@@ -765,17 +788,22 @@ function SecurityStep({
   };
 
   return (
-    <div className="animate-fade-in space-y-6">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springGentle}
+      className="space-y-6"
+    >
       <div>
-        <h1 className="text-2xl font-semibold">{t('onboarding.securityTitle')}</h1>
+        <h1 className="text-display-md text-foreground">{t('onboarding.securityTitle')}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
             {t('onboarding.securityDesc')}
         </p>
       </div>
 
       {alreadySecured ? (
-        <Card>
-          <CardContent className="flex items-center gap-3 p-6">
+        <div className="card-bento">
+          <div className="flex items-center gap-3 p-6">
             <ShieldCheck className="h-8 w-8 text-success" />
             <div>
               <div className="text-base font-medium">{t('onboarding.passwordAlreadySet')}</div>
@@ -783,12 +811,12 @@ function SecurityStep({
                 {t('onboarding.passwordFromEnv')}
               </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       ) : (
-        <Card>
-          <CardContent className="space-y-4 p-6">
-            <div className="flex items-center gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning-foreground">
+      <div className="card-bento">
+        <div className="space-y-5 p-6">
+            <div className="flex items-center gap-2 rounded-xl border border-warning/30 bg-warning/10 p-3 text-xs text-warning-foreground">
               <Lock className="h-4 w-4 shrink-0 text-warning" />
               <span className="text-foreground/80">
                 {t('onboarding.noPasswordWarning')}
@@ -814,15 +842,15 @@ function SecurityStep({
             {error && (
               <div className="text-sm text-destructive">{error}</div>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
 
       <div className="flex justify-between">
-        <Button variant="ghost" onClick={onPrev}>
+        <Button variant="ghost" className="rounded-lg" onClick={onPrev}>
           <ArrowLeft className="h-4 w-4" /> {t('common.back')}
         </Button>
-        <Button onClick={handleSetup} disabled={setting}>
+        <Button className="rounded-lg" onClick={handleSetup} disabled={setting}>
           {setting ? (
             <>
               <Loader2 className="h-4 w-4 animate-spin" /> {t('common.saving')}
@@ -836,27 +864,32 @@ function SecurityStep({
           )}
         </Button>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
 function DoneStep({ host, onFinish }: { host: string; onFinish: () => void }) {
   const { t } = useTranslation();
   return (
-    <div className="animate-fade-in space-y-6 text-center">
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springGentle}
+      className="space-y-6 text-center"
+    >
       <div className="mx-auto grid h-16 w-16 place-items-center rounded-full bg-success/15 text-success">
         <CheckCircle2 className="h-8 w-8" />
       </div>
       <div>
-        <h1 className="text-2xl font-semibold">{t('onboarding.doneTitle')}</h1>
+        <h1 className="text-display-md text-foreground">{t('onboarding.doneTitle')}</h1>
         <p className="mt-1 text-sm text-muted-foreground">
           {t('onboarding.doneDesc', { host })}
         </p>
       </div>
-      <Button size="lg" onClick={onFinish}>
+      <Button size="lg" className="rounded-lg" onClick={onFinish}>
         {t('onboarding.goDashboard')} <ArrowRight className="h-4 w-4" />
       </Button>
-    </div>
+    </motion.div>
   );
 }
 

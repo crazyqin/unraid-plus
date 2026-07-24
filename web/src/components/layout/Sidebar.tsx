@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import {
   LayoutDashboard,
   HardDrive,
@@ -22,6 +23,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import { api } from '@/lib/api';
 import { useTranslation } from 'react-i18next';
+import {
+  staggerContainer,
+  navItemVariants,
+  springSnappy,
+  springGentle,
+} from '@/lib/motion';
 
 interface NavItem {
   to: string;
@@ -93,110 +100,135 @@ export default function Sidebar() {
   };
 
   return (
-    <aside
-      className={cn(
-        'flex h-full flex-col border-r bg-card transition-[width] duration-200',
-        collapsed ? 'w-[68px]' : 'w-[240px]',
-      )}
+    <motion.aside
+      className="flex h-full flex-col border-r border-border/50 bg-card/60 backdrop-blur-xl"
+      animate={{ width: collapsed ? 68 : 240 }}
+      transition={springGentle}
     >
       {/* Logo */}
-      <div className="flex h-14 items-center gap-2 border-b px-4">
-        <div className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground font-bold">
+      <div className="flex h-16 items-center gap-3 border-b border-border/40 px-4">
+        <motion.div
+          className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-primary/90 to-primary text-primary-foreground font-bold text-sm shadow-lg shadow-primary/20"
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+        >
           U+
-        </div>
-        {!collapsed && (
-          <div className="flex flex-col leading-tight">
-            <span className="text-sm font-semibold">unraid-plus</span>
-            <span className="text-[10px] text-muted-foreground">
-              friendlier NAS manager
-            </span>
-          </div>
-        )}
+        </motion.div>
+        <AnimatePresence>
+          {!collapsed && (
+            <motion.div
+              className="flex flex-col leading-tight overflow-hidden"
+              initial={{ opacity: 0, x: -8 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -8 }}
+              transition={springSnappy}
+            >
+              <span className="text-sm font-semibold tracking-tight">unraid-plus</span>
+              <span className="text-[10px] text-muted-foreground tracking-wide">
+                NAS manager
+              </span>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Server list */}
-      {!collapsed && (
-        <div className="mx-3 mt-3 space-y-1">
-          <div className="flex items-center justify-between px-1">
-            <span className="text-[10px] font-medium uppercase text-muted-foreground">
-              {t('sidebar.server')}
-            </span>
-            <button
-              onClick={() => navigate('/onboarding?mode=add')}
-              className="rounded p-0.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-              title={t('sidebar.addServer')}
-            >
-              <Plus className="h-3 w-3" />
-            </button>
-          </div>
-          {servers.map((s) => (
-            <div
-              key={s.id}
-              className={cn(
-                'group flex items-center gap-2 rounded-md border px-2 py-1.5 text-sm cursor-pointer transition-colors',
-                activeServerId === s.id
-                  ? 'border-primary/30 bg-primary/5 text-foreground'
-                  : 'border-transparent hover:bg-accent text-muted-foreground',
-              )}
-              onClick={() => {
-                selectServer(s.id);
-              }}
-            >
-              {s.connected ? (
-                <Wifi className="h-3 w-3 shrink-0 text-emerald-500" />
-              ) : (
-                <WifiOff className="h-3 w-3 shrink-0 text-muted-foreground" />
-              )}
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xs font-medium">
-                  {s.label || s.host}
+      <AnimatePresence>
+        {!collapsed && (
+          <motion.div
+            className="mx-3 mt-3 space-y-1"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.15 }}
+          >
+            <div className="flex items-center justify-between px-1">
+              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/70">
+                {t('sidebar.server')}
+              </span>
+              <motion.button
+                onClick={() => navigate('/onboarding?mode=add')}
+                className="rounded-md p-1 text-muted-foreground/70 hover:bg-accent hover:text-accent-foreground transition-colors"
+                title={t('sidebar.addServer')}
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </motion.button>
+            </div>
+            {servers.map((s) => (
+              <motion.div
+                key={s.id}
+                className={cn(
+                  'group flex items-center gap-2 rounded-lg border px-2.5 py-2 text-sm cursor-pointer transition-all duration-200',
+                  activeServerId === s.id
+                    ? 'border-primary/20 bg-primary/5 text-foreground'
+                    : 'border-transparent hover:bg-accent/50 text-muted-foreground',
+                )}
+                onClick={() => selectServer(s.id)}
+                whileHover={{ x: 2 }}
+                whileTap={{ scale: 0.98 }}
+              >
+                {s.connected ? (
+                  <Wifi className="h-3 w-3 shrink-0 text-emerald-500" />
+                ) : (
+                  <WifiOff className="h-3 w-3 shrink-0 text-muted-foreground/50" />
+                )}
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xs font-medium">
+                    {s.label || s.host}
+                  </div>
+                  <div className="truncate text-[10px] text-muted-foreground/60">
+                    {s.host}:{s.port}
+                  </div>
                 </div>
-                <div className="truncate text-[10px] text-muted-foreground">
-                  {s.host}:{s.port}
-                </div>
-              </div>
-              {/* Action buttons (shown on hover) */}
-              <div className="hidden gap-0.5 group-hover:flex">
-                {!s.connected && (
+                {/* Action buttons (shown on hover) */}
+                <div className="hidden gap-0.5 group-hover:flex">
+                  {!s.connected && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleReconnect(s.id);
+                      }}
+                      className="rounded p-0.5 hover:bg-accent"
+                      title={t('sidebar.reconnect')}
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                    </button>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      handleReconnect(s.id);
+                      setDeleteTarget(s.id);
                     }}
-                    className="rounded p-0.5 hover:bg-accent"
-                    title={t('sidebar.reconnect')}
+                    className="rounded p-0.5 hover:bg-destructive/10 hover:text-destructive"
+                    title={t('sidebar.delete')}
                   >
-                    <RefreshCw className="h-3 w-3" />
+                    <Trash2 className="h-3 w-3" />
                   </button>
-                )}
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteTarget(s.id);
-                  }}
-                  className="rounded p-0.5 hover:bg-destructive/10 hover:text-destructive"
-                  title={t('sidebar.delete')}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </button>
+                </div>
+              </motion.div>
+            ))}
+            {servers.length === 0 && (
+              <div className="px-2 py-3 text-center text-[10px] text-muted-foreground/60">
+                {t('sidebar.noServer')}
               </div>
-            </div>
-          ))}
-          {servers.length === 0 && (
-            <div className="px-2 py-2 text-center text-[10px] text-muted-foreground">
-              {t('sidebar.noServer')}
-            </div>
-          )}
-        </div>
-      )}
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
-      {/* Collapsed: just show a server icon */}
+      {/* Collapsed: server initial */}
       {collapsed && server && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <div className="mx-auto mt-3 flex h-8 w-8 items-center justify-center rounded-md border text-xs font-medium">
+            <motion.div
+              className="mx-auto mt-3 flex h-9 w-9 items-center justify-center rounded-xl border border-border/50 bg-card text-xs font-bold cursor-pointer hover:border-primary/30 transition-colors"
+              whileHover={{ scale: 1.08 }}
+              whileTap={{ scale: 0.95 }}
+            >
               {(server.label || server.host)[0]?.toUpperCase()}
-            </div>
+            </motion.div>
           </TooltipTrigger>
           <TooltipContent side="right">
             {server.label || server.host}
@@ -204,12 +236,17 @@ export default function Sidebar() {
         </Tooltip>
       )}
 
-      {/* Divider between server list and nav */}
-      <div className="mx-3 my-2 border-b" />
+      {/* Divider */}
+      <div className="mx-3 my-3 h-px bg-border/40" />
 
       {/* Nav */}
-      <nav className="flex-1 overflow-y-auto p-2">
-        <ul className="space-y-1">
+      <motion.nav
+        className="flex-1 overflow-y-auto px-2.5"
+        variants={staggerContainer}
+        initial="hidden"
+        animate="visible"
+      >
+        <ul className="space-y-0.5">
           {NAV.filter((item) => !item.requiresSSH || sshAvailable).map((item) => {
             const Icon = item.icon;
             const active = isPathActive(location.pathname, item.to);
@@ -218,19 +255,36 @@ export default function Sidebar() {
                 key={item.to}
                 to={item.to}
                 className={cn(
-                  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-                  collapsed && 'justify-center',
+                  'relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-200',
+                  collapsed && 'justify-center px-0',
                   active
                     ? 'bg-primary/10 text-primary'
-                    : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+                    : 'text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground',
                 )}
               >
-                <Icon className="h-4 w-4 shrink-0" />
-                {!collapsed && <span>{item.label}</span>}
+                {active && (
+                  <motion.div
+                    className="absolute inset-0 rounded-xl bg-primary/8"
+                    layoutId="nav-active"
+                    transition={springSnappy}
+                  />
+                )}
+                <Icon className="h-[18px] w-[18px] shrink-0 relative z-10" />
+                {!collapsed && (
+                  <span className="relative z-10">{item.label}</span>
+                )}
+                {/* Active indicator dot */}
+                {active && !collapsed && (
+                  <motion.div
+                    className="absolute right-3 h-1.5 w-1.5 rounded-full bg-primary"
+                    layoutId="nav-dot"
+                    transition={springSnappy}
+                  />
+                )}
               </NavLink>
             );
             return (
-              <li key={item.to}>
+              <motion.li key={item.to} variants={navItemVariants}>
                 {collapsed ? (
                   <Tooltip>
                     <TooltipTrigger asChild>{link}</TooltipTrigger>
@@ -239,26 +293,33 @@ export default function Sidebar() {
                 ) : (
                   link
                 )}
-              </li>
+              </motion.li>
             );
           })}
         </ul>
-      </nav>
+      </motion.nav>
 
-      {/* Footer: collapse */}
-      <div className="border-t p-2">
-        <button
+      {/* Footer: collapse toggle */}
+      <div className="border-t border-border/40 p-2.5">
+        <motion.button
           onClick={toggle}
           className={cn(
-            'flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+            'flex w-full items-center gap-3 rounded-xl px-3 py-2 text-sm text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground transition-colors',
             collapsed && 'justify-center',
           )}
+          whileHover={{ x: collapsed ? 0 : 2 }}
+          whileTap={{ scale: 0.97 }}
         >
-          <ChevronLeft
-            className={cn('h-4 w-4 transition-transform', collapsed && 'rotate-180')}
-          />
-          {!collapsed && <span>{t('sidebar.collapseSidebar')}</span>}
-        </button>
+          <motion.div
+            animate={{ rotate: collapsed ? 180 : 0 }}
+            transition={springSnappy}
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </motion.div>
+          {!collapsed && (
+            <span className="text-xs font-medium">{t('sidebar.collapseSidebar')}</span>
+          )}
+        </motion.button>
       </div>
 
       <ConfirmDialog
@@ -270,6 +331,6 @@ export default function Sidebar() {
         onConfirm={() => deleteTarget && handleDelete(deleteTarget)}
         onCancel={() => setDeleteTarget(null)}
       />
-    </aside>
+    </motion.aside>
   );
 }

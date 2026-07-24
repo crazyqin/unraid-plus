@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { motion } from 'framer-motion';
 import {
   Globe,
   KeyRound,
@@ -11,13 +12,6 @@ import {
   Shield,
   ShieldCheck,
 } from 'lucide-react';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +23,7 @@ import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import i18n from '@/i18n';
+import { springGentle } from '@/lib/motion';
 
 const LANGUAGES = [
   { code: 'zh', label: '中文' },
@@ -82,21 +77,25 @@ export default function SettingsPage() {
   };
 
   return (
-    <div className="space-y-4 p-4 md:p-6">
-      <div>
-        <h1 className="text-xl font-semibold">{t('settings.title')}</h1>
+    <div className="space-y-5 p-5 md:p-6">
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={springGentle}
+      >
+        <h1 className="text-display-md text-foreground">{t('settings.title')}</h1>
         <p className="text-sm text-muted-foreground">{t('settings.subtitle')}</p>
-      </div>
+      </motion.div>
 
       {/* Connection */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
+      <div className="card-bento">
+        <div className="px-6 pt-6 pb-2">
+          <div className="flex items-center gap-2 text-base font-semibold">
             <Server className="h-4 w-4" /> {t('settings.currentConnection')}
-          </CardTitle>
-          <CardDescription>{t('settings.currentConnectionDesc')}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
+          </div>
+          <p className="text-sm text-muted-foreground">{t('settings.currentConnectionDesc')}</p>
+        </div>
+        <div className="space-y-3 px-6 pb-6 text-sm">
           <Row label={t('settings.nicknameHost')} value={server ? `${server.label} · ${server.host}` : '—'} />
           <Row label={t('settings.sshPort')} value={server ? String(server.sshPort) : '—'} />
           <Row label={t('settings.user')} value={server?.user ?? '—'} />
@@ -104,7 +103,7 @@ export default function SettingsPage() {
             label={t('settings.authMode')}
             value={
               server ? (
-                <Badge variant={server.authMode === 'key' ? 'success' : 'warning'}>
+                <Badge variant={server.authMode === 'key' ? 'success' : 'warning'} className="tracking-wide">
                   {server.authMode === 'key' ? t('settings.keyFree') : t('settings.passwordMode')}
                 </Badge>
               ) : (
@@ -114,27 +113,27 @@ export default function SettingsPage() {
           />
           <Separator />
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={() => location.reload()}>
+            <Button variant="outline" size="sm" className="rounded-lg" onClick={() => location.reload()}>
               <RefreshCw className="h-3.5 w-3.5" /> {t('settings.refreshPage')}
             </Button>
-            <Button variant="destructive" size="sm" onClick={() => setConfirmDisconnect(true)}>
+            <Button variant="destructive" size="sm" className="rounded-lg" onClick={() => setConfirmDisconnect(true)}>
               <LogOut className="h-3.5 w-3.5" /> {t('settings.disconnect')}
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* Security */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
+      <div className="card-bento">
+        <div className="px-6 pt-6 pb-2">
+          <div className="flex items-center gap-2 text-base font-semibold">
             <Shield className="h-4 w-4" /> {t('settings.security')}
-          </CardTitle>
-          <CardDescription>
+          </div>
+          <p className="text-sm text-muted-foreground">
             {t('settings.keyFreeNote')}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm">
+          </p>
+        </div>
+        <div className="space-y-3 px-6 pb-6 text-sm">
           <div className="flex items-center justify-between gap-2">
             <div>
               <div className="font-medium">{t('settings.keyFreeTitle')}</div>
@@ -142,7 +141,7 @@ export default function SettingsPage() {
                 {t('settings.keyFreeDesc')}
               </div>
             </div>
-            <Button variant="outline" size="sm" onClick={() => setConfirmRotate(true)}>
+            <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setConfirmRotate(true)}>
               <KeyRound className="h-3.5 w-3.5" /> {t('settings.generateRotateKey')}
             </Button>
           </div>
@@ -157,7 +156,7 @@ export default function SettingsPage() {
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <Badge variant={uiAuthEnabled ? 'success' : 'secondary'}>
+              <Badge variant={uiAuthEnabled ? 'success' : 'secondary'} className="tracking-wide">
                 {uiAuthEnabled ? (
                   <>
                     <ShieldCheck className="mr-1 h-3 w-3" /> {t('settings.enabled')}
@@ -173,6 +172,7 @@ export default function SettingsPage() {
             <Button
               variant="outline"
               size="sm"
+              className="rounded-lg"
               onClick={async () => {
                 await logout();
                 navigate('/login', { replace: true });
@@ -181,17 +181,17 @@ export default function SettingsPage() {
               <LogOut className="h-3.5 w-3.5" /> {t('settings.logout')}
             </Button>
           )}
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       {/* UI / preferences */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
+      <div className="card-bento">
+        <div className="px-6 pt-6 pb-2">
+          <div className="flex items-center gap-2 text-base font-semibold">
             <Monitor className="h-4 w-4" /> {t('settings.uiAndOnboarding')}
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4 text-sm">
+          </div>
+        </div>
+        <div className="space-y-5 px-6 pb-6 text-sm">
           {/* Language picker */}
           <div className="flex items-center justify-between gap-2">
             <div>
@@ -200,7 +200,7 @@ export default function SettingsPage() {
               </div>
             </div>
             <select
-              className="rounded border bg-background px-2 py-1 text-sm"
+              className="rounded-lg border bg-background px-2 py-1 text-sm"
               value={i18n.language?.split('-')[0] ?? 'zh'}
               onChange={(e) => i18n.changeLanguage(e.target.value)}
             >
@@ -216,11 +216,11 @@ export default function SettingsPage() {
             <div>
               <div className="font-medium">{t('settings.themeStyle')}</div>
               <div className="text-xs text-muted-foreground">
-                {t('settings.currentTheme')}{t('themes.' + theme)} · {t('settings.clickTopbar')} <span className="font-mono">☽/☀</span> {t('settings.iconSwitch')}
+                {t('settings.currentTheme')}{t('themes.' + theme)} · {t('settings.clickTopbar')} <span className="font-mono-data">☽/☀</span> {t('settings.iconSwitch')}
               </div>
             </div>
             <select
-              className="rounded border bg-background px-2 py-1 text-sm"
+              className="rounded-lg border bg-background px-2 py-1 text-sm"
               value={theme}
               onChange={(e) => setTheme(e.target.value as typeof theme)}
             >
@@ -247,7 +247,7 @@ export default function SettingsPage() {
               </div>
             </div>
             <select
-              className="rounded border bg-background px-2 py-1 text-sm"
+              className="rounded-lg border bg-background px-2 py-1 text-sm"
               value={refreshInterval}
               onChange={(e) => setRefreshInterval(Number(e.target.value))}
             >
@@ -258,8 +258,8 @@ export default function SettingsPage() {
               <option value={0}>{t('common.pause')}</option>
             </select>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
 
       <p className="text-center text-xs text-muted-foreground">
         {t('settings.footer')}
@@ -359,14 +359,14 @@ function UIPasswordButton({ uiAuthEnabled }: { uiAuthEnabled: boolean }) {
 
   if (!open) {
     return (
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+      <Button variant="outline" size="sm" className="rounded-lg" onClick={() => setOpen(true)}>
         {uiAuthEnabled ? t('settings.changePassword') : t('settings.setPassword')}
       </Button>
     );
   }
 
   return (
-    <div className="mt-2 space-y-2 rounded-md border p-3">
+    <div className="mt-2 space-y-2 rounded-xl border p-3">
       {uiAuthEnabled && (
         <div className="space-y-1">
           <Label className="text-xs">{t('settings.currentPassword')}</Label>
@@ -392,10 +392,10 @@ function UIPasswordButton({ uiAuthEnabled }: { uiAuthEnabled: boolean }) {
       </div>
       {error && <div className="text-xs text-destructive">{error}</div>}
       <div className="flex gap-2">
-        <Button size="sm" onClick={handleSave} disabled={loading}>
+        <Button size="sm" className="rounded-lg" onClick={handleSave} disabled={loading}>
           {loading ? t('common.saving') : t('common.save')}
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => { setOpen(false); setPw(''); setCurrentPw(''); setError(null); }}>
+        <Button size="sm" variant="ghost" className="rounded-lg" onClick={() => { setOpen(false); setPw(''); setCurrentPw(''); setError(null); }}>
           {t('common.cancel')}
         </Button>
       </div>

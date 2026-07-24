@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
 import {
   Cpu,
   Loader2,
@@ -17,12 +18,6 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { ConfirmDialog } from '@/components/ui/alert-dialog';
 import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -32,6 +27,11 @@ import { Input } from '@/components/ui/input';
 import { cn, formatBytes } from '@/lib/utils';
 import type { VmInfo } from '@/types';
 import { useSettingsStore } from '@/stores/settings';
+import {
+  staggerContainer,
+  fadeUpVariants,
+  springGentle,
+} from '@/lib/motion';
 
 const STATUS_VARIANT: Record<VmInfo['status'], 'success' | 'secondary' | 'warning'> = {
   running: 'success',
@@ -40,9 +40,6 @@ const STATUS_VARIANT: Record<VmInfo['status'], 'success' | 'secondary' | 'warnin
   unknown: 'secondary',
 };
 
-
-
-/** Status → left border color class for VM cards */
 const STATUS_BORDER: Record<string, string> = {
   running: 'border-l-emerald-500/60',
   shutoff: 'border-l-border',
@@ -50,7 +47,6 @@ const STATUS_BORDER: Record<string, string> = {
   unknown: 'border-l-border',
 };
 
-/** Status → subtle background tint for VM cards */
 const STATUS_BG: Record<string, string> = {
   running: '',
   shutoff: '',
@@ -80,7 +76,6 @@ export default function VmsPage() {
   });
 
   const act = async (id: string, action: 'start' | 'stop' | 'shutdown' | 'resume' | 'suspend') => {
-    // Force stop requires confirmation
     if (action === 'stop' && !confirmAction) {
       const vm = (data ?? []).find((v) => v.id === id);
       setConfirmAction({ id, action, name: vm?.name ?? id });
@@ -106,132 +101,140 @@ export default function VmsPage() {
   );
 
   return (
-    <div className="space-y-4 p-4 md:p-6">
+    <div className="space-y-5 p-5 md:p-6">
       {actionError && (
-        <div className="flex items-center justify-between rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+        <motion.div
+          className="flex items-center justify-between rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
           <span>{actionError}</span>
           <button className="text-xs underline" onClick={() => setActionError(null)}>
             {t('common.close')}
           </button>
-        </div>
+        </motion.div>
       )}
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <div className={cn(
-            'flex h-10 w-10 items-center justify-center rounded-lg',
-            running > 0 ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground',
-          )}>
-            <Monitor className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold">{t('vms.title')}</h1>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Badge
-                variant={running > 0 ? 'success' : 'secondary'}
-                className="text-[10px]"
-              >
-                {running > 0 ? t('vms.running') : t('vms.idle')}
-              </Badge>
-              <span>{running} / {data?.length ?? 0} {t('vms.vmCount')}</span>
-            </div>
+
+      {/* Header */}
+      <motion.div
+        className="flex flex-wrap items-end justify-between gap-4"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={springGentle}
+      >
+        <div>
+          <h1 className="text-display-md text-foreground">{t('vms.title')}</h1>
+          <div className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+            <Badge
+              variant={running > 0 ? 'success' : 'secondary'}
+              className="text-[10px] font-semibold tracking-wide px-2.5"
+            >
+              {running > 0 ? t('vms.running') : t('vms.idle')}
+            </Badge>
+            <span className="text-xs">{running} / {data?.length ?? 0} {t('vms.vmCount')}</span>
           </div>
         </div>
         {(data ?? []).length > 0 && (
           <div className="relative w-48 shrink-0">
-            <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Search className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground/60" />
             <Input
               placeholder={t('vms.searchPlaceholder')}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-8 pl-8 text-sm"
+              className="h-9 pl-9 text-sm rounded-xl border-border/50 bg-card/50 backdrop-blur-sm"
             />
           </div>
         )}
-      </div>
+      </motion.div>
 
       {isLoading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> {t('vms.loading')}
         </div>
       ) : isError ? (
-        <Card>
-          <CardContent className="py-12 text-center text-sm text-muted-foreground">
-            {t('vms.cannotFetch')}
-          </CardContent>
-        </Card>
+        <motion.div className="card-bento p-12 text-center text-sm text-muted-foreground" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          {t('vms.cannotFetch')}
+        </motion.div>
       ) : (data ?? []).length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
-            <Cpu className="h-8 w-8" />
-            {t('vms.noVM')}
-          </CardContent>
-        </Card>
+        <motion.div className="card-bento flex flex-col items-center gap-3 py-16 text-center text-sm text-muted-foreground" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <Cpu className="h-10 w-10 text-muted-foreground/30" />
+          {t('vms.noVM')}
+        </motion.div>
       ) : filtered.length === 0 ? (
-        <Card>
-          <CardContent className="flex flex-col items-center gap-2 py-12 text-center text-sm text-muted-foreground">
-            <Cpu className="h-8 w-8" />
-            {t('vms.noMatch')}
-          </CardContent>
-        </Card>
+        <motion.div className="card-bento flex flex-col items-center gap-3 py-16 text-center text-sm text-muted-foreground" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          <Cpu className="h-10 w-10 text-muted-foreground/30" />
+          {t('vms.noMatch')}
+        </motion.div>
       ) : (
-        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <motion.div
+          className="grid gap-4 md:grid-cols-2 xl:grid-cols-3"
+          variants={staggerContainer}
+          initial="hidden"
+          animate="visible"
+        >
           {filtered.map((vm) => (
-            <Card key={vm.id} className={cn(
-              'flex flex-col border-l-2 transition-colors hover:bg-muted/30',
-              STATUS_BORDER[vm.status] ?? 'border-l-border',
-              STATUS_BG[vm.status],
-            )}>
-              <CardHeader className="pb-3">
+            <motion.div
+              key={vm.id}
+              className={cn(
+                'card-bento flex flex-col border-l-2 overflow-hidden',
+                STATUS_BORDER[vm.status] ?? 'border-l-border',
+                STATUS_BG[vm.status],
+              )}
+              variants={fadeUpVariants}
+              whileHover={{ y: -2 }}
+              transition={springGentle}
+            >
+              <div className="px-5 pt-5 pb-3">
                 <div className="flex items-start justify-between gap-2">
-                  <CardTitle className="truncate text-sm">{vm.name}</CardTitle>
-                  <Badge variant={STATUS_VARIANT[vm.status]} className="text-[9px] px-1.5 py-0 leading-none">{STATUS_LABEL[vm.status] ?? vm.status}</Badge>
+                  <div className="text-sm font-semibold truncate">{vm.name}</div>
+                  <Badge variant={STATUS_VARIANT[vm.status]} className="text-[9px] px-1.5 py-0 leading-none shrink-0 font-semibold tracking-wide">{STATUS_LABEL[vm.status] ?? vm.status}</Badge>
                 </div>
-              </CardHeader>
-              <CardContent className="flex flex-1 flex-col gap-3">
+              </div>
+              <div className="flex-1 flex flex-col gap-3 px-5 pb-5">
                 <div className="flex items-center gap-1.5">
-                  <span className="inline-flex items-center gap-1 rounded bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-blue">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-blue-500/10 px-1.5 py-0.5 text-[10px] font-mono-data tabular-nums text-ind-blue">
                     <Cpu className="h-2.5 w-2.5" />
                     {vm.vcpus} vCPU
                   </span>
-                  <span className="inline-flex items-center gap-1 rounded bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-violet">
+                  <span className="inline-flex items-center gap-1 rounded-md bg-violet-500/10 px-1.5 py-0.5 text-[10px] font-mono-data tabular-nums text-ind-violet">
                     <MemoryStick className="h-2.5 w-2.5" />
                     {formatBytes(vm.memoryBytes)}
                   </span>
                 </div>
                 <div className="mt-auto flex flex-wrap gap-2 pt-1">
                   {vm.status !== 'running' && vm.status !== 'paused' && (
-                    <Button size="sm" variant="success" onClick={() => act(vm.id, 'start')} disabled={pendingAction !== null}>
+                    <Button size="sm" variant="success" onClick={() => act(vm.id, 'start')} disabled={pendingAction !== null} className="rounded-lg h-8">
                       {pendingAction === `${vm.id}:start` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />} {t('vms.start')}
                     </Button>
                   )}
                   {vm.status === 'running' && (
                     <>
-                      <Button size="sm" variant="outline" onClick={() => act(vm.id, 'shutdown')} disabled={pendingAction !== null}>
+                      <Button size="sm" variant="outline" onClick={() => act(vm.id, 'shutdown')} disabled={pendingAction !== null} className="rounded-lg h-8">
                         {pendingAction === `${vm.id}:shutdown` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Power className="h-3.5 w-3.5" />} {t('vms.shutdown')}
                       </Button>
-                      <Button size="sm" variant="destructive" onClick={() => act(vm.id, 'stop')} disabled={pendingAction !== null}>
+                      <Button size="sm" variant="destructive" onClick={() => act(vm.id, 'stop')} disabled={pendingAction !== null} className="rounded-lg h-8">
                         {pendingAction === `${vm.id}:stop` ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />} {t('vms.forceStop')}
                       </Button>
-                      <Button size="sm" variant="ghost" onClick={() => act(vm.id, 'suspend')} disabled={pendingAction !== null}>
+                      <Button size="sm" variant="ghost" onClick={() => act(vm.id, 'suspend')} disabled={pendingAction !== null} className="rounded-lg h-8">
                         <Pause className="h-3.5 w-3.5" /> {t('vms.pause')}
                       </Button>
                     </>
                   )}
                   {vm.status === 'paused' && (
-                    <Button size="sm" variant="success" onClick={() => act(vm.id, 'resume')} disabled={pendingAction !== null}>
+                    <Button size="sm" variant="success" onClick={() => act(vm.id, 'resume')} disabled={pendingAction !== null} className="rounded-lg h-8">
                       <Play className="h-3.5 w-3.5" /> {t('vms.resume')}
                     </Button>
                   )}
                   {vm.status === 'running' && (
-                    <Button size="sm" variant="outline" onClick={() => setVncVm(vm)} disabled={pendingAction !== null}>
+                    <Button size="sm" variant="outline" onClick={() => setVncVm(vm)} disabled={pendingAction !== null} className="rounded-lg h-8">
                       <Monitor className="h-3.5 w-3.5" /> {t('vms.console')}
                     </Button>
                   )}
                 </div>
-              </CardContent>
-            </Card>
+              </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       )}
 
       <ConfirmDialog
@@ -249,30 +252,23 @@ export default function VmsPage() {
   );
 }
 
-/* ------------------------------- VNC Dialog ------------------------------- */
-
+/* ── VNC Dialog ── */
 function VNCDialog({ vm, onClose }: { vm: VmInfo | null; onClose: () => void }) {
   const { t } = useTranslation();
   const [vncLoading, setVncLoading] = useState(true);
 
-  // Reset loading state when vm changes
   useEffect(() => {
     if (vm) setVncLoading(true);
   }, [vm]);
 
   if (!vm) return null;
 
-  // Build the WebSocket URL for the VNC proxy endpoint.
-  // The noVNC viewer (iframe) will connect to this URL.
   const vncWsUrl = wsUrl(`/ws/vnc?vm=${encodeURIComponent(vm.id)}`);
-
-  // The noVNC lite viewer is served from /vnc/vnc_lite.html (public dir).
-  // We pass the WebSocket URL via the "url" query parameter.
   const iframeSrc = `/vnc/vnc_lite.html?url=${encodeURIComponent(vncWsUrl)}&scale=true`;
 
   return (
     <Dialog open={!!vm} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-4xl p-0 gap-0 overflow-hidden">
+      <DialogContent className="max-w-4xl p-0 gap-0 overflow-hidden rounded-2xl">
         <DialogHeader className="px-4 pt-4 pb-2">
           <DialogTitle className="flex items-center gap-2">
             <Monitor className="h-4 w-4" />

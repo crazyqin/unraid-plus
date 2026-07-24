@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
-import { Activity, Globe, Moon, RefreshCw, Sun, Wifi, WifiOff, Zap } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Activity, Globe, Moon, RefreshCw, Sun, Zap } from 'lucide-react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { useSettingsStore, THEMES } from '@/stores/settings';
@@ -8,6 +9,7 @@ import { useAuthStore } from '@/stores/auth';
 import { cn } from '@/lib/utils';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
+import { springSnappy } from '@/lib/motion';
 
 const LANGUAGES = [
   { code: 'zh', label: '中文' },
@@ -42,7 +44,6 @@ export default function TopBar() {
 
   const [themeOpen, setThemeOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
-  const panelRef = useRef<HTMLDivElement>(null);
 
   const health = useQuery({
     queryKey: ['health'],
@@ -55,35 +56,37 @@ export default function TopBar() {
   });
 
   const online = health.data?.ok ?? false;
-
-  // Close theme panel on outside click
-  // (blur is handled by the panel's onBlur)
-
-  const currentTheme = THEMES.find((t) => t.id === theme);
+  const currentTheme = THEMES.find((th) => th.id === theme);
 
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-card/40 px-4 backdrop-blur">
+    <header className="flex h-14 items-center justify-between border-b border-border/40 bg-card/30 backdrop-blur-2xl px-5">
       <div className="flex items-center gap-3">
-        <div
+        {/* Online status pill */}
+        <motion.div
           className={cn(
-            'flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium',
+            'flex items-center gap-2 rounded-full border px-3 py-1 text-[11px] font-medium tracking-wide',
             online
-              ? 'border-success/40 bg-success/10 text-success'
-              : 'border-destructive/40 bg-destructive/10 text-destructive',
+              ? 'border-success/30 bg-success/5 text-success'
+              : 'border-destructive/30 bg-destructive/5 text-destructive',
           )}
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={springSnappy}
         >
-          {online ? (
-            <Wifi className="h-3.5 w-3.5" />
-          ) : (
-            <WifiOff className="h-3.5 w-3.5" />
-          )}
+          <span className={cn('relative flex h-2 w-2', online && 'status-pulse')}>
+            <span className={cn(
+              'inline-flex h-2 w-2 rounded-full',
+              online ? 'bg-emerald-500' : 'bg-destructive',
+            )} />
+          </span>
           {online ? t('common.online') : t('common.offline')}
-        </div>
-        <div className="hidden items-center gap-2 text-xs text-muted-foreground sm:flex">
-          <Activity className="h-3.5 w-3.5" />
-          <span>{t('topbar.refreshInterval')}</span>
+        </motion.div>
+
+        {/* Refresh interval selector */}
+        <div className="hidden items-center gap-2 text-xs text-muted-foreground/70 sm:flex">
+          <Activity className="h-3 w-3" />
           <select
-            className="rounded border bg-background px-1.5 py-0.5 text-xs"
+            className="rounded-lg border border-border/50 bg-background/50 px-2 py-0.5 text-xs backdrop-blur-sm transition-colors hover:border-border focus:outline-none focus:ring-1 focus:ring-ring"
             value={refreshInterval}
             onChange={(e) => setRefreshInterval(Number(e.target.value))}
           >
@@ -94,13 +97,17 @@ export default function TopBar() {
             <option value={0}>{t('common.pause')}</option>
           </select>
         </div>
-        <span className="max-w-[200px] truncate text-xs text-muted-foreground" title={server?.label || server?.host}>
+
+        {/* Server name */}
+        <span className="max-w-[200px] truncate text-xs font-medium text-muted-foreground/80" title={server?.label || server?.host}>
           {server?.label || server?.host}
         </span>
+
+        {/* Connection mode badge */}
         <Tooltip>
           <TooltipTrigger asChild>
             <div className={cn(
-              'flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-medium cursor-default',
+              'flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold tracking-wide cursor-default',
               modeStyle,
             )}>
               <Zap className="h-3 w-3" />
@@ -116,124 +123,147 @@ export default function TopBar() {
         </Tooltip>
       </div>
 
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-1">
         {/* Language quick switch */}
         <div className="relative">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setLangOpen((v) => !v)}
-                title={t('settings.language')}
-              >
-                <Globe className="h-4 w-4" />
-              </Button>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-xl"
+                  onClick={() => setLangOpen((v) => !v)}
+                  title={t('settings.language')}
+                >
+                  <Globe className="h-4 w-4" />
+                </Button>
+              </motion.div>
             </TooltipTrigger>
             <TooltipContent>{i18n.language?.split('-')[0]?.toUpperCase() ?? 'ZH'}</TooltipContent>
           </Tooltip>
 
-          {langOpen && (
-            <>
-              <div className="fixed inset-0 z-40" onClick={() => setLangOpen(false)} />
-              <div
-                className="absolute right-0 top-full z-50 mt-2 w-36 animate-fade-in rounded-lg border bg-card p-1.5 shadow-xl"
-                onBlur={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget)) setLangOpen(false);
-                }}
-              >
-                {LANGUAGES.map((lang) => (
-                  <button
-                    key={lang.code}
-                    onClick={() => { i18n.changeLanguage(lang.code); setLangOpen(false); }}
-                    className={cn(
-                      'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
-                      (i18n.language?.split('-')[0] ?? 'zh') === lang.code
-                        ? 'bg-primary/10 text-primary font-medium'
-                        : 'text-foreground hover:bg-accent',
-                    )}
-                  >
-                    {lang.label}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
+          <AnimatePresence>
+            {langOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setLangOpen(false)} />
+                <motion.div
+                  className="absolute right-0 top-full z-50 mt-2 w-36 rounded-xl border border-border/50 bg-card/95 backdrop-blur-2xl p-1.5 shadow-2xl"
+                  initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                  transition={springSnappy}
+                >
+                  {LANGUAGES.map((lang) => (
+                    <motion.button
+                      key={lang.code}
+                      onClick={() => { i18n.changeLanguage(lang.code); setLangOpen(false); }}
+                      className={cn(
+                        'flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs transition-colors',
+                        (i18n.language?.split('-')[0] ?? 'zh') === lang.code
+                          ? 'bg-primary/10 text-primary font-semibold'
+                          : 'text-foreground hover:bg-accent',
+                      )}
+                      whileHover={{ x: 2 }}
+                      whileTap={{ scale: 0.97 }}
+                    >
+                      {lang.label}
+                    </motion.button>
+                  ))}
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Theme quick switch */}
-        <div className="relative" ref={panelRef}>
+        <div className="relative">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setThemeOpen((v) => !v)}
-                title={t('topbar.switchTheme')}
-              >
-                {theme === 'daylight' ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
-              </Button>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 rounded-xl"
+                  onClick={() => setThemeOpen((v) => !v)}
+                  title={t('topbar.switchTheme')}
+                >
+                  {theme === 'daylight' ? (
+                    <Sun className="h-4 w-4" />
+                  ) : (
+                    <Moon className="h-4 w-4" />
+                  )}
+                </Button>
+              </motion.div>
             </TooltipTrigger>
             <TooltipContent>{t('topbar.theme')}{currentTheme ? t('themes.' + currentTheme.id) : ''}</TooltipContent>
           </Tooltip>
 
-          {themeOpen && (
-            <>
-              {/* Backdrop to close on outside click */}
-              <div className="fixed inset-0 z-40" onClick={() => setThemeOpen(false)} />
-              <div
-                className="absolute right-0 top-full z-50 mt-2 w-52 animate-fade-in rounded-lg border bg-card p-2 shadow-xl"
-                onBlur={(e) => {
-                  if (!e.currentTarget.contains(e.relatedTarget)) setThemeOpen(false);
-                }}
-              >
-                <div className="mb-1.5 px-2 text-[11px] font-medium text-muted-foreground">
-                  {t('topbar.themeStyle')}
-                </div>
-                <div className="space-y-0.5">
-                  {THEMES.map((themeMeta) => (
-                    <button
-                      key={themeMeta.id}
-                      onClick={() => { setTheme(themeMeta.id); setThemeOpen(false); }}
-                      className={cn(
-                        'flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm transition-colors',
-                        theme === themeMeta.id
-                          ? 'bg-primary/10 text-primary'
-                          : 'text-foreground hover:bg-accent',
-                      )}
-                    >
-                      <div className={`h-4 w-4 rounded-full ${themeMeta.accent} shrink-0 shadow-sm`} />
-                      <div className="min-w-0 flex-1">
-                        <div className="text-xs font-medium leading-tight">{t('themes.' + themeMeta.id)}</div>
-                        <div className="text-[10px] text-muted-foreground leading-tight">{t('themes.' + themeMeta.id + 'Desc')}</div>
-                      </div>
-                      {theme === themeMeta.id && (
-                        <div className="h-1.5 w-1.5 rounded-full bg-primary" />
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+          <AnimatePresence>
+            {themeOpen && (
+              <>
+                <div className="fixed inset-0 z-40" onClick={() => setThemeOpen(false)} />
+                <motion.div
+                  className="absolute right-0 top-full z-50 mt-2 w-56 rounded-xl border border-border/50 bg-card/95 backdrop-blur-2xl p-2 shadow-2xl"
+                  initial={{ opacity: 0, y: -8, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                  transition={springSnappy}
+                >
+                  <div className="mb-1.5 px-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60">
+                    {t('topbar.themeStyle')}
+                  </div>
+                  <div className="space-y-0.5">
+                    {THEMES.map((themeMeta) => (
+                      <motion.button
+                        key={themeMeta.id}
+                        onClick={() => { setTheme(themeMeta.id); setThemeOpen(false); }}
+                        className={cn(
+                          'flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors',
+                          theme === themeMeta.id
+                            ? 'bg-primary/10 text-primary'
+                            : 'text-foreground hover:bg-accent',
+                        )}
+                        whileHover={{ x: 2 }}
+                        whileTap={{ scale: 0.97 }}
+                      >
+                        <div className={`h-4 w-4 rounded-full ${themeMeta.accent} shrink-0 shadow-sm ring-1 ring-white/10`} />
+                        <div className="min-w-0 flex-1">
+                          <div className="text-xs font-medium leading-tight">{t('themes.' + themeMeta.id)}</div>
+                          <div className="text-[10px] text-muted-foreground leading-tight">{t('themes.' + themeMeta.id + 'Desc')}</div>
+                        </div>
+                        {theme === themeMeta.id && (
+                          <motion.div
+                            className="h-1.5 w-1.5 rounded-full bg-primary"
+                            layoutId="theme-dot"
+                            transition={springSnappy}
+                          />
+                        )}
+                      </motion.button>
+                    ))}
+                  </div>
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
         </div>
 
+        {/* Refresh */}
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={() => health.refetch()}
-              title={t('common.refresh')}
-            >
-              <RefreshCw
-                className={cn('h-4 w-4', health.isFetching && 'animate-spin')}
-              />
-            </Button>
+            <motion.div whileHover={{ scale: 1.05, rotate: 45 }} whileTap={{ scale: 0.9 }}>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 rounded-xl"
+                onClick={() => health.refetch()}
+                title={t('common.refresh')}
+              >
+                <RefreshCw
+                  className={cn('h-4 w-4', health.isFetching && 'animate-spin')}
+                />
+              </Button>
+            </motion.div>
           </TooltipTrigger>
           <TooltipContent>{t('common.refreshNow')}</TooltipContent>
         </Tooltip>

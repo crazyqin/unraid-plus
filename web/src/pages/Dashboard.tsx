@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
+import { motion } from 'framer-motion';
 import {
   Area,
   AreaChart,
@@ -24,16 +25,7 @@ import {
   Zap,
 } from 'lucide-react';
 import { api } from '@/lib/api';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
-import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import { Progress } from '@/components/ui/progress';
-import { Skeleton } from '@/components/ui/skeleton';
 import { Badge } from '@/components/ui/badge';
 import {
   formatBytes,
@@ -44,6 +36,11 @@ import {
 import type { DashboardSummary, ArrayStatus, ParityStatus } from '@/types';
 import { useSettingsStore, type ChartRange } from '@/stores/settings';
 import { useAuthStore } from '@/stores/auth';
+import {
+  staggerContainer,
+  fadeUpVariants,
+  springGentle,
+} from '@/lib/motion';
 
 interface Sample {
   t: number;
@@ -54,15 +51,12 @@ interface Sample {
   write: number;
 }
 
-/** Map chart range label to seconds, then derive max buffer size from refresh interval. */
 const RANGE_SECONDS: Record<ChartRange, number> = {
   '60s': 60,
   '5m': 300,
   '30m': 1800,
   '2h': 7200,
 };
-
-
 
 export default function DashboardPage() {
   const { t } = useTranslation();
@@ -88,7 +82,6 @@ export default function DashboardPage() {
     refetchInterval: refreshInterval || false,
   });
 
-  // Rolling history buffer. Size depends on chartRange × refreshInterval.
   const maxSamples = refreshInterval > 0
     ? Math.ceil(RANGE_SECONDS[chartRange] / (refreshInterval / 1000))
     : 60;
@@ -112,68 +105,57 @@ export default function DashboardPage() {
   }, [data, maxSamples]);
 
   return (
-    <div className="space-y-4 p-4 md:p-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className={cn(
-            'flex h-10 w-10 items-center justify-center rounded-lg',
-            data ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground',
-          )}>
-            <Activity className="h-5 w-5" />
-          </div>
-          <div>
-            <h1 className="text-xl font-semibold">{t('dashboard.title')}</h1>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              {data && (
-                <Badge variant="success" className="text-[10px]">
-                  {t('common.online')}
-                </Badge>
-              )}
-              {data && modeLabel && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Badge
-                      variant="secondary"
-                      className={cn(
-                        'text-[10px] cursor-default',
-                        sshAvailable && apiAvailable
-                          ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
-                          : apiAvailable
-                            ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border-amber-500/30'
-                            : 'bg-sky-500/15 text-sky-600 dark:text-sky-400 border-sky-500/30',
-                      )}
-                    >
-                      <Zap className="mr-1 h-3 w-3" />
-                      {modeLabel}
-                    </Badge>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {modeLabel === t('connection.dual') ? t('connection.dualTip') :
-                     modeLabel === t('connection.api') ? t('connection.apiTip') :
-                     t('connection.sshTip')}
-                  </TooltipContent>
-                </Tooltip>
-              )}
-              <span>
-                {t('dashboard.serverStatus')}{refreshInterval > 0 ? ` · ${refreshInterval / 1000}s` : ` · ${t('dashboard.refreshPaused')}`}
-              </span>
-            </div>
+    <div className="p-5 md:p-6 space-y-5">
+      {/* Hero header */}
+      <motion.div
+        className="flex flex-wrap items-end justify-between gap-4"
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={springGentle}
+      >
+        <div>
+          <h1 className="text-display-md text-foreground">{t('dashboard.title')}</h1>
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+            {data && (
+              <Badge variant="success" className="text-[10px] font-semibold tracking-wide px-2.5">
+                {t('common.online')}
+              </Badge>
+            )}
+            {data && modeLabel && (
+              <Badge
+                variant="secondary"
+                className={cn(
+                  'text-[10px] font-semibold tracking-wide px-2.5',
+                  sshAvailable && apiAvailable
+                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20'
+                    : apiAvailable
+                      ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20'
+                      : 'bg-sky-500/10 text-sky-600 dark:text-sky-400 border-sky-500/20',
+                )}
+              >
+                <Zap className="mr-1 h-3 w-3" />
+                {modeLabel}
+              </Badge>
+            )}
+            <span className="text-xs">
+              {t('dashboard.serverStatus')}{refreshInterval > 0 ? ` · ${refreshInterval / 1000}s` : ` · ${t('dashboard.refreshPaused')}`}
+            </span>
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {data && (
-            <Badge variant="secondary" className="text-[10px] tabular-nums">
+            <Badge variant="secondary" className="text-[10px] font-mono-data px-2.5 py-1">
               <Gauge className="mr-1 h-3 w-3" />
               {t('dashboard.load')} {data.loadAvg[0].toFixed(2)} / {data.loadAvg[1].toFixed(2)} / {data.loadAvg[2].toFixed(2)}
             </Badge>
           )}
           {data && (
-            <Badge variant="secondary" className="text-[10px]">
+            <Badge variant="secondary" className="text-[10px] font-mono-data px-2.5 py-1">
               {t('dashboard.started')} {Math.floor(data.uptime / 3600)}h {Math.floor((data.uptime % 3600) / 60)}m
             </Badge>
           )}
           <select
-            className="rounded border bg-background px-2 py-1 text-xs"
+            className="rounded-lg border border-border/50 bg-background/50 px-2.5 py-1.5 text-xs backdrop-blur-sm transition-colors hover:border-border focus:outline-none focus:ring-1 focus:ring-ring"
             value={chartRange}
             onChange={(e) => setChartRange(e.target.value as ChartRange)}
           >
@@ -182,21 +164,31 @@ export default function DashboardPage() {
             ))}
           </select>
         </div>
-      </div>
+      </motion.div>
 
       {isError && (
-        <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+        <motion.div
+          className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive"
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+        >
           {t('dashboard.cannotFetch')}
-        </div>
+        </motion.div>
       )}
 
-      {/* Top stats */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      {/* Bento stat cards */}
+      <motion.div
+        className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
+        variants={staggerContainer}
+        initial="hidden"
+        animate="visible"
+      >
         <StatCard
           title="CPU"
           icon={Cpu}
           isLoading={isLoading}
           accent="text-orange-500"
+          accentGlow="from-orange-500/20"
           value={data ? formatPct(data.cpu.usagePct) : '—'}
           subtitle={data?.cpu.modelName ?? ''}
         />
@@ -205,6 +197,7 @@ export default function DashboardPage() {
           icon={MemoryStick}
           isLoading={isLoading}
           accent="text-sky-500"
+          accentGlow="from-sky-500/20"
           value={
             data
               ? `${formatBytes(data.memory.usedBytes)} / ${formatBytes(data.memory.totalBytes)}`
@@ -218,6 +211,7 @@ export default function DashboardPage() {
           icon={Network}
           isLoading={isLoading}
           accent="text-emerald-500"
+          accentGlow="from-emerald-500/20"
           value={
             data
               ? `${formatRate(data.network[0]?.rxBytesPerSec ?? 0)} ↓ ${formatRate(
@@ -232,6 +226,7 @@ export default function DashboardPage() {
           icon={HardDrive}
           isLoading={isLoading}
           accent="text-violet-500"
+          accentGlow="from-violet-500/20"
           value={
             data
               ? `${formatRate(data.arrayRwBytesPerSec.read)} / ${formatRate(
@@ -241,68 +236,88 @@ export default function DashboardPage() {
           }
           subtitle={t('dashboard.rw')}
         />
-      </div>
+      </motion.div>
 
-      {/* Array / Parity summary (polls storage + parity) */}
+      {/* Array / Parity summary */}
       <ArrayStatusSummary />
 
-      {/* Charts */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Cpu className="h-4 w-4 text-orange-500" /> {t('dashboard.cpuUsage')}
-            </CardTitle>
-            <CardDescription>{t('dashboard.recent')} {RANGE_LABELS[chartRange]}</CardDescription>
-          </CardHeader>
-          <CardContent className="h-56">
-            <LineChart data={history} dataKey="cpu" color="hsl(var(--chart-cpu))" unit="%" />
-          </CardContent>
-        </Card>
+      {/* Charts — Bento grid */}
+      <motion.div
+        className="grid gap-4 lg:grid-cols-2"
+        variants={staggerContainer}
+        initial="hidden"
+        animate="visible"
+      >
+        <ChartCard
+          icon={<Cpu className="h-4 w-4 text-orange-500" />}
+          title={t('dashboard.cpuUsage')}
+          description={`${t('dashboard.recent')} ${RANGE_LABELS[chartRange]}`}
+        >
+          <LineChart data={history} dataKey="cpu" color="hsl(var(--chart-cpu))" unit="%" />
+        </ChartCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Network className="h-4 w-4 text-emerald-500" /> {t('dashboard.networkTraffic')}
-            </CardTitle>
-            <CardDescription>{t('dashboard.rxTx')}</CardDescription>
-          </CardHeader>
-          <CardContent className="h-56">
-            <DualLineChart data={history} />
-          </CardContent>
-        </Card>
+        <ChartCard
+          icon={<Network className="h-4 w-4 text-emerald-500" />}
+          title={t('dashboard.networkTraffic')}
+          description={t('dashboard.rxTx')}
+        >
+          <DualLineChart data={history} />
+        </ChartCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Activity className="h-4 w-4 text-violet-500" /> {t('dashboard.arrayRWSpeed')}
-            </CardTitle>
-            <CardDescription>{t('dashboard.rw')}</CardDescription>
-          </CardHeader>
-          <CardContent className="h-56">
-            <RwChart data={history} />
-          </CardContent>
-        </Card>
+        <ChartCard
+          icon={<Activity className="h-4 w-4 text-violet-500" />}
+          title={t('dashboard.arrayRWSpeed')}
+          description={t('dashboard.rw')}
+        >
+          <RwChart data={history} />
+        </ChartCard>
 
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2 text-base">
-              <Thermometer className="h-4 w-4 text-rose-500" /> {t('dashboard.perCoreStatus')}
-            </CardTitle>
-            <CardDescription>{t('dashboard.perCoreDetail')}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <CoreStatus data={data} isLoading={isLoading} />
-          </CardContent>
-        </Card>
-      </div>
+        <ChartCard
+          icon={<Thermometer className="h-4 w-4 text-rose-500" />}
+          title={t('dashboard.perCoreStatus')}
+          description={t('dashboard.perCoreDetail')}
+        >
+          <CoreStatus data={data} isLoading={isLoading} />
+        </ChartCard>
+      </motion.div>
     </div>
   );
 }
 
-/* --------------------------------- bits ---------------------------------- */
+/* ── Chart card wrapper ── */
+function ChartCard({
+  icon,
+  title,
+  description,
+  children,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <motion.div
+      className="card-bento overflow-hidden"
+      variants={fadeUpVariants}
+      whileHover={{ y: -2 }}
+      transition={springGentle}
+    >
+      <div className="px-5 pt-5 pb-2">
+        <div className="flex items-center gap-2">
+          {icon}
+          <h3 className="text-sm font-semibold">{title}</h3>
+        </div>
+        <p className="text-[11px] text-muted-foreground/70 mt-0.5">{description}</p>
+      </div>
+      <div className="px-2 pb-2 h-56">
+        {children}
+      </div>
+    </motion.div>
+  );
+}
 
-/* Array / Parity status summary strip */
+/* ── Array / Parity status ── */
 function ArrayStatusSummary() {
   const { t } = useTranslation();
   const { data: storage } = useQuery({
@@ -324,18 +339,22 @@ function ArrayStatusSummary() {
   ).length;
 
   return (
-    <div className="flex flex-wrap items-center gap-3">
-      {/* Array state */}
+    <motion.div
+      className="flex flex-wrap items-center gap-3 rounded-xl border border-border/30 bg-card/30 backdrop-blur-sm px-4 py-2.5"
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={springGentle}
+    >
       <div className="flex items-center gap-1.5 text-xs">
-        <HardDrive className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-muted-foreground">{t('dashboard.array')}</span>
+        <HardDrive className="h-3.5 w-3.5 text-muted-foreground/60" />
+        <span className="text-muted-foreground/70">{t('dashboard.array')}</span>
         <Badge
           variant={storage.state === 'started' ? 'success' : 'secondary'}
-          className="text-[9px] px-1.5 py-0 leading-none"
+          className="text-[9px] px-1.5 py-0 leading-none font-semibold tracking-wide"
         >
           {storage.state === 'started' ? t('dashboard.started') : storage.state === 'stopped' ? t('dashboard.stopped') : storage.state}
         </Badge>
-        <span className="text-muted-foreground">
+        <span className="text-muted-foreground/60">
           {totalDisks} {t('dashboard.diskCount')}
         </span>
         {problemDisks > 0 && (
@@ -346,17 +365,16 @@ function ArrayStatusSummary() {
         )}
       </div>
 
-      {/* Parity status */}
       <div className="flex items-center gap-1.5 text-xs">
-        <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground" />
-        <span className="text-muted-foreground">{t('dashboard.parity')}</span>
+        <ShieldCheck className="h-3.5 w-3.5 text-muted-foreground/60" />
+        <span className="text-muted-foreground/70">{t('dashboard.parity')}</span>
         {parity?.state === 'checking' ? (
           <>
-            <Badge variant="success" className="text-[9px] px-1.5 py-0 leading-none animate-pulse">
+            <Badge variant="success" className="text-[9px] px-1.5 py-0 leading-none animate-pulse font-semibold">
               {t('dashboard.checking')}
             </Badge>
-            <span className="tabular-nums font-medium">{formatPct(parity.progress)}</span>
-            <span className="text-muted-foreground">· {parity.speed} · {t('dashboard.remaining')} {parity.remaining}</span>
+            <span className="tabular-nums font-mono-data font-medium">{formatPct(parity.progress)}</span>
+            <span className="text-muted-foreground/60">· {parity.speed} · {t('dashboard.remaining')} {parity.remaining}</span>
           </>
         ) : (
           <Badge variant="secondary" className="text-[9px] px-1.5 py-0 leading-none">
@@ -364,10 +382,11 @@ function ArrayStatusSummary() {
           </Badge>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
+/* ── Stat card — bento style with dramatic metrics ── */
 function StatCard({
   title,
   icon: Icon,
@@ -375,6 +394,7 @@ function StatCard({
   value,
   subtitle,
   accent,
+  accentGlow,
   progress,
 }: {
   title: string;
@@ -383,38 +403,56 @@ function StatCard({
   value: string;
   subtitle?: string;
   accent?: string;
+  accentGlow?: string;
   progress?: number;
 }) {
   return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <span className="text-xs text-muted-foreground">{title}</span>
-          <Icon className={cn('h-4 w-4', accent)} />
+    <motion.div
+      className={cn(
+        'card-bento overflow-hidden p-5',
+        accentGlow && `bg-gradient-to-br ${accentGlow} to-transparent`,
+      )}
+      variants={fadeUpVariants}
+      whileHover={{ y: -3 }}
+      transition={springGentle}
+    >
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-widest text-muted-foreground/60">{title}</span>
+        <div className={cn('grid h-8 w-8 place-items-center rounded-lg bg-background/50', accent)}>
+          <Icon className="h-4 w-4" />
         </div>
-        {isLoading ? (
-          <Skeleton className="mt-2 h-6 w-32" />
-        ) : (
-          <div className="mt-1 text-lg font-semibold tabular-nums">{value}</div>
-        )}
-        {subtitle && (
-          <div className="mt-1 truncate text-xs text-muted-foreground">
-            {subtitle}
-          </div>
-        )}
-        {progress !== undefined && (
-          <Progress
-            className="mt-2"
-            value={progress}
-            indicatorClassName={
-              progress > 90 ? 'bg-destructive' : progress > 75 ? 'bg-warning' : 'bg-primary'
-            }
-          />
-        )}
-      </CardContent>
-    </Card>
+      </div>
+      {isLoading ? (
+        <div className="mt-3 h-8 w-32 skeleton-shimmer rounded" />
+      ) : (
+        <motion.div
+          className="mt-2 text-2xl font-bold font-mono-data tabular-nums tracking-tight"
+          initial={{ opacity: 0, y: 4 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1, ...springGentle }}
+        >
+          {value}
+        </motion.div>
+      )}
+      {subtitle && (
+        <div className="mt-1 truncate text-[11px] text-muted-foreground/60">
+          {subtitle}
+        </div>
+      )}
+      {progress !== undefined && (
+        <Progress
+          className="mt-3 h-1"
+          value={progress}
+          indicatorClassName={
+            progress > 90 ? 'bg-destructive' : progress > 75 ? 'bg-warning' : 'bg-primary'
+          }
+        />
+      )}
+    </motion.div>
   );
 }
+
+/* ── Charts (same logic, refined visuals) ── */
 
 function LineChart({
   data,
@@ -429,32 +467,35 @@ function LineChart({
 }) {
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+      <AreaChart data={data} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id={`g-${dataKey}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={color} stopOpacity={0.4} />
+            <stop offset="5%" stopColor={color} stopOpacity={0.3} />
             <stop offset="95%" stopColor={color} stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.3} vertical={false} />
         <XAxis
           dataKey="t"
           tickFormatter={(t) => new Date(t).toLocaleTimeString().slice(0, 5)}
           tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
           stroke="hsl(var(--border))"
+          strokeOpacity={0.3}
         />
         <YAxis
           domain={[0, 100]}
           tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
           stroke="hsl(var(--border))"
+          strokeOpacity={0.3}
           width={30}
         />
         <RTooltip
           contentStyle={{
             background: 'hsl(var(--popover))',
             border: '1px solid hsl(var(--border))',
-            borderRadius: 8,
+            borderRadius: 12,
             fontSize: 12,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
           }}
           labelFormatter={(t) => new Date(Number(t)).toLocaleTimeString()}
           formatter={(v: number) => [`${v.toFixed(1)}${unit}`, '']}
@@ -478,36 +519,39 @@ function DualLineChart({ data }: { data: Sample[] }) {
   const txColor = 'hsl(var(--chart-tx))';
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+      <AreaChart data={data} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id="g-rx" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={rxColor} stopOpacity={0.4} />
+            <stop offset="5%" stopColor={rxColor} stopOpacity={0.3} />
             <stop offset="95%" stopColor={rxColor} stopOpacity={0} />
           </linearGradient>
           <linearGradient id="g-tx" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={txColor} stopOpacity={0.4} />
+            <stop offset="5%" stopColor={txColor} stopOpacity={0.3} />
             <stop offset="95%" stopColor={txColor} stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.3} vertical={false} />
         <XAxis
           dataKey="t"
           tickFormatter={(t) => new Date(t).toLocaleTimeString().slice(0, 5)}
           tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
           stroke="hsl(var(--border))"
+          strokeOpacity={0.3}
         />
         <YAxis
           tickFormatter={(v) => formatBytes(v, 0)}
           tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
           stroke="hsl(var(--border))"
+          strokeOpacity={0.3}
           width={48}
         />
         <RTooltip
           contentStyle={{
             background: 'hsl(var(--popover))',
             border: '1px solid hsl(var(--border))',
-            borderRadius: 8,
+            borderRadius: 12,
             fontSize: 12,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
           }}
           labelFormatter={(t) => new Date(Number(t)).toLocaleTimeString()}
           formatter={(v: number, n: string) => [formatRate(v), n === 'rx' ? t('dashboard.rx') : t('dashboard.tx')]}
@@ -525,36 +569,39 @@ function RwChart({ data }: { data: Sample[] }) {
   const wrColor = 'hsl(var(--chart-wr))';
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <AreaChart data={data} margin={{ top: 5, right: 8, left: 0, bottom: 0 }}>
+      <AreaChart data={data} margin={{ top: 5, right: 12, left: 0, bottom: 0 }}>
         <defs>
           <linearGradient id="g-rd" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={rdColor} stopOpacity={0.4} />
+            <stop offset="5%" stopColor={rdColor} stopOpacity={0.3} />
             <stop offset="95%" stopColor={rdColor} stopOpacity={0} />
           </linearGradient>
           <linearGradient id="g-wr" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={wrColor} stopOpacity={0.4} />
+            <stop offset="5%" stopColor={wrColor} stopOpacity={0.3} />
             <stop offset="95%" stopColor={wrColor} stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" strokeOpacity={0.3} vertical={false} />
         <XAxis
           dataKey="t"
           tickFormatter={(t) => new Date(t).toLocaleTimeString().slice(0, 5)}
           tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
           stroke="hsl(var(--border))"
+          strokeOpacity={0.3}
         />
         <YAxis
           tickFormatter={(v) => formatBytes(v, 0)}
           tick={{ fontSize: 10, fill: 'hsl(var(--muted-foreground))' }}
           stroke="hsl(var(--border))"
+          strokeOpacity={0.3}
           width={48}
         />
         <RTooltip
           contentStyle={{
             background: 'hsl(var(--popover))',
             border: '1px solid hsl(var(--border))',
-            borderRadius: 8,
+            borderRadius: 12,
             fontSize: 12,
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)',
           }}
           labelFormatter={(t) => new Date(Number(t)).toLocaleTimeString()}
           formatter={(v: number, n: string) => [formatRate(v), n === 'read' ? t('dashboard.read') : t('dashboard.write')]}
@@ -566,22 +613,7 @@ function RwChart({ data }: { data: Sample[] }) {
   );
 }
 
-/**
- * Per-core combined display: usage bar (fill = busy %, color band = busy %)
- * with the core label and temperature in °C underneath.
- *
- * v0.3 fix: previously this was a temperature-only widget because the
- * backend's `cat /proc/stat | head -n 1` stripped the per-core rows and
- * `computeCPUUsage` returned all-zeros for the perCoreUsagePct slice. The
- * handler now reads full /proc/stat and parses cpuN rows via parseProcStat,
- * so data.cpu.perCoreUsagePct[i] is the真实 busy percentage of logical
- * core i between the two snapshots ~900ms apart.
- *
- * The usage and temp arrays are both indexed by logical core number. They
- * may have different lengths on some hosts (thermal_zone count != nproc),
- * in which case we render up to max(usage.length, temp.length) columns and
- * only show the fields available per core.
- */
+/* ── Per-core status ── */
 function CoreStatus({
   data,
   isLoading,
@@ -592,7 +624,7 @@ function CoreStatus({
   const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
 
-  if (isLoading) return <Skeleton className="h-32 w-full" />;
+  if (isLoading) return <div className="h-32 skeleton-shimmer rounded-lg" />;
   if (!data) return <div className="text-sm text-muted-foreground">{t('dashboard.noData')}</div>;
 
   const usage = data.cpu.perCoreUsagePct ?? [];
@@ -602,12 +634,10 @@ function CoreStatus({
   }
   const cores = Math.max(usage.length, temps.length);
 
-  // When few cores, show all directly; when many (e.g. 48), default collapsed
   const COLLAPSE_THRESHOLD = 8;
   const needsCollapse = cores > COLLAPSE_THRESHOLD;
   const visibleCount = (!needsCollapse || expanded) ? cores : COLLAPSE_THRESHOLD;
 
-  // Summary stats for the collapsed header
   const avgUsage = usage.length > 0
     ? usage.reduce((a: number, b: number | undefined) => a + (typeof b === 'number' ? b : 0), 0) / usage.length
     : null;
@@ -617,25 +647,23 @@ function CoreStatus({
 
   return (
     <div>
-      {/* Summary row — only when many cores and collapsed */}
       {needsCollapse && !expanded && avgUsage !== null && (
-        <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground">
+        <div className="mb-3 flex items-center gap-4 text-xs text-muted-foreground/60">
           <span className="flex items-center gap-1">
             <Cpu className="h-3.5 w-3.5" />
             {cores} {t('dashboard.core')}
           </span>
-          <span className="tabular-nums">
-            {t('dashboard.avg')} <span className={cn('font-medium', avgUsage >= 70 ? 'text-warning' : avgUsage >= 90 ? 'text-destructive' : 'text-foreground')}>{avgUsage.toFixed(0)}%</span>
+          <span className="tabular-nums font-mono-data">
+            {t('dashboard.avg')} <span className={cn('font-semibold', avgUsage >= 70 ? 'text-warning' : avgUsage >= 90 ? 'text-destructive' : 'text-foreground')}>{avgUsage.toFixed(0)}%</span>
           </span>
           {maxTemp !== null && maxTemp > 0 && (
-            <span className="tabular-nums">
-              {t('dashboard.max')} <span className={cn('font-medium', maxTemp >= 80 ? 'text-destructive' : maxTemp >= 65 ? 'text-warning' : 'text-foreground')}>{maxTemp}°C</span>
+            <span className="tabular-nums font-mono-data">
+              {t('dashboard.max')} <span className={cn('font-semibold', maxTemp >= 80 ? 'text-destructive' : maxTemp >= 65 ? 'text-warning' : 'text-foreground')}>{maxTemp}°C</span>
             </span>
           )}
         </div>
       )}
 
-      {/* Core grid */}
       <div className={cn(
         'grid gap-2',
         expanded
@@ -647,30 +675,31 @@ function CoreStatus({
           const fillPct = typeof u === 'number' ? Math.max(0, Math.min(100, u)) : 0;
           const fillColor =
             fillPct >= 90 ? 'bg-destructive' : fillPct >= 70 ? 'bg-warning' : 'bg-success';
-          const t = temps[i];
-          const hasTemp = typeof t === 'number' && t > 0;
+          const temp = temps[i];
+          const hasTemp = typeof temp === 'number' && temp > 0;
           const tempColor =
             hasTemp
-              ? t >= 80
+              ? temp >= 80
                 ? 'text-destructive'
-                : t >= 65
+                : temp >= 65
                   ? 'text-warning'
                   : 'text-muted-foreground'
               : 'text-muted-foreground';
 
-          // Compact mode when expanded with many cores
           if (expanded && cores > 16) {
             return (
-              <div key={i} className="flex items-center gap-1.5 rounded bg-muted/50 px-1.5 py-1">
-                <div className="text-[9px] text-muted-foreground tabular-nums w-5">C{i}</div>
+              <div key={i} className="flex items-center gap-1.5 rounded-lg bg-muted/30 px-1.5 py-1">
+                <div className="text-[9px] text-muted-foreground/60 font-mono-data w-5">C{i}</div>
                 <div className="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                  <div
-                    className={cn('h-full rounded-full transition-[width]', fillColor)}
-                    style={{ width: `${fillPct}%` }}
+                  <motion.div
+                    className={cn('h-full rounded-full', fillColor)}
+                    initial={{ width: 0 }}
+                    animate={{ width: `${fillPct}%` }}
+                    transition={springGentle}
                   />
                 </div>
-                <div className={cn('text-[9px] tabular-nums w-8 text-right', tempColor)}>
-                  {hasTemp ? `${t}°` : '—'}
+                <div className={cn('text-[9px] font-mono-data w-8 text-right', tempColor)}>
+                  {hasTemp ? `${temp}°` : '--'}
                 </div>
               </div>
             );
@@ -678,33 +707,35 @@ function CoreStatus({
 
           return (
             <div key={i} className="space-y-1 text-center">
-              <div className="relative h-20 overflow-hidden rounded bg-muted">
-                <div
-                  className={cn('absolute bottom-0 w-full transition-[height]', fillColor)}
-                  style={{ height: `${fillPct}%` }}
+              <div className="relative h-20 overflow-hidden rounded-lg bg-muted/30">
+                <motion.div
+                  className={cn('absolute bottom-0 w-full', fillColor)}
+                  initial={{ height: 0 }}
+                  animate={{ height: `${fillPct}%` }}
+                  transition={springGentle}
                 />
-                <div className="absolute inset-0 grid place-items-center text-[10px] font-medium tabular-nums">
-                  {typeof u === 'number' ? `${u.toFixed(0)}%` : '—'}
+                <div className="absolute inset-0 grid place-items-center text-[10px] font-bold font-mono-data tabular-nums">
+                  {typeof u === 'number' ? `${u.toFixed(0)}%` : '--'}
                 </div>
               </div>
-              <div className="text-[10px] text-muted-foreground">C{i}</div>
-              <div className={cn('text-[10px] tabular-nums', tempColor)}>
-                {hasTemp ? `${t}°C` : '—'}
+              <div className="text-[10px] text-muted-foreground/50 font-mono-data">C{i}</div>
+              <div className={cn('text-[10px] font-mono-data tabular-nums', tempColor)}>
+                {hasTemp ? `${temp}°C` : '--'}
               </div>
             </div>
           );
         })}
       </div>
 
-      {/* Expand / collapse toggle */}
       {needsCollapse && (
-        <button
+        <motion.button
           onClick={() => setExpanded(!expanded)}
-          className="mt-3 flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          className="mt-3 flex items-center gap-1 text-xs text-muted-foreground/60 hover:text-foreground transition-colors"
+          whileHover={{ x: 2 }}
         >
           <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')} />
           {expanded ? t('dashboard.collapse') : `${t('dashboard.viewAll')} ${cores} ${t('dashboard.core')}`}
-        </button>
+        </motion.button>
       )}
     </div>
   );

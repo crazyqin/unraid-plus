@@ -21,7 +21,6 @@ import { api, ApiError } from '@/lib/api';
 import hljs from '@/lib/highlight';
 import '@/lib/highlight.css';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Progress } from '@/components/ui/progress';
@@ -169,7 +168,7 @@ export default function FilesPage() {
   };
 
   return (
-    <div className="flex h-full flex-col p-4 md:p-6">
+    <div className="flex h-full flex-col p-5 md:p-6">
       {/* Hidden file input for uploads */}
       <input
         ref={fileInputRef}
@@ -204,6 +203,7 @@ export default function FilesPage() {
           <Button
             size="sm"
             variant="outline"
+            className="rounded-lg"
             disabled={uploadProgress !== null}
             onClick={() => fileInputRef.current?.click()}
           >
@@ -217,6 +217,7 @@ export default function FilesPage() {
           <Button
             size="sm"
             variant="outline"
+            className="rounded-lg"
             onClick={() => setMkdirOpen(true)}
           >
             <FolderPlus className="h-3.5 w-3.5" /> {t('files.newFolder')}
@@ -224,6 +225,7 @@ export default function FilesPage() {
           <Button
             size="sm"
             variant="outline"
+            className="rounded-lg"
             disabled={selected.size === 0}
             onClick={() => setConfirmDelete(true)}
           >
@@ -232,6 +234,7 @@ export default function FilesPage() {
           <Button
             size="sm"
             variant="outline"
+            className="rounded-lg"
             disabled={selected.size !== 1 || selectedEntries[0]?.isDir}
             onClick={download}
             title={selected.size === 1 && selectedEntries[0]?.isDir ? t('files.cannotDownloadDir') : ''}
@@ -241,6 +244,7 @@ export default function FilesPage() {
           <Button
             size="sm"
             variant="outline"
+            className="rounded-lg"
             disabled={selected.size !== 1}
             onClick={() => selectedEntries[0] && setRenameTarget(selectedEntries[0])}
           >
@@ -249,6 +253,7 @@ export default function FilesPage() {
           <Button
             size="sm"
             variant="outline"
+            className="rounded-lg"
             disabled={selected.size !== 1 || selectedEntries[0]?.isDir}
             onClick={() => selectedEntries[0] && setPreviewTarget(selectedEntries[0])}
           >
@@ -259,7 +264,7 @@ export default function FilesPage() {
 
       {/* Upload progress bar */}
       {uploadProgress !== null && (
-        <div className="mb-2 flex items-center gap-2 rounded-md border bg-muted/30 p-2">
+        <div className="mb-2 flex items-center gap-2 rounded-xl border bg-muted/30 p-2">
           <span className="text-xs text-muted-foreground">{t('files.uploading')}</span>
           <Progress className="flex-1" value={uploadProgress} />
           <span className="text-xs tabular-nums text-muted-foreground">{uploadProgress}%</span>
@@ -268,7 +273,7 @@ export default function FilesPage() {
 
       {/* Upload error toast */}
       {uploadError && (
-        <div className="mb-2 flex items-center justify-between rounded-md border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
+        <div className="mb-2 flex items-center justify-between rounded-xl border border-destructive/40 bg-destructive/10 p-2 text-sm text-destructive">
           <span>{uploadError}</span>
           <button
             className="text-xs underline"
@@ -279,8 +284,8 @@ export default function FilesPage() {
         </div>
       )}
 
-      <Card
-        className="relative flex-1 overflow-hidden"
+      <div
+        className="card-bento relative flex-1 overflow-hidden"
         onDragOver={(e) => {
           e.preventDefault();
           setDragOver(true);
@@ -292,7 +297,7 @@ export default function FilesPage() {
           if (e.dataTransfer.files.length > 0) upload(e.dataTransfer.files);
         }}
       >
-        <CardContent className="h-full p-0">
+        <div className="h-full p-0">
           {isLoading ? (
             <div className="flex h-full items-center justify-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" /> {t('files.readingDir')}
@@ -363,7 +368,7 @@ export default function FilesPage() {
               </table>
             </div>
           )}
-        </CardContent>
+        </div>
 
         {/* Drag-and-drop overlay */}
         {dragOver && (
@@ -374,7 +379,7 @@ export default function FilesPage() {
             </div>
           </div>
         )}
-      </Card>
+      </div>
 
       <RenameDialog
         target={renameTarget}
@@ -471,10 +476,10 @@ function RenameDialog({
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={loading}>
+          <Button variant="outline" className="rounded-lg" onClick={onClose} disabled={loading}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={submit} disabled={loading || !newName}>
+          <Button className="rounded-lg" onClick={submit} disabled={loading || !newName}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('common.confirm')}
           </Button>
         </DialogFooter>
@@ -549,10 +554,10 @@ function MkdirDialog({
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={loading}>
+          <Button variant="outline" className="rounded-lg" onClick={onClose} disabled={loading}>
             {t('common.cancel')}
           </Button>
-          <Button onClick={submit} disabled={loading || !name}>
+          <Button className="rounded-lg" onClick={submit} disabled={loading || !name}>
             {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : t('files.create')}
           </Button>
         </DialogFooter>
@@ -842,7 +847,7 @@ function PreviewDialog({
                   {t('files.fileTooLarge')}
                 </p>
               )}
-              <pre className="max-h-[55vh] overflow-auto overflow-x-auto rounded-md bg-muted/40 p-3" style={codeStyle}>
+              <pre className="max-h-[55vh] overflow-auto overflow-x-auto rounded-xl bg-muted/40 p-3" style={codeStyle}>
                 <code
                   className="hljs"
                   dangerouslySetInnerHTML={{ __html: highlightedHtml }}
@@ -854,7 +859,7 @@ function PreviewDialog({
             <div className="relative" style={{ height: '55vh' }}>
               {/* Highlighted backdrop layer */}
               <pre
-                className="absolute inset-0 overflow-auto rounded-md bg-muted/40 pointer-events-none"
+                className="absolute inset-0 overflow-auto rounded-xl bg-muted/40 pointer-events-none"
                 style={codeStyle}
                 aria-hidden="true"
               >
@@ -865,7 +870,7 @@ function PreviewDialog({
               </pre>
               {/* Transparent textarea on top */}
               <textarea
-                className="absolute inset-0 w-full h-full resize-none rounded-md bg-transparent p-3 font-mono text-xs leading-relaxed break-all focus:outline-none focus:ring-2 focus:ring-primary"
+                className="absolute inset-0 w-full h-full resize-none rounded-xl bg-transparent p-3 font-mono-data text-xs leading-relaxed break-all focus:outline-none focus:ring-2 focus:ring-primary"
                 style={{
                   ...codeStyle,
                   color: 'transparent',
@@ -885,7 +890,7 @@ function PreviewDialog({
             </div>
           )}
           {saveSuccess && (
-            <div className="flex items-center gap-2 rounded-md border border-green-500/40 bg-green-500/10 p-2 text-sm text-ind-emerald">
+            <div className="flex items-center gap-2 rounded-xl border border-green-500/40 bg-green-500/10 p-2 text-sm text-ind-emerald">
               <Save className="h-3.5 w-3.5" />
               {t('files.fileSaved')}
             </div>
@@ -893,22 +898,22 @@ function PreviewDialog({
         </div>
         <DialogFooter className="gap-2">
           {canEdit && !editing && textContent !== null && !truncated && (
-            <Button variant="outline" onClick={startEditing}>
+            <Button variant="outline" className="rounded-lg" onClick={startEditing}>
               <Pencil className="h-3.5 w-3.5" /> {t('files.edit')}
             </Button>
           )}
           {editing && (
             <>
-              <Button variant="outline" onClick={cancelEditing} disabled={saving}>
+              <Button variant="outline" className="rounded-lg" onClick={cancelEditing} disabled={saving}>
                 {t('common.cancel')}
               </Button>
-              <Button onClick={saveEdits} disabled={saving}>
+              <Button className="rounded-lg" onClick={saveEdits} disabled={saving}>
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
                 {t('common.save')}
               </Button>
             </>
           )}
-          <Button variant="outline" onClick={handleClose}>
+          <Button variant="outline" className="rounded-lg" onClick={handleClose}>
             {t('common.close')}
           </Button>
         </DialogFooter>

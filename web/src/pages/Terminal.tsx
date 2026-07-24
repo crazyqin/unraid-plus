@@ -4,10 +4,12 @@ import i18n from '@/i18n';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import '@xterm/xterm/css/xterm.css';
+import { motion } from 'framer-motion';
 import { Plus, RotateCw, TerminalSquare, Trash2, X } from 'lucide-react';
 import { wsUrl } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { springGentle } from '@/lib/motion';
 
 interface Session {
   id: string;
@@ -155,15 +157,19 @@ export default function TerminalPage() {
   const activeSession = sessions.find((s) => s.id === activeId);
 
   return (
-    <div className="flex h-full flex-col p-4 md:p-6">
+    <div className="flex h-full flex-col p-5 md:p-6">
       <div className="mb-3 flex items-center justify-between">
-        <div>
-          <h1 className="text-xl font-semibold">{t('terminal.title')}</h1>
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={springGentle}
+        >
+          <h1 className="text-display-md text-foreground">{t('terminal.title')}</h1>
           <p className="text-sm text-muted-foreground">
             {t('terminal.desc')}
           </p>
-        </div>
-        <Button size="sm" onClick={openSession}>
+        </motion.div>
+        <Button size="sm" className="rounded-lg" onClick={openSession}>
           <Plus className="h-3.5 w-3.5" /> {t('terminal.newSession')}
         </Button>
       </div>
@@ -223,15 +229,15 @@ export default function TerminalPage() {
       {/* Terminal pane */}
       <div
         ref={containerRef}
-        className="flex-1 overflow-hidden rounded-md border bg-[#0b0b0d] p-2"
+        className="flex-1 overflow-hidden rounded-xl border bg-[#0b0b0d] p-2"
       />
 
       {/* Reconnect overlay when active session is dead */}
       {activeSession && !activeSession.alive && (
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2">
-          <div className="flex flex-col items-center gap-3 rounded-lg border bg-card/95 p-6 shadow-lg">
+          <div className="flex flex-col items-center gap-3 rounded-xl border bg-card/95 p-6 shadow-lg">
             <p className="text-sm text-muted-foreground">{t('terminal.disconnected')}</p>
-            <Button size="sm" onClick={() => reconnectSession(activeSession.id)}>
+            <Button size="sm" className="rounded-lg" onClick={() => reconnectSession(activeSession.id)}>
               <RotateCw className="h-3.5 w-3.5" /> {t('terminal.reconnectBtn')}
             </Button>
           </div>
@@ -240,7 +246,7 @@ export default function TerminalPage() {
 
       {sessions.length === 0 && (
         <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-          <Button variant="ghost" onClick={openSession}>
+          <Button variant="ghost" className="rounded-lg" onClick={openSession}>
             <Plus className="h-4 w-4" /> {t('terminal.openFirst')}
           </Button>
         </div>
@@ -254,6 +260,7 @@ export default function TerminalPage() {
           <Button
             size="sm"
             variant="ghost"
+            className="rounded-lg"
             onClick={() => sessions.forEach((s) => closeSession(s.id))}
           >
             <Trash2 className="h-3.5 w-3.5" /> {t('terminal.closeAll')}

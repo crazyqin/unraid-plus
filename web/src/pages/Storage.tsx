@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { motion } from 'framer-motion';
 import {
   Activity,
   AlertTriangle,
@@ -21,12 +22,7 @@ import {
   Cable,
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/api';
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card';
+import { staggerContainer, fadeUpVariants, springGentle } from '@/lib/motion';
 import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -181,11 +177,9 @@ export default function StoragePage() {
   }
   if (isError || !data) {
     return (
-      <Card className="m-6">
-        <CardContent className="py-12 text-center text-sm text-muted-foreground">
-          {t('storage.cannotFetch')}
-        </CardContent>
-      </Card>
+      <motion.div className="card-bento m-6 p-12 text-center text-sm text-muted-foreground" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+        {t('storage.cannotFetch')}
+      </motion.div>
     );
   }
 
@@ -193,33 +187,39 @@ export default function StoragePage() {
   const healthyDisks = [...data.disks, ...data.cacheDisks].filter(d => d.status === 'ok').length;
 
   return (
-    <div className="space-y-4 p-4 md:p-6">
+    <div className="space-y-5 p-5 md:p-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+        <motion.div
+          className="flex items-center gap-3"
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={springGentle}
+        >
           <div className={cn(
-            'flex h-10 w-10 items-center justify-center rounded-lg',
+            'flex h-10 w-10 items-center justify-center rounded-xl',
             data.state === 'started' ? 'bg-success/15 text-success' : 'bg-muted text-muted-foreground',
           )}>
             <HardDrive className="h-5 w-5" />
           </div>
           <div>
-            <h1 className="text-xl font-semibold">{t('storage.title')}</h1>
+            <h1 className="text-display-md text-foreground">{t('storage.title')}</h1>
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Badge
                 variant={data.state === 'started' ? 'success' : 'secondary'}
-                className="text-[10px]"
+                className="text-[10px] tracking-wide"
               >
                 {ARRAY_STATE_KEY[data.state] ? t(ARRAY_STATE_KEY[data.state]) : data.state}
               </Badge>
               <span>{healthyDisks}/{totalDisks} {t('storage.diskHealthy')}</span>
             </div>
           </div>
-        </div>
+        </motion.div>
         <div className="flex flex-wrap items-center gap-2">
           {data.state === 'started' ? (
             <Button
               size="sm"
               variant="destructive"
+              className="rounded-lg h-8"
               disabled={arrayMut.isPending}
               onClick={() => setConfirmStopArray(true)}
             >
@@ -229,6 +229,7 @@ export default function StoragePage() {
             <Button
               size="sm"
               variant="success"
+              className="rounded-lg h-8"
               disabled={arrayMut.isPending}
               onClick={() => arrayMut.mutate('start')}
             >
@@ -249,6 +250,7 @@ export default function StoragePage() {
           <Button
             variant="outline"
             size="sm"
+            className="rounded-lg h-8"
             disabled={refreshMut.isPending}
             onClick={() => refreshMut.mutate()}
           >
@@ -260,16 +262,16 @@ export default function StoragePage() {
 
       {/* Parity check progress + controls */}
       {parity && parity.state === 'checking' && (
-        <Card className="border-primary/30">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center justify-between text-base">
+        <motion.div className="card-bento border-primary/30" variants={fadeUpVariants} whileHover={{ y: -2 }} transition={springGentle}>
+          <div className="pb-3">
+            <div className="flex items-center justify-between text-base">
               <span className="flex items-center gap-2">
-                <Activity className="h-4 w-4 animate-pulse text-primary" />
+                <Activity className="h-4 w-4 skeleton-shimmer text-primary" />
                 {t('storage.parityCheckRunning')}
               </span>
               <div className="flex items-center gap-2">
                 {parity.errors > 0 && (
-                  <Badge variant="destructive" className="text-[10px]">
+                  <Badge variant="destructive" className="text-[10px] tracking-wide">
                     <AlertTriangle className="mr-1 h-3 w-3" />
                     {parity.errors} {t('common.error')}
                   </Badge>
@@ -277,18 +279,19 @@ export default function StoragePage() {
                 <Button
                   size="sm"
                   variant="outline"
+                  className="rounded-lg h-8"
                   disabled={parityMut.isPending}
                   onClick={() => parityMut.mutate('stop')}
                 >
                   <Square className="h-3.5 w-3.5" /> {t('storage.stopCheck')}
                 </Button>
               </div>
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-2">
+            </div>
+          </div>
+          <div className="space-y-2">
             <div className="flex items-center gap-3">
               <Progress className="h-2.5 flex-1" value={parity.progress} indicatorClassName="bg-primary" />
-              <span className="shrink-0 text-sm font-semibold tabular-nums">
+              <span className="shrink-0 text-sm font-semibold tabular-nums font-mono-data">
                 {formatPct(parity.progress)}
               </span>
             </div>
@@ -296,13 +299,13 @@ export default function StoragePage() {
               <span>{t('storage.speed')}{parity.speed}</span>
               <span>{t('storage.remaining')}{parity.remaining}</span>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </motion.div>
       )}
 
       {/* Parity check idle */}
       {parity && parity.state === 'idle' && (
-        <div className="flex items-center justify-between rounded-lg border border-dashed p-3">
+        <div className="flex items-center justify-between rounded-xl border border-dashed p-3">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <ShieldCheck className="h-4 w-4 text-muted-foreground" />
             {t('storage.parityIdle')}
@@ -311,6 +314,7 @@ export default function StoragePage() {
             <Button
               size="sm"
               variant="outline"
+              className="rounded-lg h-8"
               disabled={parityMut.isPending}
               onClick={() => {
                 setParityAction('start');
@@ -322,6 +326,7 @@ export default function StoragePage() {
             <Button
               size="sm"
               variant="outline"
+              className="rounded-lg h-8"
               disabled={parityMut.isPending}
               onClick={() => {
                 setParityAction('correcting');
@@ -381,9 +386,9 @@ function DiskGroup({ title, disks }: { title: string; disks: DiskInfo[] }) {
     usedPct > 90 ? 'bg-destructive' : usedPct > 75 ? 'bg-warning' : 'bg-success';
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center justify-between text-base">
+    <motion.div className="card-bento" variants={fadeUpVariants} whileHover={{ y: -2 }} transition={springGentle}>
+      <div className="pb-3">
+        <div className="flex items-center justify-between text-base">
           <span className="flex items-center gap-2">
             <HardDrive className="h-4 w-4 text-muted-foreground" />
             {title}
@@ -391,10 +396,10 @@ function DiskGroup({ title, disks }: { title: string; disks: DiskInfo[] }) {
               {disks.length} {t('storage.diskCount')}
             </span>
           </span>
-          <span className="text-xs font-normal tabular-nums text-muted-foreground">
+          <span className="text-xs font-normal tabular-nums text-muted-foreground font-mono-data">
             {formatBytes(used)} / {formatBytes(total)}
           </span>
-        </CardTitle>
+        </div>
         {/* Group-level mini progress bar */}
         <div className="mt-2 flex items-center gap-2">
           <Progress
@@ -402,17 +407,19 @@ function DiskGroup({ title, disks }: { title: string; disks: DiskInfo[] }) {
             value={usedPct}
             indicatorClassName={groupIndicatorColor}
           />
-          <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
+          <span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground font-mono-data">
             {formatPct(usedPct)}
           </span>
         </div>
-      </CardHeader>
-      <CardContent className="space-y-2.5">
-        {disks.map((d) => (
-          <DiskRow key={d.device} disk={d} />
-        ))}
-      </CardContent>
-    </Card>
+      </div>
+      <div className="space-y-2.5">
+        <motion.div variants={staggerContainer} initial="hidden" animate="visible" className="space-y-2.5">
+          {disks.map((d) => (
+            <DiskRow key={d.device} disk={d} />
+          ))}
+        </motion.div>
+      </div>
+    </motion.div>
   );
 }
 
@@ -463,7 +470,8 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
   const isProblemDisk = d.status === 'warning' || d.status === 'critical';
 
   return (
-    <div
+    <motion.div
+      variants={fadeUpVariants}
       className={cn(
         'rounded-lg border border-l-2 p-3 transition-colors hover:bg-muted/30',
         STATUS_BORDER[d.status] ?? 'border-l-border',
@@ -494,12 +502,12 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
                 </span>
               )}
               {isSsd && (
-                <Badge variant="secondary" className="px-1 py-0 text-[9px] leading-none">
+                <Badge variant="secondary" className="px-1 py-0 text-[9px] leading-none tracking-wide">
                   SSD
                 </Badge>
               )}
             </div>
-            <div className="mt-0.5 flex items-center gap-1 text-[10px] font-mono text-muted-foreground/70">
+            <div className="mt-0.5 flex items-center gap-1 text-[10px] font-mono-data text-muted-foreground/70">
               {d.transport && <TransportIcon className="h-2.5 w-2.5 shrink-0" />}
               <span>{d.device}</span>
               <span className="text-muted-foreground/40">·</span>
@@ -513,7 +521,7 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
           {d.tempC !== undefined && (
             <span
               className={cn(
-                'inline-flex items-center gap-0.5 rounded-md border px-1.5 py-0.5 text-[10px] font-medium tabular-nums',
+                'inline-flex items-center gap-0.5 rounded-lg border px-1.5 py-0.5 text-[10px] font-medium tabular-nums',
                 tempBg,
                 tempColor,
               )}
@@ -524,7 +532,7 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
           )}
           {/* Error badge */}
           {d.errors > 0 && (
-            <Badge variant="destructive" className="px-1.5 py-0 text-[9px] leading-none">
+            <Badge variant="destructive" className="px-1.5 py-0 text-[9px] leading-none tracking-wide">
               <AlertTriangle className="mr-0.5 h-2.5 w-2.5" />
               {d.errors}
             </Badge>
@@ -532,7 +540,7 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
           {/* Status badge */}
           <Badge
             variant={DISK_STATUS_VARIANT[d.status]}
-            className="px-1.5 py-0 text-[9px] leading-none"
+            className="px-1.5 py-0 text-[9px] leading-none tracking-wide"
           >
             {t(DISK_STATUS_KEY[d.status] ?? d.status)}
           </Badge>
@@ -540,7 +548,7 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
           {(d.smart?.available && d.smart.status !== 'unknown') && (
             <Badge
               variant={SMART_STATUS_META[d.smart.status].variant}
-              className="px-1.5 py-0 text-[9px] leading-none"
+              className="px-1.5 py-0 text-[9px] leading-none tracking-wide"
             >
               <SmartStatusIcon status={d.smart.status} />
               {t(SMART_LABEL_KEY[d.smart.status])}
@@ -550,7 +558,7 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
           {d.smart?.status === 'standby' && (
             <Badge
               variant="secondary"
-              className="px-1.5 py-0 text-[9px] leading-none"
+              className="px-1.5 py-0 text-[9px] leading-none tracking-wide"
             >
               <Moon className="mr-0.5 h-3 w-3" />
               {t('storage.standby')}
@@ -567,7 +575,7 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
           indicatorClassName={progressColor}
         />
         <div className="flex shrink-0 items-baseline gap-1 text-xs tabular-nums">
-          <span className="font-medium">{formatPct(pct)}</span>
+          <span className="font-medium font-mono-data">{formatPct(pct)}</span>
           <span className="text-muted-foreground">
             {formatBytes(d.usedBytes)}/{formatBytes(d.sizeBytes)}
           </span>
@@ -577,10 +585,10 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
       {/* Row 3: Read/Write rate pills + spin controls */}
       <div className="mt-1.5 flex items-center justify-between gap-1.5">
         <div className="flex items-center gap-1.5">
-          <span className="inline-flex items-center gap-1 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-emerald">
+          <span className="inline-flex items-center gap-1 rounded-lg bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-mono-data tabular-nums text-ind-emerald">
             ↓ {formatRate(d.readBytesPerSec)}
           </span>
-          <span className="inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-ind-amber">
+          <span className="inline-flex items-center gap-1 rounded-lg bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-mono-data tabular-nums text-ind-amber">
             ↑ {formatRate(d.writeBytesPerSec)}
           </span>
         </div>
@@ -588,7 +596,7 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
         {d.rotational === '1' && d.diskName && d.diskName !== 'flash' && (
           <div className="flex items-center gap-1">
             <button
-              className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-500 disabled:opacity-50"
+              className="inline-flex items-center gap-0.5 rounded-lg px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-emerald-500/10 hover:text-emerald-500 disabled:opacity-50"
               disabled={spinMut.isPending}
               onClick={() => {
                 const dev = d.device.replace(/^\/dev\//, '');
@@ -599,7 +607,7 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
               <Sun className="h-2.5 w-2.5" /> {t('storage.spinUpShort')}
             </button>
             <button
-              className="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-500 disabled:opacity-50"
+              className="inline-flex items-center gap-0.5 rounded-lg px-1.5 py-0.5 text-[10px] text-muted-foreground transition-colors hover:bg-amber-500/10 hover:text-amber-500 disabled:opacity-50"
               disabled={spinMut.isPending}
               onClick={() => {
                 const dev = d.device.replace(/^dev\//, '');
@@ -615,7 +623,7 @@ function DiskRow({ disk: d }: { disk: DiskInfo }) {
 
       {/* SMART detail */}
       <SmartDetail smart={d.smart} expanded={isProblemDisk} />
-    </div>
+    </motion.div>
   );
 }
 
@@ -660,7 +668,7 @@ function SmartDetail({ smart, expanded = false }: { smart?: SmartInfo; expanded?
   return (
     <div
       className={cn(
-        'mt-2 rounded-md border-t pt-1.5 text-[10px]',
+        'mt-2 rounded-lg border-t pt-1.5 text-[10px]',
         isFailing && 'border-destructive/30 bg-destructive/5 px-2 py-1.5',
         isWarning && 'border-warning/30 bg-warning/5 px-2 py-1.5',
         !hasProblem && 'border-border/50',
@@ -674,7 +682,7 @@ function SmartDetail({ smart, expanded = false }: { smart?: SmartInfo; expanded?
         )}
         onClick={!hasProblem ? () => setOpen(o => !o) : undefined}
       >
-        <span className="flex items-center gap-1.5 truncate font-mono">
+        <span className="flex items-center gap-1.5 truncate font-mono-data">
           {!hasProblem && (
             <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-500" />
           )}
@@ -711,7 +719,7 @@ function SmartDetail({ smart, expanded = false }: { smart?: SmartInfo; expanded?
           {counters.length > 0 && (
             <div
               className={cn(
-                'mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-medium',
+                'mt-1 flex flex-wrap gap-x-3 gap-y-0.5 font-medium font-mono-data',
                 isFailing ? 'text-destructive' : 'text-warning',
               )}
             >
